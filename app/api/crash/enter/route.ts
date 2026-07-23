@@ -19,8 +19,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'invalid amount' }, { status: 400 });
   }
 
+  const phase = manager.getFullState(address).phase;
   const player = manager.getFullState(address);
   const isClose = player.hasPosition && player.positionSide !== side;
+
+  if (!isClose && phase !== 'waiting') {
+    return NextResponse.json({ ok: false, error: 'wait for the next round' }, { status: 400 });
+  }
+  if (isClose && phase !== 'waiting') {
+    return NextResponse.json({ ok: false, error: 'wait for the next round' }, { status: 400 });
+  }
 
   if (!isClose && isVaultEnabled()) {
     const escrow = await verifyEscrowForWager(address, amount);

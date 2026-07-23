@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { HoldBonuses } from '@/lib/hold-bonuses';
 import { calcPositionPct, calcPositionPnl } from '@/lib/crash-pnl';
@@ -18,14 +18,23 @@ interface CrashControlsProps {
   lastResult: { won: boolean; amount: number; price: number; bonusAmount?: number; frenzyProc?: boolean } | null;
   holdBonuses: HoldBonuses;
   walletConnected: boolean;
+  isDemoWallet?: boolean;
+  vaultEnabled?: boolean;
   onConnect: () => void;
-  onTrade: (side: 'buy' | 'sell', amount: number, leverage: number) => Promise<boolean>;
+  onTryDemo?: () => void;
+  onTrade: (side: 'buy' | 'sell', amount: number, leverage: number) => Promise<{ ok: boolean; error?: string }>;
   onSetAutoSell: (v: number | null) => Promise<void>;
 }
 
 const PERCENTS = [10, 25, 50, 100];
 const QUICK_ADD = [0.001, 0.01, 0.1, 1] as const;
 const LEVERAGE_PRESETS = [1, 2, 5, 10, 25, 50] as const;
+const WAIT_FOR_ROUND_MSG = 'Wait for the next round — BUY/SELL open during the countdown.';
+
+function clampWager(amount: number, balance: number): number {
+  if (balance <= 0) return 0;
+  return Math.floor(Math.min(amount, balance) * 1000) / 1000;
+}
 
 function leverageGlow(level: number): string {
   if (level >= 25) return 'rgba(255,0,60,0.55)';
@@ -47,7 +56,10 @@ export function CrashControls({
   lastResult,
   holdBonuses,
   walletConnected,
+  isDemoWallet = false,
+  vaultEnabled = false,
   onConnect,
+  onTryDemo,
   onTrade,
   onSetAutoSell,
 }: CrashControlsProps) {
@@ -56,11 +68,14 @@ export function CrashControls({
   const [leverage, setLeverage] = useState(1);
   const [autoVal, setAutoVal] = useState('');
   const [busy, setBusy] = useState(false);
+  const [tradeError, setTradeError] = useState<string | null>(null);
 
-  const effectiveAmount = percent > 0 ? parseFloat((balance * percent / 100).toFixed(4)) : amount;
-  const notionalExposure = parseFloat((effectiveAmount * leverage).toFixed(4));
-  const canTrade = walletConnected && phase !== 'crashed' && !busy;
-  const entryMult = phase === 'waiting' ? 1.0 : mult;
+  const entriesOpen = phase === 'waiting';
+  const safeAmount = clampWager(
+    percent > 0 ? parseFloat((balance * percent / 100).toFixed(4)) : amount,
+    balance,
+  );
+  const notionalExposure = parseFloat((safeAmount * leverage).toFixed(4));
 
   const liveMult = hasPosition && phase === 'waiting' ? 1.0 : mult;
   const positionPct = hasPosition
@@ -70,10 +85,55 @@ export function CrashControls({
     ? calcPositionPnl(positionSide, positionAmount, positionLeverage, positionEntryPrice, liveMult)
     : 0;
 
+  useEffect(() => {
+    if (balance > 0 && amount > balance) {
+      setAmount(clampWager(amount, balance));
+    }
+    if (balance > 0 && balance < 0.01 && amount > balance) {
+      setAmount(clampWager(balance, balance));
+    }
+  }, [balance, amount]);
+
   const canOpenBuy =
-    canTrade && (!hasPosition || positionSide === 'sell') && effectiveAmount > 0 && effectiveAmount <= balance;
-  const canOpenSell =
-    canTrade && (!hasPosition || positionSide === 'buy') && effectiveAmount > 0 && effectiveAmount <= balance;
+    walletConnected &&
+    entriesOpen &&
+    !busy &&
+    !hasPosition &&
+    safeAmount > 0 &&
+    safeAmount <= balance + 0.0005;
+  const canOpenSell = canOpenBuy;
+
+  const canCloseBuy = walletConnected && entriesOpen && !busy && hasPosition && positionSide === 'sell';
+  const canCloseSell = walletConnected && entriesOpen && !busy && hasPosition && positionSide === 'buy';
+
+  const buyLooksActive = hasPosition ? canCloseBuy : canOpenBuy;
+  const sellLooksActive = hasPosition ? canCloseSell : canOpenSell;
+
+  const tradeBlockReason = (() => {
+    if (!walletConnected) return null;
+    if (phase === 'running' || phase === 'crashed') {
+      return hasPosition
+        ? `${WAIT_FOR_ROUND_MSG} Your position settles when the round crashes.`
+        : WAIT_FOR_ROUND_MSG;
+    }
+    if (busy) return 'Processing trade…';
+    if (!hasPosition && balance <= 0 && vaultEnabled && !isDemoWallet) {
+      return 'Vault balance is 0 — deposit $BlackBalls via VAULT (top bar) to trade for real.';
+    }
+    if (!hasPosition && balance <= 0) {
+      return 'Balance is 0 — connect with demo credits or deposit to play.';
+    }
+    if (!hasPosition && safeAmount > balance + 0.0005) {
+      return `Wager (${safeAmount.toFixed(3)}) exceeds balance (${balance.toFixed(3)}). Lower amount or use MAX.`;
+    }
+    if (!hasPosition && safeAmount <= 0) {
+      return 'Set a wager amount above 0.';
+    }
+    if (entriesOpen && !hasPosition) {
+      return `${waitLeft.toFixed(1)}s left to enter before round starts @ 1.00x`;
+    }
+    return null;
+  })();
 
   const bumpAmount = (delta: number) => {
     setAmount(parseFloat(Math.max(0, amount + delta).toFixed(4)));
@@ -81,33 +141,46 @@ export function CrashControls({
   };
 
   const handleTrade = async (side: 'buy' | 'sell') => {
-    const closing = hasPosition && positionSide !== side;
-    if (closing) {
-      if (!canTrade) return;
-    } else if (side === 'buy' ? !canOpenBuy : !canOpenSell) {
+    if (!walletConnected || busy) return;
+
+    if (phase === 'running' || phase === 'crashed') {
+      setTradeError(WAIT_FOR_ROUND_MSG);
       return;
     }
+
+    const closing = hasPosition && positionSide !== side;
+    if (closing) {
+      if (!canCloseBuy && side === 'buy') return;
+      if (!canCloseSell && side === 'sell') return;
+    } else if (side === 'buy' ? !canOpenBuy : !canOpenSell) {
+      if (safeAmount <= 0) setTradeError('Set a wager amount above 0.');
+      else if (safeAmount > balance) setTradeError(`Insufficient balance (${balance.toFixed(3)} available).`);
+      return;
+    }
+
     setBusy(true);
-    await onTrade(side, closing ? positionAmount : effectiveAmount, closing ? positionLeverage : leverage);
+    setTradeError(null);
+    const wager = closing ? positionAmount : safeAmount;
+    const result = await onTrade(side, wager, closing ? positionLeverage : leverage);
     setBusy(false);
+    if (!result.ok) {
+      const msg = result.error ?? 'Trade failed — check balance or try again.';
+      setTradeError(msg === 'invalid amount' ? `Insufficient balance (${balance.toFixed(3)} available).` : msg);
+    }
     if (!closing) setPercent(0);
   };
 
   const buyLabel = hasPosition
     ? positionSide === 'sell'
       ? 'CLOSE SHORT'
-      : 'LONG OPEN'
-    : phase === 'waiting'
-      ? 'BUY LONG'
-      : 'BUY';
+      : 'LONG LOCKED'
+    : 'BUY LONG';
 
   const sellLabel = hasPosition
     ? positionSide === 'buy'
       ? 'CLOSE LONG'
-      : 'SHORT OPEN'
-    : phase === 'waiting'
-      ? 'SELL SHORT'
-      : 'SELL';
+      : 'SHORT LOCKED'
+    : 'SELL SHORT';
 
   return (
     <div className="cp-panel p-0 font-mono relative safe-bottom overflow-hidden bg-[#0a0a0c] border border-white/10">
@@ -116,12 +189,26 @@ export function CrashControls({
           <span className="text-[10px] uppercase tracking-[0.25em] text-white/50 text-center">
             Connect to trade
           </span>
+          <p className="text-[9px] text-white/40 text-center max-w-[260px] leading-relaxed">
+            {vaultEnabled
+              ? 'Real play: connect wallet + deposit in VAULT. Or try demo mode with free credits.'
+              : 'Demo mode — connect for free $BlackBalls credits to practice.'}
+          </p>
           <button
             onClick={onConnect}
             className="touch-target touch-manipulation px-6 py-3 text-xs font-black bg-gradient-to-r from-cp-cyan to-cp-purple text-white w-full max-w-[240px] rounded-lg"
           >
-            CONNECT WALLET
+            {vaultEnabled ? 'CONNECT WALLET' : 'CONNECT · DEMO PLAY'}
           </button>
+          {vaultEnabled && onTryDemo && (
+            <button
+              type="button"
+              onClick={onTryDemo}
+              className="touch-target touch-manipulation px-4 py-2 text-[10px] font-bold border border-cp-yellow/50 text-cp-yellow hover:bg-cp-yellow/10 w-full max-w-[240px] rounded-lg"
+            >
+              TRY DEMO (FREE CREDITS)
+            </button>
+          )}
         </div>
       )}
 
@@ -152,7 +239,7 @@ export function CrashControls({
               min="0"
               step="0.001"
               inputMode="decimal"
-              value={percent > 0 ? effectiveAmount : amount}
+              value={percent > 0 ? safeAmount : amount}
               onChange={e => {
                 setAmount(parseFloat(e.target.value) || 0);
                 setPercent(0);
@@ -168,7 +255,7 @@ export function CrashControls({
 
           {percent > 0 && (
             <div className="text-[9px] neon-cyan mb-2 text-center font-bold">
-              Using {percent}% of balance = {effectiveAmount.toFixed(4)} $BlackBalls
+              Using {percent}% of balance = {safeAmount.toFixed(4)} $BlackBalls
             </div>
           )}
 
@@ -415,15 +502,36 @@ export function CrashControls({
         </AnimatePresence>
 
         {/* BUY / SELL */}
+        {(tradeBlockReason || tradeError) && walletConnected && (
+          <div className="mx-2 mt-2 px-2.5 py-2 text-[9px] leading-relaxed border rounded-lg bg-cp-yellow/5 border-cp-yellow/35 text-cp-yellow">
+            {tradeError ?? tradeBlockReason}
+            {tradeBlockReason?.includes('Vault balance is 0') && onTryDemo && (
+              <button
+                type="button"
+                onClick={onTryDemo}
+                className="block mt-2 text-[9px] font-black underline text-cp-cyan"
+              >
+                Or switch to demo mode with free credits →
+              </button>
+            )}
+          </div>
+        )}
+        {walletConnected && isDemoWallet && (
+          <div className="mx-2 mt-2 px-2.5 py-1 text-[8px] text-center text-cp-green/90 border border-cp-green/25 bg-cp-green/5">
+            DEMO MODE · off-chain credits · no real tokens at risk
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-0 p-2 bg-[#0d0d10]">
           <button
             onClick={() => handleTrade('buy')}
-            disabled={hasPosition ? positionSide !== 'sell' || !canTrade : !canOpenBuy}
-            className="touch-manipulation min-h-[56px] sm:min-h-[52px] mx-1 rounded-xl font-black text-base sm:text-sm tracking-wide transition-all disabled:opacity-35 disabled:cursor-not-allowed"
+            disabled={busy}
+            className={`touch-manipulation min-h-[56px] sm:min-h-[52px] mx-1 rounded-xl font-black text-base sm:text-sm tracking-wide transition-all ${
+              busy ? 'opacity-35 cursor-not-allowed' : buyLooksActive ? '' : 'opacity-40'
+            }`}
             style={{
               background: 'linear-gradient(180deg, #1a4d2e 0%, #0d2818 100%)',
               color: '#4ade80',
-              boxShadow: canOpenBuy || (hasPosition && positionSide === 'sell')
+              boxShadow: buyLooksActive
                 ? '0 0 20px rgba(74,222,128,0.25), inset 0 1px 0 rgba(255,255,255,0.1)'
                 : undefined,
               border: '1px solid rgba(74,222,128,0.3)',
@@ -432,22 +540,27 @@ export function CrashControls({
             {buyLabel}
             {!hasPosition && (
               <span className="block text-[10px] font-bold neon-cyan mt-0.5">
-                {effectiveAmount.toFixed(3)} $BlackBalls
+                {safeAmount.toFixed(3)} $BlackBalls
                 {leverage > 1 ? ` · ${leverage}x` : ''}
               </span>
             )}
-            {!hasPosition && phase === 'waiting' && leverage <= 1 && (
-              <span className="block text-[9px] font-normal opacity-50">{waitLeft.toFixed(1)}s to round</span>
+            {!hasPosition && entriesOpen && (
+              <span className="block text-[9px] font-normal opacity-50">{waitLeft.toFixed(1)}s to enter @ 1.00x</span>
+            )}
+            {!entriesOpen && !hasPosition && (
+              <span className="block text-[9px] font-normal opacity-50">ROUND LIVE</span>
             )}
           </button>
           <button
             onClick={() => handleTrade('sell')}
-            disabled={hasPosition ? positionSide !== 'buy' || !canTrade : !canOpenSell}
-            className="touch-manipulation min-h-[56px] sm:min-h-[52px] mx-1 rounded-xl font-black text-base sm:text-sm tracking-wide transition-all disabled:opacity-35 disabled:cursor-not-allowed"
+            disabled={busy}
+            className={`touch-manipulation min-h-[56px] sm:min-h-[52px] mx-1 rounded-xl font-black text-base sm:text-sm tracking-wide transition-all ${
+              busy ? 'opacity-35 cursor-not-allowed' : sellLooksActive ? '' : 'opacity-40'
+            }`}
             style={{
               background: 'linear-gradient(180deg, #4d1a1a 0%, #280d0d 100%)',
               color: '#f87171',
-              boxShadow: canOpenSell || (hasPosition && positionSide === 'buy')
+              boxShadow: sellLooksActive
                 ? '0 0 20px rgba(248,113,113,0.25), inset 0 1px 0 rgba(255,255,255,0.1)'
                 : undefined,
               border: '1px solid rgba(248,113,113,0.3)',
@@ -456,12 +569,15 @@ export function CrashControls({
             {sellLabel}
             {!hasPosition && (
               <span className="block text-[10px] font-bold neon-cyan mt-0.5">
-                {effectiveAmount.toFixed(3)} $BlackBalls
+                {safeAmount.toFixed(3)} $BlackBalls
                 {leverage > 1 ? ` · ${leverage}x` : ''}
               </span>
             )}
-            {!hasPosition && phase === 'waiting' && leverage <= 1 && (
-              <span className="block text-[9px] font-normal opacity-50">@ {entryMult.toFixed(2)}x entry</span>
+            {!hasPosition && entriesOpen && (
+              <span className="block text-[9px] font-normal opacity-50">{waitLeft.toFixed(1)}s to enter @ 1.00x</span>
+            )}
+            {!entriesOpen && !hasPosition && (
+              <span className="block text-[9px] font-normal opacity-50">ROUND LIVE</span>
             )}
           </button>
         </div>

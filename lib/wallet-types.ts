@@ -21,8 +21,6 @@ export interface WalletState {
 }
 
 export const WALLET_STORAGE_KEY = 'cp_wallet';
-export const RANKS = ['NPC', 'DEGEN', 'CHAD', 'WHALE', 'LEGEND'] as const;
-
 export const DEFAULT_HOLDINGS: TokenHoldings = {
   blackballs: 0,
   ansem: 0,

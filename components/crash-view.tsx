@@ -10,6 +10,7 @@ import { HoldBonusBar } from '@/components/hold-bonus-bar';
 import { LiveActivityFeed } from '@/components/LiveActivityFeed';
 import { LastHundred } from '@/components/last-hundred';
 import { MarketListings } from '@/components/market-listings';
+import { isVaultConfigured } from '@/lib/chain/public-config';
 
 const RUG_PARTICLES = Array.from({ length: 20 }, (_, i) => ({
   x: 50 + (((i * 17) % 100) - 50),
@@ -18,10 +19,16 @@ const RUG_PARTICLES = Array.from({ length: 20 }, (_, i) => ({
 
 export function CrashView() {
   const { state, connected, trade, setAutoSell, walletConnected } = useCrashStream();
-  const { wallet, connect, holdBonuses } = useWallet();
+  const { wallet, connect, disconnect, holdBonuses } = useWallet();
   const { state: compState, recordCrashResult } = useCompetitive();
   const [mobileFull, setMobileFull] = useState(false);
   const processedResultRef = useRef<string | null>(null);
+  const vaultEnabled = isVaultConfigured();
+
+  const tryDemo = () => {
+    disconnect();
+    window.setTimeout(() => connect(), 0);
+  };
 
   useEffect(() => {
     const lr = state?.lastResult;
@@ -253,7 +260,10 @@ export function CrashView() {
           lastResult={state.lastResult}
           holdBonuses={holdBonuses}
           walletConnected={walletConnected}
+          isDemoWallet={wallet.connected && !wallet.isRealWallet}
+          vaultEnabled={vaultEnabled}
           onConnect={connect}
+          onTryDemo={vaultEnabled ? tryDemo : undefined}
           onTrade={trade}
           onSetAutoSell={setAutoSell}
         />

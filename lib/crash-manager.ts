@@ -189,7 +189,7 @@ class CrashManager {
   }
 
   private entryPriceForNewPosition(): number {
-    return this.phase === 'running' ? this.mult : 1.0;
+    return 1.0;
   }
 
   syncPlayer(address: string, balance: number, bonuses?: { stimmy?: number; frenzy?: number }): number {
@@ -643,22 +643,32 @@ class CrashManager {
     action?: 'open';
   } {
     const player = this.getPlayer(address);
-    if (this.phase === 'crashed') return { ok: false, error: 'round ended' };
+    if (this.phase !== 'waiting') {
+      return { ok: false, error: 'wait for the next round' };
+    }
     if (player.hasPosition) return { ok: false, error: 'already in position' };
-    if (amount <= 0 || amount > player.balance) return { ok: false, error: 'invalid amount' };
 
-    const entryPrice = this.entryPriceForNewPosition();
+    const margin = Math.floor(amount * 1000) / 1000;
+    if (margin <= 0) return { ok: false, error: 'invalid amount' };
+    if (margin > player.balance + 0.0005) {
+      return {
+        ok: false,
+        error: `insufficient balance (${player.balance.toFixed(3)} $BlackBalls available)`,
+      };
+    }
+
+    const entryPrice = 1.0;
     player.hasPosition = true;
     player.positionSide = side;
-    player.positionAmount = amount;
+    player.positionAmount = margin;
     player.positionLeverage = leverage;
     player.positionEntryPrice = entryPrice;
-    player.balance -= amount;
+    player.balance = parseFloat((player.balance - margin).toFixed(3));
 
-    const notional = amount * leverage;
+    const notional = margin * leverage;
     this.applyOrderFlow(side, notional);
-    this.pushFeed('YOU', side, amount, entryPrice, -amount, { leverage, side });
-    this.pushTag('YOU', side, amount, entryPrice);
+    this.pushFeed('YOU', side, margin, entryPrice, -margin, { leverage, side });
+    this.pushTag('YOU', side, margin, entryPrice);
     this.emit();
     return { ok: true, balance: player.balance, action: 'open' };
   }
@@ -758,7 +768,14 @@ class CrashManager {
       if (player.positionSide === side) {
         return { ok: false, error: 'use opposite side to close' };
       }
+      if (this.phase !== 'waiting') {
+        return { ok: false, error: 'wait for the next round' };
+      }
       return this.closePosition(address);
+    }
+
+    if (this.phase !== 'waiting') {
+      return { ok: false, error: 'wait for the next round' };
     }
 
     return this.openPosition(address, side, amount, lev);

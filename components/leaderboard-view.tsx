@@ -1,6 +1,6 @@
 'use client';
 import { motion } from 'framer-motion';
-import { RANK_TITLES } from '@/lib/arena-rewards';
+import { RANK_TITLES, XP_PER_RANK } from '@/lib/arena-rewards';
 import { ACHIEVEMENTS } from '@/lib/competitive';
 import { useCompetitive } from '@/hooks/use-competitive';
 import { useWallet } from '@/lib/wallet-context';
@@ -120,7 +120,7 @@ export function LeaderboardView() {
           </thead>
           <tbody>
             {data.map((e, i) => {
-              const rankTitle = RANK_TITLES[Math.min(Math.floor(e.xp / 12000), RANK_TITLES.length - 1)];
+              const rankTitle = RANK_TITLES[Math.min(Math.floor(e.xp / XP_PER_RANK), RANK_TITLES.length - 1)];
               const isTop3 = e.rank <= 3;
               return (
                 <motion.tr key={`${e.address}-${i}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.03 }} className={`border-b border-cp-cyan/5 hover:bg-cp-cyan/5 ${isTop3 ? 'bg-cp-yellow/5' : ''} ${e.isYou ? 'bg-cp-cyan/10 ring-1 ring-cp-cyan/30' : ''}`}>

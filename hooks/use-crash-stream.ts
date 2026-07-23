@@ -92,19 +92,33 @@ export function useCrashStream() {
   }, [address, setBlackballsBalance]);
 
   const trade = useCallback(
-    async (side: 'buy' | 'sell', amount: number, leverage: number) => {
-      if (!address) return false;
-      const res = await fetch('/api/crash/enter', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address, side, amount, leverage }),
-      });
-      if (!res.ok) return false;
-      const data = await res.json();
-      if (typeof data.balance === 'number') setBlackballsBalance(data.balance);
-      return data.ok === true;
+    async (side: 'buy' | 'sell', amount: number, leverage: number): Promise<{ ok: boolean; error?: string }> => {
+      if (!address) return { ok: false, error: 'Connect wallet first' };
+      const wager = Math.floor(amount * 1000) / 1000;
+      if (wager <= 0) return { ok: false, error: 'invalid amount' };
+
+      try {
+        await syncCrashSession(address, balanceRef.current, holdBonuses.stimmy, holdBonuses.frenzy);
+
+        const res = await fetch('/api/crash/enter', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address, side, amount: wager, leverage }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          return { ok: false, error: typeof data.error === 'string' ? data.error : 'Trade rejected' };
+        }
+        if (typeof data.balance === 'number') setBlackballsBalance(data.balance);
+        if (data.ok !== true) {
+          return { ok: false, error: typeof data.error === 'string' ? data.error : 'Trade failed' };
+        }
+        return { ok: true };
+      } catch {
+        return { ok: false, error: 'Network error — try again' };
+      }
     },
-    [address, setBlackballsBalance],
+    [address, holdBonuses.stimmy, holdBonuses.frenzy, setBlackballsBalance],
   );
 
   const setAutoSell = useCallback(

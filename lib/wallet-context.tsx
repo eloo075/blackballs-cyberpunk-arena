@@ -13,7 +13,6 @@ import {
 } from 'react';
 import {
   DEFAULT_WALLET,
-  RANKS,
   WALLET_STORAGE_KEY,
   walletHoldings,
   type WalletState,
@@ -45,6 +44,8 @@ function makeDemoWallet(): WalletState {
   const cashcatBalance =
     Math.random() < 0.55 ? parseFloat((Math.random() * 8000 + 25).toFixed(0)) : 0;
 
+  const xp = Math.floor(Math.random() * 30000 + 5000);
+
   return {
     connected: true,
     address:
@@ -58,8 +59,8 @@ function makeDemoWallet(): WalletState {
     cashcatBalance,
     airdropped: gotAirdrop,
     airdropRank,
-    xp: Math.floor(Math.random() * 30000 + 5000),
-    rank: RANKS[Math.floor(Math.random() * RANKS.length)],
+    xp,
+    rank: rankTitleFromXp(xp),
     arenaWins: Math.floor(Math.random() * 40),
     arenaLosses: Math.floor(Math.random() * 25),
     isRealWallet: false,
@@ -91,7 +92,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           arenaWins: w.arenaWins ?? 0,
           arenaLosses: w.arenaLosses ?? 0,
           xp: w.xp ?? 0,
-          rank: w.rank ?? RANKS[0],
+          rank: rankTitleFromXp(w.xp ?? 0),
           isRealWallet: w.isRealWallet ?? false,
         });
       } catch {
@@ -162,7 +163,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       airdropped: false,
       airdropRank: null,
       xp: 0,
-      rank: RANKS[0],
+      rank: rankTitleFromXp(0),
       arenaWins: 0,
       arenaLosses: 0,
       isRealWallet: true,

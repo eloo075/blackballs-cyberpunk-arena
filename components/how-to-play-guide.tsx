@@ -105,8 +105,10 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
         <MangaPanel num="01" title="THE CRASH" accent="#00f0ff">
           <p className="text-[10px] leading-relaxed text-white/75">
             Each round, a <span className="text-cp-cyan font-bold">live multiplier</span> climbs on the chart.
-            Enter before or during the round — then close your position before the chart{' '}
-            <span className="text-cp-magenta font-bold">CRASHES</span> to lock profit.
+            Enter a <span className="text-cp-yellow font-bold">BUY</span> or{' '}
+            <span className="text-cp-magenta font-bold">SELL</span> only during the{' '}
+            <span className="text-cp-cyan font-bold">countdown</span> before the round starts — then watch your position
+            ride until the chart <span className="text-cp-magenta font-bold">CRASHES</span>.
           </p>
           <div className="mt-2 manga-speech text-[9px] text-black font-bold bg-cp-yellow">
             Chart moves with round buy &amp; sell pressure!
@@ -177,8 +179,8 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
           <ol className="manga-steps text-[9px] space-y-1.5 text-white/75">
             <li><strong className="text-cp-cyan">1.</strong> Connect wallet</li>
             <li><strong className="text-cp-cyan">2.</strong> Set wager + leverage on CRASH</li>
-            <li><strong className="text-cp-cyan">3.</strong> BUY long or SELL short — before or during the round</li>
-            <li><strong className="text-cp-cyan">4.</strong> Close position before the crash</li>
+            <li><strong className="text-cp-cyan">3.</strong> During countdown only — BUY long or SELL short @ 1.00x</li>
+            <li><strong className="text-cp-cyan">4.</strong> Round goes live — position locked until crash</li>
             <li><strong className="text-cp-cyan">5.</strong> Hit ARENA — pick a fighter, battle, earn XP</li>
           </ol>
         </section>
