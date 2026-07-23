@@ -15,6 +15,8 @@ export interface WalletState {
   airdropRank?: number | null;
   xp: number;
   rank: string;
+  arenaWins: number;
+  arenaLosses: number;
   isRealWallet: boolean;
 }
 
@@ -38,6 +40,8 @@ export const DEFAULT_WALLET: WalletState = {
   airdropRank: null,
   xp: 0,
   rank: 'NPC',
+  arenaWins: 0,
+  arenaLosses: 0,
   isRealWallet: false,
 };
 

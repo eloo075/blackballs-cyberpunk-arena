@@ -1,12 +1,32 @@
 'use client';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FIGHTERS, RARITY_COLOR, type Fighter } from '@/lib/fighters';
 import { applyStimmyDamage, computeBattleLoot, type HoldBonuses } from '@/lib/hold-bonuses';
+import {
+  computeBattlePlayerXp,
+  computeFighterCoins,
+} from '@/lib/arena-rewards';
+import {
+  BOSS_OPPONENT_LEVEL,
+  BOSS_REWARD_MULTIPLIER,
+  BOSS_RETRY_COST,
+  FREE_BOSS_ATTEMPTS,
+  getDailyBossFighter,
+  isUpset,
+} from '@/lib/competitive';
+import { toBattleFighter, type BattleFighter } from '@/lib/effective-fighter';
 import { FighterArt } from '@/components/fighter-art';
 import { FighterSelection } from '@/components/FighterSelection';
 import { HoldBonusBar } from '@/components/hold-bonus-bar';
+import { WinStreakBanner } from '@/components/win-streak-banner';
+import { BossFightCard } from '@/components/boss-fight-card';
+import { DailyChallengesPanel } from '@/components/daily-challenges-panel';
+import { ArenaWagerBar } from '@/components/arena-wager-bar';
+import { PlayerXpCounter } from '@/components/player-xp-counter';
+import { useFighterProgress } from '@/hooks/use-fighter-progress';
 import { useFighterUnlocks } from '@/hooks/use-fighter-unlocks';
+import { useCompetitive } from '@/hooks/use-competitive';
 import { useWallet } from '@/lib/wallet-context';
 import { useMarketListings } from '@/hooks/use-market-listings';
 import {
@@ -40,17 +60,22 @@ function HpBar({ current, max, color }: { current: number; max: number; color: s
 }
 
 export function ArenaView() {
-  const { wallet, holdBonuses, adjustBlackballsBalance } = useWallet();
+  const { wallet, holdBonuses, adjustBlackballsBalance, addArenaXp, recordArenaResult } = useWallet();
   const { blackballsBalance } = useFighterUnlocks();
-  const [playerFighter, setPlayerFighter] = useState<Fighter | null>(null);
-  const [opponentFighter, setOpponentFighter] = useState<Fighter | null>(null);
+  const { getProgress, addBattleReward } = useFighterProgress();
+  const { streakMultiplier, recordArenaBattle, state: compState, recordBossAttempt } = useCompetitive();
+  const [arenaWager, setArenaWager] = useState(0);
+  const [isBossBattle, setIsBossBattle] = useState(false);
+  const battleMetaRef = useRef({ isBoss: false, wager: 0 });
+  const [playerFighter, setPlayerFighter] = useState<BattleFighter | null>(null);
+  const [opponentFighter, setOpponentFighter] = useState<BattleFighter | null>(null);
   const [inBattle, setInBattle] = useState(false);
   const [battleLog, setBattleLog] = useState<string[]>([]);
   const [battleEffect, setBattleEffect] = useState<BattleEffect>(null);
   const [battleStage, setBattleStage] = useState<BattleStage>('ready');
   const [livePlayerHp, setLivePlayerHp] = useState(0);
   const [liveOpponentHp, setLiveOpponentHp] = useState(0);
-  const [winner, setWinner] = useState<Fighter | null>(null);
+  const [winner, setWinner] = useState<BattleFighter | null>(null);
   const { listings: marketListings, loading: marketLoading } = useMarketListings();
   const trending = [...FIGHTERS].sort((a, b) => b.activity - a.activity).slice(0, 3);
   const trendingMarket = marketListings
@@ -58,16 +83,18 @@ export function ArenaView() {
     .slice(0, 3);
 
   const handleSelectFighter = (fighter: Fighter) => {
-    setPlayerFighter(fighter);
-    // Select random opponent different from player
+    const battleFighter = toBattleFighter(fighter, getProgress(fighter.id).level);
+    setPlayerFighter(battleFighter);
+    setIsBossBattle(false);
     const opponents = FIGHTERS.filter(f => f.id !== fighter.id);
     const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)];
-    setOpponentFighter(randomOpponent);
+    const opponentBattle = toBattleFighter(randomOpponent, 1 + Math.floor(Math.random() * 3));
+    setOpponentFighter(opponentBattle);
     setInBattle(true);
     setBattleStage('ready');
-    setLivePlayerHp(fighter.hp);
-    setLiveOpponentHp(randomOpponent.hp);
-    setBattleLog([`${fighter.name} vs ${randomOpponent.name} — touch grass? NO. TOUCH FISTS.`]);
+    setLivePlayerHp(battleFighter.hp);
+    setLiveOpponentHp(opponentBattle.hp);
+    setBattleLog([`${battleFighter.name} vs ${randomOpponent.name} — touch grass? NO. TOUCH FISTS.`]);
   };
 
   const appendLog = (lines: string[]) => {
@@ -79,7 +106,7 @@ export function ArenaView() {
     setTimeout(() => setBattleEffect(null), ms);
   };
 
-  const runEntrance = (player: Fighter, opponent: Fighter) => {
+  const runEntrance = (player: BattleFighter, opponent: BattleFighter) => {
     setBattleStage('entrance');
     triggerEffect('entrance', 1200);
     const script = entranceScript(player, opponent);
@@ -95,20 +122,77 @@ export function ArenaView() {
 
   const startBattle = () => {
     if (!playerFighter || !opponentFighter) return;
+    if (arenaWager > 0) adjustBlackballsBalance(-arenaWager);
+    battleMetaRef.current = { isBoss: isBossBattle, wager: arenaWager };
     setWinner(null);
     setLivePlayerHp(playerFighter.hp);
     setLiveOpponentHp(opponentFighter.hp);
     runEntrance(playerFighter, opponentFighter);
   };
 
-  const grantVictoryLoot = (bonuses: HoldBonuses) => {
-    const baseLoot = 5 + Math.floor(Math.random() * 15);
-    const loot = computeBattleLoot(baseLoot, bonuses);
-    adjustBlackballsBalance(loot);
-    return loot;
+  const handleBossChallenge = () => {
+    if (!playerFighter) return;
+    if (compState.bossAttemptsToday >= FREE_BOSS_ATTEMPTS) {
+      if (blackballsBalance < BOSS_RETRY_COST) return;
+      adjustBlackballsBalance(-BOSS_RETRY_COST);
+    }
+    recordBossAttempt();
+    const boss = getDailyBossFighter();
+    const opponentBattle = toBattleFighter(boss, BOSS_OPPONENT_LEVEL);
+    setIsBossBattle(true);
+    setOpponentFighter(opponentBattle);
+    setInBattle(true);
+    setBattleStage('ready');
+    setLivePlayerHp(playerFighter.hp);
+    setLiveOpponentHp(opponentBattle.hp);
+    setBattleLog([`⚠ BOSS FIGHT — ${playerFighter.name} vs ${boss.name}! ${BOSS_REWARD_MULTIPLIER}x REWARDS`]);
   };
 
-  const simulateBattle = (player: Fighter, opponent: Fighter, bonuses: HoldBonuses) => {
+  const grantBattleRewards = (
+    playerWon: boolean,
+    player: BattleFighter,
+    opponent: BattleFighter,
+    bonuses: HoldBonuses,
+  ) => {
+    const meta = battleMetaRef.current;
+    let xpGain = computeBattlePlayerXp(playerWon, opponent.power);
+    if (playerWon && isUpset(player.power, opponent.power)) {
+      xpGain = Math.floor(xpGain * 1.5);
+    }
+    if (playerWon) {
+      xpGain = Math.floor(xpGain * streakMultiplier);
+      if (meta.isBoss) xpGain = Math.floor(xpGain * BOSS_REWARD_MULTIPLIER);
+    }
+    addArenaXp(xpGain);
+    recordArenaResult(playerWon);
+
+    const compLogs = recordArenaBattle({
+      won: playerWon,
+      playerPower: player.power,
+      opponentPower: opponent.power,
+      opponentId: opponent.id,
+      isBoss: meta.isBoss,
+    });
+
+    let loot = 0;
+    if (playerWon) {
+      const baseLoot = 5 + Math.floor(Math.random() * 15);
+      loot = computeBattleLoot(baseLoot, bonuses);
+      loot = Math.floor(loot * streakMultiplier * (meta.isBoss ? BOSS_REWARD_MULTIPLIER : 1));
+      adjustBlackballsBalance(loot);
+      if (meta.wager > 0) adjustBlackballsBalance(meta.wager * 2);
+    }
+
+    let fighterCoins = computeFighterCoins(playerWon, opponent.power, loot);
+    if (playerWon) {
+      fighterCoins = Math.floor(fighterCoins * streakMultiplier * (meta.isBoss ? BOSS_REWARD_MULTIPLIER : 1));
+    }
+    addBattleReward(player.id, fighterCoins, playerWon);
+
+    return { xpGain, loot, fighterCoins, compLogs, wagerWon: playerWon ? meta.wager * 2 : 0 };
+  };
+
+  const simulateBattle = (player: BattleFighter, opponent: BattleFighter, bonuses: HoldBonuses) => {
     setBattleStage('combat');
     const logs: string[] = [];
     let playerHP = player.hp;
@@ -124,16 +208,19 @@ export function ArenaView() {
       setBattleLog(prev => [...prev, ...lines]);
     };
 
-    const finishWin = (winnerFighter: Fighter) => {
+    const finishWin = (winnerFighter: BattleFighter, playerWon: boolean) => {
       triggerEffect('ko', 600);
       pushLogs([sfxLine('cash'), winLine(winnerFighter.name)]);
-      if (winnerFighter.id === player.id) {
-        const loot = grantVictoryLoot(bonuses);
+      if (playerWon) {
+        const { xpGain, loot, fighterCoins, compLogs, wagerWon } = grantBattleRewards(true, player, opponent, bonuses);
         pushLogs([
+          ...compLogs,
           bonuses.stimmy > 0
             ? `💰 LOOT +${loot.toFixed(1)} $BlackBalls (Stimmy +${Math.round(bonuses.stimmy * 100)}%)`
             : `💰 LOOT +${loot.toFixed(1)} $BlackBalls`,
-        ]);
+          wagerWon > 0 ? `🎲 WAGER WON +${wagerWon} $BlackBalls` : '',
+          `⭐ +${xpGain} XP · 🪙 +${fighterCoins} fight coins for ${player.name}`,
+        ].filter(Boolean));
       }
       setBattleStage('done');
       setWinner(winnerFighter);
@@ -185,7 +272,7 @@ export function ArenaView() {
       }
 
       if (opponentHP <= 0) {
-        finishWin(player);
+        finishWin(player, true);
         clearInterval(battleInterval);
         return;
       }
@@ -217,6 +304,8 @@ export function ArenaView() {
         if (playerHP <= 0) {
           triggerEffect('ko', 600);
           pushLogs([sfxLine('bonk'), loseLine(player.name), `🏆 ${opponent.name} WINS THE ARENA!`]);
+          const { xpGain, fighterCoins, compLogs } = grantBattleRewards(false, player, opponent, bonuses);
+          pushLogs([...compLogs, `⭐ +${xpGain} XP (participation) · 🪙 +${fighterCoins} fight coins`]);
           setBattleStage('done');
           setWinner(opponent);
           clearInterval(battleInterval);
@@ -229,11 +318,14 @@ export function ArenaView() {
 
         if (round >= 10) {
           const battleWinner = playerHP > opponentHP ? player : opponent;
-          if (battleWinner.id === player.id) {
-            finishWin(player);
+          const playerWon = battleWinner.id === player.id;
+          if (playerWon) {
+            finishWin(player, true);
           } else {
             triggerEffect('flash');
             pushLogs([`⏱️ TIME'S UP! ${battleWinner.name} wins on HP — barely legal!`]);
+            const { xpGain, fighterCoins, compLogs } = grantBattleRewards(false, player, opponent, bonuses);
+            pushLogs([...compLogs, `⭐ +${xpGain} XP · 🪙 +${fighterCoins} fight coins`]);
             setBattleStage('done');
             setWinner(battleWinner);
           }
@@ -245,6 +337,8 @@ export function ArenaView() {
 
   const handleEndBattle = () => {
     setInBattle(false);
+    setIsBossBattle(false);
+    setArenaWager(0);
     setOpponentFighter(null);
     setBattleLog([]);
     setWinner(null);
@@ -258,8 +352,8 @@ export function ArenaView() {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-xl font-black tracking-[0.15em] neon-cyan" style={{ fontFamily: 'Orbitron, sans-serif' }}>ARENA</h2>
-          <p className="text-[10px] text-white/40 mt-0.5">// BROWSE_FIGHTERS · {FIGHTERS.length}_UNITS</p>
-          <p className="text-[10px] text-white/30 mt-1">// HOLD $BLACKBALLS · $ANSEM · $CASHCAT FOR STIMMY & FRENZY BOOSTS</p>
+          <p className="text-[10px] text-white/40 mt-0.5">// BROWSE_FIGHTERS · {FIGHTERS.length}_UNITS · WIN XP TO CLIMB RANKING</p>
+          <p className="text-[10px] text-white/30 mt-1">// 2 WEAKEST FREE · STRONGER = MORE $BLACKBALLS · LEVEL UP WITH FIGHT COINS</p>
         </div>
         <div className="flex items-center gap-1.5">
           {Object.entries(RARITY_COLOR).map(([r, c]) => <span key={r} className="px-1.5 py-0.5 text-[8px] font-black border" style={{ color: c, borderColor: c + '55' }}>{r}</span>)}
@@ -267,15 +361,9 @@ export function ArenaView() {
       </div>
 
       <HoldBonusBar active={holdBonuses.active} className="mb-3" />
-      {wallet.connected && (
-        <div className="mb-3 cp-panel px-2.5 py-1.5 text-[9px] text-white/40 flex flex-wrap gap-x-3 gap-y-1">
-          <span>$BlackBalls: <span className="text-cp-purple font-bold">{blackballsBalance.toFixed(0)}</span></span>
-          <span>$ANSEM: <span className="text-cp-yellow font-bold">{wallet.ansemBalance.toFixed(0)}</span></span>
-          <span>$CASHCAT: <span className="text-cp-green font-bold">{wallet.cashcatBalance.toFixed(0)}</span></span>
-        </div>
-      )}
-
-      {/* selected fighter display */}
+      <PlayerXpCounter className="mb-3" />
+      <WinStreakBanner />
+      <BossFightCard onChallengeBoss={handleBossChallenge} disabled={!playerFighter || inBattle} />
       {playerFighter && !inBattle && (
         <div className="mb-4 cp-panel p-3 hud-corners" style={{ borderColor: RARITY_COLOR[playerFighter.rarity] + '44' }}>
           <div className="flex items-center gap-3">
@@ -285,6 +373,7 @@ export function ArenaView() {
                 <FighterArt fighterId={playerFighter.id} size={38} glowColor={playerFighter.glowColor} />
               </div>
               <div className="text-sm font-black" style={{ color: playerFighter.color, fontFamily: 'Orbitron, sans-serif' }}>{playerFighter.name}</div>
+              <div className="text-[9px] text-cp-yellow">LVL {playerFighter.level} · PWR {playerFighter.power}</div>
             </div>
             <button onClick={() => setPlayerFighter(null)} className="ml-auto text-[9px] text-cp-magenta hover:text-cp-magenta/80 font-mono">[CHANGE]</button>
           </div>
@@ -451,9 +540,16 @@ export function ArenaView() {
 
             {/* fight button */}
             {battleStage === 'ready' && (
-              <div className="mt-4 text-center relative z-20">
+              <div className="mt-4 text-center relative z-20 space-y-3">
+                {!isBossBattle && (
+                  <ArenaWagerBar
+                    wager={arenaWager}
+                    onWagerChange={setArenaWager}
+                    balance={blackballsBalance}
+                  />
+                )}
                 <button onClick={startBattle} className="cp-btn touch-target px-8 py-3 font-black text-sm tracking-wider bg-gradient-to-r from-cp-magenta to-cp-purple text-white" style={{ clipPath: 'polygon(0 0, 100% 0, 100% 75%, 92% 100%, 0 100%)', boxShadow: '0 0 20px rgba(255,0,60,0.5)' }}>
-                  ⚔️ START BATTLE
+                  ⚔️ {isBossBattle ? 'FIGHT BOSS' : 'START BATTLE'}
                 </button>
               </div>
             )}
@@ -530,8 +626,9 @@ export function ArenaView() {
           />
         </div>
 
-        {/* sidebar: trending meta + battle log */}
+        {/* sidebar: daily challenges + trending */}
         <div className="w-full lg:w-[240px] shrink-0 flex flex-col gap-3">
+          <DailyChallengesPanel />
           {/* trending meta */}
           <div className="cp-panel p-3 hud-corners">
             <div className="text-[10px] font-black uppercase tracking-[0.2em] neon-magenta mb-2">TRENDING_META</div>

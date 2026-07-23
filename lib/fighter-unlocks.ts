@@ -1,21 +1,36 @@
 import { FIGHTERS, type Fighter } from '@/lib/fighters';
 
-/** Fighters 1–4 are free; 5–8 require $BLACKBALLS balance thresholds. */
-export const FIGHTER_UNLOCK_BALANCE: Record<string, number> = {
-  moon_ape: 10_000,
-  degen_lord: 25_000,
-  pepe_war: 50_000,
-  chad_monk: 100_000,
-};
+/** Only the two lowest-power fighters are free; rest require $BLACKBALLS. */
+export const FREE_FIGHTER_COUNT = 2;
+
+const POWER_UNLOCK_EXPONENT = 3;
+const POWER_UNLOCK_MULTIPLIER = 25;
+
+const sortedByPower = [...FIGHTERS].sort((a, b) => a.power - b.power);
+const FREE_FIGHTER_IDS = new Set(sortedByPower.slice(0, FREE_FIGHTER_COUNT).map(f => f.id));
+
+/** Unlock cost scales with power³ — stronger fighters cost much more. */
+export function computeUnlockCostFromPower(power: number): number {
+  return Math.round(Math.pow(power, POWER_UNLOCK_EXPONENT) * POWER_UNLOCK_MULTIPLIER);
+}
+
+export function isFreeFighter(fighter: Fighter): boolean {
+  return FREE_FIGHTER_IDS.has(fighter.id);
+}
 
 export function getFighterUnlockRequirement(fighter: Fighter): number | null {
-  const idx = FIGHTERS.findIndex(f => f.id === fighter.id);
-  if (idx < 0 || idx < 4) return null;
-  return FIGHTER_UNLOCK_BALANCE[fighter.id] ?? null;
+  if (isFreeFighter(fighter)) return null;
+  return computeUnlockCostFromPower(fighter.power);
 }
 
 export function isFighterUnlocked(fighter: Fighter, blackballsBalance: number): boolean {
   const required = getFighterUnlockRequirement(fighter);
   if (required == null) return true;
   return blackballsBalance >= required;
+}
+
+export function formatUnlockCost(cost: number): string {
+  if (cost >= 1_000_000) return `${(cost / 1_000_000).toFixed(cost % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (cost >= 1_000) return `${(cost / 1_000).toFixed(cost % 1_000 === 0 ? 0 : 1)}K`;
+  return cost.toLocaleString();
 }

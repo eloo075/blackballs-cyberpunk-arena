@@ -1,5 +1,6 @@
 'use client';
 
+import { rankTitleFromXp } from '@/lib/arena-rewards';
 import { computeHoldBonuses, type HoldBonuses } from '@/lib/hold-bonuses';
 import {
   createContext,
@@ -27,6 +28,8 @@ interface WalletContextValue {
   displayAddress: string | null;
   setBlackballsBalance: (balance: number) => void;
   adjustBlackballsBalance: (delta: number) => void;
+  addArenaXp: (amount: number) => void;
+  recordArenaResult: (won: boolean) => void;
   refreshHoldings: () => Promise<void>;
 }
 
@@ -57,6 +60,8 @@ function makeDemoWallet(): WalletState {
     airdropRank,
     xp: Math.floor(Math.random() * 30000 + 5000),
     rank: RANKS[Math.floor(Math.random() * RANKS.length)],
+    arenaWins: Math.floor(Math.random() * 40),
+    arenaLosses: Math.floor(Math.random() * 25),
     isRealWallet: false,
   };
 }
@@ -83,6 +88,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             w.blackballsBalance ?? parseFloat((Math.random() * 1200 + 180).toFixed(1)),
           ansemBalance: w.ansemBalance ?? 0,
           cashcatBalance: w.cashcatBalance ?? 0,
+          arenaWins: w.arenaWins ?? 0,
+          arenaLosses: w.arenaLosses ?? 0,
+          xp: w.xp ?? 0,
+          rank: w.rank ?? RANKS[0],
           isRealWallet: w.isRealWallet ?? false,
         });
       } catch {
@@ -154,6 +163,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       airdropRank: null,
       xp: 0,
       rank: RANKS[0],
+      arenaWins: 0,
+      arenaLosses: 0,
       isRealWallet: true,
     };
     setWallet(next);
@@ -188,6 +199,30 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     [updateWallet],
   );
 
+  const addArenaXp = useCallback(
+    (amount: number) => {
+      if (amount <= 0) return;
+      updateWallet(prev => {
+        if (!prev.connected) return prev;
+        const xp = prev.xp + amount;
+        return { ...prev, xp, rank: rankTitleFromXp(xp) };
+      });
+    },
+    [updateWallet],
+  );
+
+  const recordArenaResult = useCallback(
+    (won: boolean) => {
+      updateWallet(prev => {
+        if (!prev.connected) return prev;
+        return won
+          ? { ...prev, arenaWins: prev.arenaWins + 1 }
+          : { ...prev, arenaLosses: prev.arenaLosses + 1 };
+      });
+    },
+    [updateWallet],
+  );
+
   const displayAddress = wallet.connected && wallet.address ? wallet.address : null;
   const resolvedWallet = hydrated ? wallet : DEFAULT_WALLET;
   const holdBonuses = useMemo(
@@ -205,6 +240,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       displayAddress: hydrated ? displayAddress : null,
       setBlackballsBalance,
       adjustBlackballsBalance,
+      addArenaXp,
+      recordArenaResult,
       refreshHoldings,
     }),
     [
@@ -217,6 +254,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       hydrated,
       setBlackballsBalance,
       adjustBlackballsBalance,
+      addArenaXp,
+      recordArenaResult,
       refreshHoldings,
     ],
   );

@@ -1,7 +1,8 @@
 'use client';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useCrashStream } from '@/hooks/use-crash-stream';
+import { useCompetitive } from '@/hooks/use-competitive';
 import { useWallet } from '@/lib/wallet-context';
 import { ChartCanvas } from '@/components/chart-canvas';
 import { CrashControls } from '@/components/crash-controls';
@@ -18,7 +19,18 @@ const RUG_PARTICLES = Array.from({ length: 20 }, (_, i) => ({
 export function CrashView() {
   const { state, connected, trade, setAutoSell, walletConnected } = useCrashStream();
   const { wallet, connect, holdBonuses } = useWallet();
+  const { state: compState, recordCrashResult } = useCompetitive();
   const [mobileFull, setMobileFull] = useState(false);
+  const processedResultRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const lr = state?.lastResult;
+    if (!lr || state.gameId == null) return;
+    const fp = `${state.gameId}-${lr.won}-${lr.amount}-${lr.price}`;
+    if (processedResultRef.current === fp) return;
+    processedResultRef.current = fp;
+    recordCrashResult(lr.won, lr.price);
+  }, [state?.lastResult, state?.gameId, recordCrashResult]);
 
   if (!state) {
     return (
@@ -249,6 +261,11 @@ export function CrashView() {
 
       <div className="w-full lg:w-[280px] shrink-0 flex flex-col gap-2 sm:gap-3">
         <HoldBonusBar active={holdBonuses.active} className="hidden sm:block" />
+        {compState.crashWinStreak >= 2 && (
+          <div className="hidden sm:block cp-panel px-3 py-1.5 text-[9px] text-cp-green border border-cp-green/30">
+            📈 Crash win streak: <span className="font-black">{compState.crashWinStreak}</span> — keep the momentum
+          </div>
+        )}
         <LastHundred history={state.history} />
         <div className="cp-panel min-h-[140px] sm:min-h-[180px] sm:flex-1 overflow-hidden">
           <LiveActivityFeed fallbackFeed={state.feed} />

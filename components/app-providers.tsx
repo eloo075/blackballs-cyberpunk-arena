@@ -9,6 +9,8 @@ import { WagmiWalletBridge } from '@/components/wagmi-wallet-bridge';
 import { ReferralUrlCapture } from '@/components/referral-url-capture';
 import { CrashSpectatorProvider } from '@/components/crash-spectator-provider';
 import { SpectatorToastHost } from '@/components/SpectatorToastHost';
+import { CompetitiveProvider } from '@/hooks/use-competitive';
+import { AchievementToastHost } from '@/components/achievement-toast-host';
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
@@ -17,12 +19,15 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         <WalletProvider>
-          <CrashSpectatorProvider>
-            <ReferralUrlCapture />
-            <WagmiWalletBridge />
-            <SpectatorToastHost />
-            {children}
-          </CrashSpectatorProvider>
+          <CompetitiveProvider>
+            <CrashSpectatorProvider>
+              <ReferralUrlCapture />
+              <WagmiWalletBridge />
+              <SpectatorToastHost />
+              <AchievementToastHost />
+              {children}
+            </CrashSpectatorProvider>
+          </CompetitiveProvider>
         </WalletProvider>
       </QueryClientProvider>
     </WagmiProvider>

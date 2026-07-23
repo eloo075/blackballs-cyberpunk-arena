@@ -2,8 +2,10 @@
 import { motion } from 'framer-motion';
 import { useState } from 'react';
 import { useWallet } from '@/lib/wallet-context';
+import { useCompetitive } from '@/hooks/use-competitive';
 import { isVaultConfigured } from '@/lib/chain/public-config';
 import { VaultModal } from '@/components/VaultModal';
+import { PlayerXpCounter } from '@/components/player-xp-counter';
 
 const LOGO_SRC = '/blackballs-neon-logo.png';
 
@@ -20,6 +22,7 @@ const TABS: { id: NavProps['activeTab']; label: string }[] = [
 
 export function Nav({ activeTab, onTabChange }: NavProps) {
   const { wallet, connect, disconnect, displayAddress } = useWallet();
+  const { state: compState } = useCompetitive();
   const [vaultOpen, setVaultOpen] = useState(false);
   const vaultEnabled = isVaultConfigured();
 
@@ -59,11 +62,12 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
   );
 
   const mobileWalletChip = wallet.connected && (
-    <div className="flex flex-col items-end min-w-0 md:hidden mr-1">
+    <div className="flex flex-col items-end min-w-0 md:hidden mr-1 gap-1">
       <span className="text-[10px] font-bold neon-cyan truncate max-w-[120px]">{displayAddress}</span>
       <span className="text-[9px] text-white/50 whitespace-nowrap">
         {wallet.blackballsBalance.toFixed(0)} $BlackBalls · <span className="neon-yellow">{wallet.rank}</span>
       </span>
+      <PlayerXpCounter variant="compact" className="w-[140px]" />
     </div>
   );
 
@@ -74,6 +78,9 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
         <span className="text-[9px] text-white/50">
           {wallet.solBalance.toFixed(2)} SOL · {wallet.blackballsBalance.toFixed(1)} $BlackBalls ·{' '}
           {wallet.xp.toLocaleString('en-US')} XP · <span className="neon-yellow">{wallet.rank}</span>
+          {compState.arenaWinStreak >= 2 && (
+            <span className="text-cp-magenta font-black"> · 🔥{compState.arenaWinStreak}</span>
+          )}
           {wallet.isRealWallet ? '' : ' · BETA'}
         </span>
         {wallet.airdropped && (
@@ -180,6 +187,7 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
           ))}
         </nav>
         <div className="flex items-center gap-2 shrink-0">
+          {wallet.connected && <PlayerXpCounter variant="compact" className="w-[160px] hidden md:block" />}
           {desktopWalletDetails}
           <div className="flex items-center gap-1">{walletAction}</div>
         </div>
