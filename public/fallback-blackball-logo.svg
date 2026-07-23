@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <rect width="120" height="120" rx="32" fill="#0b0710"/>
+  <circle cx="60" cy="60" r="38" fill="#09070f" stroke="#00f0ff" stroke-width="3"/>
+  <path d="M40 54 C46 42, 74 42, 80 54 C74 72, 46 72, 40 54 Z" fill="#ffffff10"/>
+  <path d="M45 60 C50 53, 70 53, 75 60 C70 69, 50 69, 45 60 Z" fill="#ff3cf7" opacity="0.4"/>
+  <text x="60" y="90" font-family="Orbitron, sans-serif" font-size="10" font-weight="900" fill="#00f0ff" text-anchor="middle">BlackBalls</text>
+</svg>
