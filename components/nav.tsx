@@ -1,11 +1,13 @@
 'use client';
 import { motion } from 'framer-motion';
 import { useState } from 'react';
+import Link from 'next/link';
 import { useWallet } from '@/lib/wallet-context';
 import { useCompetitive } from '@/hooks/use-competitive';
 import { isVaultConfigured } from '@/lib/chain/public-config';
 import { VaultModal } from '@/components/VaultModal';
 import { PlayerXpCounter } from '@/components/player-xp-counter';
+import { HowToPlayModal } from '@/components/how-to-play-modal';
 
 const LOGO_SRC = '/blackballs-neon-logo.png';
 
@@ -24,7 +26,26 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
   const { wallet, connect, disconnect, displayAddress } = useWallet();
   const { state: compState } = useCompetitive();
   const [vaultOpen, setVaultOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const vaultEnabled = isVaultConfigured();
+
+  const guideButton = (
+    <>
+      <button
+        type="button"
+        onClick={() => setGuideOpen(true)}
+        className="cp-btn touch-manipulation touch-target px-3 py-2 text-[10px] font-black border border-cp-cyan/40 text-cp-cyan hover:bg-cp-cyan/10 shrink-0 hidden sm:inline-flex"
+      >
+        GUIDE
+      </button>
+      <Link
+        href="/how-to-play"
+        className="cp-btn touch-manipulation touch-target px-2.5 py-2 text-[10px] font-black border border-cp-cyan/40 text-cp-cyan hover:bg-cp-cyan/10 shrink-0 sm:hidden"
+      >
+        GUIDE
+      </Link>
+    </>
+  );
 
   const vaultButton = vaultEnabled ? (
     <button
@@ -37,6 +58,7 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
 
   const walletAction = wallet.connected ? (
     <>
+      {guideButton}
       {vaultButton}
       <button
         onClick={disconnect}
@@ -47,6 +69,7 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
     </>
   ) : (
     <>
+      {guideButton}
       {vaultButton}
       <button
         onClick={() => (vaultEnabled ? setVaultOpen(true) : connect())}
@@ -95,6 +118,7 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
   return (
     <>
       <VaultModal open={vaultOpen} onClose={() => setVaultOpen(false)} />
+      <HowToPlayModal open={guideOpen} onClose={() => setGuideOpen(false)} />
       <header className="sticky top-0 z-40 border-b border-cp-cyan/20 bg-cp-bg/90 backdrop-blur-md safe-bottom">
       {/* mobile: brand row */}
       <div className="md:hidden max-w-[1700px] mx-auto px-3 py-2 flex items-center justify-between gap-2">

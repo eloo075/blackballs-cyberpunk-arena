@@ -298,3 +298,98 @@ body {
   box-shadow: 0 0 12px var(--lev-glow, rgba(252, 238, 10, 0.8));
   cursor: pointer;
 }
+
+/* —— manga / anime how-to-play panels —— */
+.manga-poster {
+  box-shadow: 0 0 0 3px #000, 0 12px 40px rgba(0, 0, 0, 0.65);
+}
+
+.manga-halftone {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: 6px 6px;
+  opacity: 0.35;
+}
+
+.manga-burst {
+  clip-path: polygon(8% 0, 92% 0, 100% 50%, 92% 100%, 8% 100%, 0 50%);
+}
+
+.manga-outline-text {
+  text-shadow:
+    2px 2px 0 #000,
+    -1px -1px 0 #000,
+    0 0 12px rgba(0, 240, 255, 0.45);
+}
+
+.manga-panel {
+  border: 3px solid #000;
+  background: #0e1428;
+  box-shadow: 5px 5px 0 var(--panel-accent, #00f0ff);
+}
+
+.manga-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 2px solid #000;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.55), transparent);
+}
+
+.manga-panel-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  font-size: 11px;
+  font-weight: 900;
+  color: #000;
+  background: var(--panel-accent, #00f0ff);
+  border: 2px solid #000;
+  font-family: Orbitron, sans-serif;
+}
+
+.manga-panel-title {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.15em;
+  color: var(--panel-accent, #00f0ff);
+  font-family: Orbitron, sans-serif;
+}
+
+.manga-panel-body {
+  padding: 10px;
+}
+
+.manga-speech {
+  display: inline-block;
+  padding: 4px 10px;
+  border: 2px solid #000;
+  border-radius: 12px;
+  position: relative;
+}
+
+.manga-speech::after {
+  content: '';
+  position: absolute;
+  left: 18px;
+  bottom: -8px;
+  border: 6px solid transparent;
+  border-top-color: #fcee0a;
+  filter: drop-shadow(0 2px 0 #000);
+}
+
+.manga-flow-step {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px;
+  text-align: center;
+  background: #0a0e1c;
+  border: 2px solid #000;
+}
+
+.manga-steps li strong {
+  font-family: Orbitron, sans-serif;
+}
+

@@ -414,7 +414,7 @@ export function CrashControls({
           )}
         </AnimatePresence>
 
-        {/* BUY / SELL — rugs.fun big buttons */}
+        {/* BUY / SELL */}
         <div className="grid grid-cols-2 gap-0 p-2 bg-[#0d0d10]">
           <button
             onClick={() => handleTrade('buy')}

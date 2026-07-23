@@ -1,5 +1,5 @@
 /**
- * Provably fair crash RNG — rugs.fun / bustabit-style house-edge math.
+ * Provably fair crash RNG — bustabit-style house-edge math.
  *
  * Flow per round:
  * 1. Server generates serverSeed (secret until round ends).
