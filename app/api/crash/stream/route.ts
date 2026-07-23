@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { getManager } from '@/lib/crash-manager';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 export async function GET(req: NextRequest) {
   const manager = getManager();
