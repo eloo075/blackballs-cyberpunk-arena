@@ -8,7 +8,7 @@
  * 4. fairHex = HMAC-SHA256(serverSeed, `${clientSeed}:${nonce}`) → 64-char hex.
  * 5. random ∈ [0, 1) from first 52 bits of fairHex.
  * 6. If random < INSTANT_RUG_RATE → crash at exactly 1.00x.
- * 7. Else crashPoint = max(1.00, floor((100 - HOUSE_EDGE) / (1 - random)) / 100), capped.
+ * 7. Else map random through a piecewise curve (mostly 1–3x, rare 20x+).
  */
 import { createHash, createHmac, randomBytes } from 'crypto';
 import type { RoundSummary } from './crash-types';
@@ -19,8 +19,8 @@ export const HOUSE_EDGE_PERCENT = 4;
 /** Fraction of rounds forced to instant 1.00x rug (3%). */
 export const INSTANT_RUG_RATE = 0.03;
 
-/** Hard cap on crash multiplier. */
-export const MAX_CRASH_POINT = 1000;
+/** Hard cap on crash multiplier (moons are very rare). */
+export const MAX_CRASH_POINT = 25;
 
 export const DEFAULT_CLIENT_SEED = 'blackballs-global';
 
@@ -59,14 +59,16 @@ export function hexToUnitFloat(hex: string): number {
 }
 
 /**
- * Core house-edge crash formula:
- *   crashPoint = max(1.00, floor((100 - houseEdge) / (1 - random)) / 100)
- *
- * Instant rug branch: random < INSTANT_RUG_RATE → exactly 1.00x.
+ * Piecewise crash curve — tuned for degen-friendly distribution:
+ *   ~4% instant rug @ 1.00x
+ *   ~73% between 1.01–3x
+ *   ~16% between 3–9x
+ *   ~6% between 9–20x
+ *   ~1% between 20–25x (very rare moon)
  */
 export function crashPointFromRandom(
   randomUnit: number,
-  houseEdgePercent = HOUSE_EDGE_PERCENT,
+  _houseEdgePercent = HOUSE_EDGE_PERCENT,
 ): { crashPoint: number; instantRug: boolean } {
   const r = Math.min(Math.max(randomUnit, 0), 1 - 1e-12);
 
@@ -74,11 +76,23 @@ export function crashPointFromRandom(
     return { crashPoint: 1.0, instantRug: true };
   }
 
-  const numerator = 100 - houseEdgePercent;
-  const raw = Math.floor(numerator / (1 - r));
-  const crashPoint = Math.min(MAX_CRASH_POINT, Math.max(1.0, raw / 100));
+  const t = (r - INSTANT_RUG_RATE) / (1 - INSTANT_RUG_RATE);
 
-  return { crashPoint: roundCrashPoint(crashPoint), instantRug: false };
+  let mult: number;
+  if (t < 0.76) {
+    mult = 1.01 + 1.99 * Math.pow(t / 0.76, 0.88);
+  } else if (t < 0.93) {
+    mult = 3 + 6 * Math.pow((t - 0.76) / 0.17, 0.82);
+  } else if (t < 0.988) {
+    mult = 9 + 11 * Math.pow((t - 0.93) / 0.058, 0.92);
+  } else if (t < 0.996) {
+    mult = 20 + 5 * Math.pow((t - 0.988) / 0.008, 0.95);
+  } else {
+    mult = 25;
+  }
+
+  const crashPoint = roundCrashPoint(Math.min(MAX_CRASH_POINT, Math.max(1.0, mult)));
+  return { crashPoint, instantRug: false };
 }
 
 export function roundCrashPoint(value: number): number {
@@ -133,7 +147,7 @@ export function computeCrashPointLegacy(serverSeed: string, gameId: number): num
 export function generateSeedHistory(count: number, clientSeed = DEFAULT_CLIENT_SEED): RoundSummary[] {
   const entries: RoundSummary[] = [];
   for (let i = count; i >= 1; i--) {
-    const roundSeed = createHash('sha256').update(`bb-history-v3:${clientSeed}:${i}`).digest('hex');
+    const roundSeed = createHash('sha256').update(`bb-history-v4:${clientSeed}:${i}`).digest('hex');
     const result = computeProvablyFairCrash({ serverSeed: roundSeed, clientSeed, nonce: i });
     entries.push({
       id: i,
