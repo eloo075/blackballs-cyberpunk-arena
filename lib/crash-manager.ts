@@ -627,7 +627,15 @@ class CrashManager {
   }
 
   private pushTag(user: string, side: 'buy' | 'sell', amount: number, price: number) {
-    this.tradeTags.push({ id: this.tagId++, user, side, amount, price, t: Date.now() });
+    this.tradeTags.push({
+      id: this.tagId++,
+      user,
+      side,
+      amount,
+      price,
+      t: Date.now(),
+      candleT: this.candleStartTime,
+    });
     if (this.tradeTags.length > MAX_TAGS) this.tradeTags.shift();
   }
 

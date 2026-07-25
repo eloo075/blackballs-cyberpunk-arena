@@ -140,7 +140,7 @@ export function CrashView() {
         </div>
 
         {/* chart container — canvas untouched; HTML multiplier overlay only */}
-        <div className="relative cp-panel overflow-hidden w-[100vw] max-w-none aspect-square shrink-0 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:w-full sm:aspect-auto sm:flex-1 sm:min-h-[480px] sm:h-[60vh]">
+        <div className="relative cp-panel overflow-visible w-[100vw] max-w-none aspect-square shrink-0 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:w-full sm:aspect-auto sm:flex-1 sm:min-h-[480px] sm:h-[60vh]">
           <ChartCanvas
             candles={state.candles}
             phase={state.phase}

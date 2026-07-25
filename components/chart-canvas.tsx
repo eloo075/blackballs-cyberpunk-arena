@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useRef } from 'react';
 import type { Candle, TradeTag } from '@/lib/crash-types';
+import { computeChartLayout, type ChartLayoutFrame } from '@/lib/chart-layout';
+import { ChartTradeOverlays } from '@/components/chart-trade-overlays';
 
 interface ChartCanvasProps {
   candles: Candle[];
@@ -35,43 +37,6 @@ function roundRectPath(
   ctx.closePath();
 }
 
-function drawTradeTagPill(
-  ctx: CanvasRenderingContext2D,
-  opts: {
-    x: number;
-    y: number;
-    label: string;
-    isBuy: boolean;
-    dpr: number;
-    fontSize: number;
-    opacity: number;
-  },
-) {
-  const { x, y, label, isBuy, dpr, fontSize, opacity } = opts;
-  const bg = isBuy ? '#22c55e' : '#ef4444';
-  const textCol = '#ffffff';
-
-  ctx.globalAlpha = opacity;
-  ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
-  const tw = ctx.measureText(label).width;
-  const padX = 10 * dpr;
-  const pillH = 20 * dpr;
-  const pillW = tw + padX * 2;
-  const px = x;
-  const py = y - pillH / 2;
-
-  roundRectPath(ctx, px, py, pillW, pillH, pillH / 2);
-  ctx.fillStyle = bg;
-  ctx.fill();
-
-  ctx.fillStyle = textCol;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(label, px + padX, y);
-  ctx.textBaseline = 'alphabetic';
-  ctx.globalAlpha = 1;
-}
-
 function pickTimeTicks(elapsed: number): number[] {
   const end = Math.max(elapsed, 1);
   let step = 1;
@@ -87,6 +52,7 @@ function pickTimeTicks(elapsed: number): number[] {
 
 export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags, entryPrice }: ChartCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const layoutRef = useRef<ChartLayoutFrame | null>(null);
   const propsRef = useRef({ candles, phase, mult, peakMult, elapsed, tradeTags, entryPrice });
   propsRef.current = { candles, phase, mult, peakMult, elapsed, tradeTags, entryPrice };
 
@@ -174,6 +140,17 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
       shiftOffsetRef.current += (0 - shiftOffsetRef.current) * 0.12;
       if (Math.abs(shiftOffsetRef.current) < 0.001) shiftOffsetRef.current = 0;
 
+      layoutRef.current = computeChartLayout(
+        cssW,
+        cssH,
+        visible,
+        p.phase,
+        p.mult,
+        p.peakMult,
+        p.elapsed,
+        shiftOffsetRef.current,
+      );
+
       const slotW = chartW / visibleCount;
       const shiftPx = shiftOffsetRef.current * slotW;
       const bodyRatio = isDesktop ? 0.88 : isSquare ? 0.92 : 0.9;
@@ -250,35 +227,6 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
         ctx.fillText(`ENTRY ${entryPrice.toFixed(2)}`, padLeft + 6 * dpr, ey - 5 * dpr);
       }
 
-      const now = Date.now();
-      const tagX =
-        slice.length > 0
-          ? padLeft + (slice.length - 0.5) * slotW + shiftPx
-          : padLeft + slotW * 0.5;
-      p.tradeTags.forEach(tag => {
-        const age = (now - tag.t) / 1000;
-        if (age > 2.5) return;
-        const opacity = Math.max(0, 1 - age / 2.5);
-        const cy = yFor(tag.price);
-        const isBuy = tag.side === 'buy';
-        const label = isBuy
-          ? `🏹 ${tag.user} ${tag.amount.toFixed(2)}`
-          : `🐻 ${tag.user} ${tag.price.toFixed(2)}x`;
-        const fontSize = (isDesktop ? 10 : 9) * dpr;
-        ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
-        const tw = ctx.measureText(label).width + 20 * dpr;
-        const px = Math.min(tagX + 8 * dpr, padLeft + chartW - tw - 4 * dpr);
-        drawTradeTagPill(ctx, {
-          x: px,
-          y: cy,
-          label,
-          isBuy,
-          dpr,
-          fontSize,
-          opacity,
-        });
-      });
-
       if (p.peakMult > 1.15 && p.phase !== 'waiting') {
         const py = yFor(p.peakMult);
         ctx.strokeStyle = 'rgba(157,0,255,0.28)';
@@ -306,5 +254,10 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  return <canvas ref={canvasRef} className="w-full h-full block" />;
+  return (
+    <div className="relative w-full h-full overflow-visible">
+      <canvas ref={canvasRef} className="w-full h-full block" />
+      <ChartTradeOverlays tradeTags={tradeTags} candles={candles} layoutRef={layoutRef} />
+    </div>
+  );
 }

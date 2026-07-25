@@ -15,6 +15,8 @@ export interface TradeTag {
   amount: number;
   price: number;
   t: number;
+  /** Elapsed-time anchor of the candle when the trade fired (for chart X positioning). */
+  candleT?: number;
 }
 
 export interface FeedEvent {
