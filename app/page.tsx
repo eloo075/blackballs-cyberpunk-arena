@@ -11,7 +11,7 @@ type Tab = 'crash' | 'arena' | 'leaderboard';
 export default function Page() {
   const [tab, setTab] = useState<Tab>('crash');
   return (
-    <div className="min-h-screen bg-cyber flex flex-col">
+    <div className="min-h-screen bg-[#141518] flex flex-col font-arcade">
       <Nav activeTab={tab} onTabChange={setTab} />
       <main className="flex-1">
         <AnimatePresence mode="wait">
@@ -22,7 +22,9 @@ export default function Page() {
           </motion.div>
         </AnimatePresence>
       </main>
-      <footer className="text-center text-[9px] text-white/25 py-2 sm:py-3 px-3 border-t border-cp-cyan/10 font-mono tracking-wider safe-bottom">$BlackBalls // CYBERPUNK DEGEN ARENA </footer>
+      <footer className="text-center text-[10px] text-white/30 py-3 px-3 border-t border-white/5 safe-bottom">
+        $BlackBalls · Degen Arcade
+      </footer>
     </div>
   );
 }

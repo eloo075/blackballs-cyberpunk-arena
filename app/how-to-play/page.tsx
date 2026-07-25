@@ -7,10 +7,10 @@ export const metadata = {
 
 export default function HowToPlayPage() {
   return (
-    <div className="min-h-screen bg-[#050714] py-6 px-3 flex flex-col items-center">
+    <div className="min-h-screen bg-[#141518] py-6 px-3 flex flex-col items-center font-arcade">
       <HowToPlayGuide variant="poster" />
-      <p className="mt-4 text-[9px] text-white/30 font-mono text-center max-w-[420px]">
-        Screenshot this page to share with your community · No external references — pure $BlackBalls gameplay
+      <p className="mt-4 text-xs text-white/35 font-bold text-center max-w-[420px]">
+        Screenshot &amp; send to your group chat · pure $BlackBalls gameplay, zero cope
       </p>
     </div>
   );

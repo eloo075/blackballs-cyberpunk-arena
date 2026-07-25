@@ -14,6 +14,64 @@ interface ChartCanvasProps {
 
 const MAX_VISIBLE = 56;
 
+const CANDLE_UP = '#22c55e';
+const CANDLE_DOWN = '#ef4444';
+
+function roundRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+) {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + w, y, x + w, y + h, radius);
+  ctx.arcTo(x + w, y + h, x, y + h, radius);
+  ctx.arcTo(x, y + h, x, y, radius);
+  ctx.arcTo(x, y, x + w, y, radius);
+  ctx.closePath();
+}
+
+function drawTradeTagPill(
+  ctx: CanvasRenderingContext2D,
+  opts: {
+    x: number;
+    y: number;
+    label: string;
+    isBuy: boolean;
+    dpr: number;
+    fontSize: number;
+    opacity: number;
+  },
+) {
+  const { x, y, label, isBuy, dpr, fontSize, opacity } = opts;
+  const bg = isBuy ? '#22c55e' : '#ef4444';
+  const textCol = '#ffffff';
+
+  ctx.globalAlpha = opacity;
+  ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
+  const tw = ctx.measureText(label).width;
+  const padX = 10 * dpr;
+  const pillH = 20 * dpr;
+  const pillW = tw + padX * 2;
+  const px = x;
+  const py = y - pillH / 2;
+
+  roundRectPath(ctx, px, py, pillW, pillH, pillH / 2);
+  ctx.fillStyle = bg;
+  ctx.fill();
+
+  ctx.fillStyle = textCol;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, px + padX, y);
+  ctx.textBaseline = 'alphabetic';
+  ctx.globalAlpha = 1;
+}
+
 function pickTimeTicks(elapsed: number): number[] {
   const end = Math.max(elapsed, 1);
   let step = 1;
@@ -118,8 +176,8 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
 
       const slotW = chartW / visibleCount;
       const shiftPx = shiftOffsetRef.current * slotW;
-      const bodyRatio = isDesktop ? 0.72 : isSquare ? 0.78 : 0.75;
-      const maxBodyW = isDesktop ? 14 * dpr : 12 * dpr;
+      const bodyRatio = isDesktop ? 0.88 : isSquare ? 0.92 : 0.9;
+      const maxBodyW = isDesktop ? 22 * dpr : 18 * dpr;
 
       slice.forEach((c, i) => {
         const cx = padLeft + (i + 0.5) * slotW + shiftPx;
@@ -128,42 +186,36 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
         const isLast = i === slice.length - 1;
         const up = c.c >= c.o;
         const isCrashCandle = p.phase === 'crashed' && isLast && c.c < c.o;
-        const color = isCrashCandle ? '#ff003c' : up ? '#00ff9c' : '#ff003c';
-        const fillColor = isCrashCandle ? 'rgba(255,0,60,0.45)' : up ? 'rgba(0,255,156,0.14)' : 'rgba(255,0,60,0.14)';
+        const color = isCrashCandle ? CANDLE_DOWN : up ? CANDLE_UP : CANDLE_DOWN;
 
         const yH = yFor(c.h);
         const yL = yFor(c.l);
-        const yO = yFor(c.o);
-        const yC = yFor(c.c);
 
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1.3 * dpr;
-        ctx.beginPath();
-        ctx.moveTo(cx, yH);
-        ctx.lineTo(cx, yL);
-        ctx.stroke();
+        const pillW = Math.max(4 * dpr, Math.min(maxBodyW, slotW * bodyRatio));
+        const pillTop = Math.min(yH, yL);
+        const pillH = Math.max(Math.abs(yL - yH), 4 * dpr);
+        const pillX = cx - pillW / 2;
 
-        const bodyW = Math.max(2 * dpr, Math.min(maxBodyW, slotW * bodyRatio));
-        const bodyTop = Math.min(yO, yC);
-        const bodyH = Math.max(Math.abs(yO - yC), 1.5 * dpr);
-        ctx.fillStyle = fillColor;
-        ctx.fillRect(cx - bodyW / 2, bodyTop, bodyW, bodyH);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1.2 * dpr;
-        ctx.strokeRect(cx - bodyW / 2, bodyTop, bodyW, bodyH);
+        roundRectPath(ctx, pillX, pillTop, pillW, pillH, pillW / 2);
+        ctx.fillStyle = color;
+        ctx.fill();
 
         if (isLast && (p.phase === 'running' || p.phase === 'crashed')) {
+          ctx.save();
           ctx.shadowColor = color;
-          ctx.shadowBlur = isCrashCandle ? 20 : 10;
-          ctx.strokeRect(cx - bodyW / 2, bodyTop, bodyW, bodyH);
-          ctx.shadowBlur = 0;
+          ctx.shadowBlur = isCrashCandle ? 14 * dpr : 8 * dpr;
+          roundRectPath(ctx, pillX, pillTop, pillW, pillH, pillW / 2);
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1.5 * dpr;
+          ctx.stroke();
+          ctx.restore();
         }
       });
 
       if (p.phase === 'running' || p.phase === 'crashed') {
         const y = yFor(p.mult);
         const rising = p.phase === 'running';
-        const col = rising ? '#00ff9c' : '#ff003c';
+        const col = rising ? CANDLE_UP : CANDLE_DOWN;
 
         ctx.strokeStyle = col + '55';
         ctx.setLineDash([4 * dpr, 4 * dpr]);
@@ -181,24 +233,6 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
         ctx.textAlign = 'center';
         ctx.fillText(`${p.mult.toFixed(2)}x`, padLeft + chartW + padRight / 2, y + 3.5 * dpr);
         ctx.textAlign = 'left';
-
-        if (isDesktop) {
-          ctx.font = `bold ${22 * dpr}px JetBrains Mono`;
-          ctx.fillStyle = col;
-          ctx.shadowColor = col;
-          ctx.shadowBlur = 14;
-          ctx.fillText(`${p.mult.toFixed(2)}x`, padLeft + 8 * dpr, padTop + 22 * dpr);
-          ctx.shadowBlur = 0;
-        } else if (isNarrow) {
-          ctx.font = `bold ${(isSquare ? 34 : 26) * dpr}px JetBrains Mono`;
-          ctx.fillStyle = col;
-          ctx.textAlign = 'center';
-          ctx.shadowColor = col;
-          ctx.shadowBlur = 18;
-          ctx.fillText(`${p.mult.toFixed(2)}x`, padLeft + chartW / 2, padTop + 34 * dpr);
-          ctx.textAlign = 'left';
-          ctx.shadowBlur = 0;
-        }
       }
 
       if (entryPrice && entryPrice > 0) {
@@ -227,32 +261,22 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
         const opacity = Math.max(0, 1 - age / 2.5);
         const cy = yFor(tag.price);
         const isBuy = tag.side === 'buy';
-        const col = isBuy ? '#00ff9c' : '#ff003c';
-        ctx.globalAlpha = opacity;
-        const label = `${tag.user} ${tag.amount.toFixed(2)}`;
-        ctx.font = `${(isDesktop ? 10 : 9) * dpr}px JetBrains Mono`;
-        const tw = ctx.measureText(label).width + 16 * dpr;
+        const label = isBuy
+          ? `🏹 ${tag.user} ${tag.amount.toFixed(2)}`
+          : `🐻 ${tag.user} ${tag.price.toFixed(2)}x`;
+        const fontSize = (isDesktop ? 10 : 9) * dpr;
+        ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
+        const tw = ctx.measureText(label).width + 20 * dpr;
         const px = Math.min(tagX + 8 * dpr, padLeft + chartW - tw - 4 * dpr);
-        const py = cy;
-        ctx.fillStyle = 'rgba(5,7,20,0.9)';
-        ctx.strokeStyle = col;
-        ctx.lineWidth = 1 * dpr;
-        const rx = 7 * dpr;
-        ctx.beginPath();
-        ctx.moveTo(px + rx, py - 9 * dpr);
-        ctx.arcTo(px + tw, py - 9 * dpr, px + tw, py + 9 * dpr, rx);
-        ctx.arcTo(px + tw, py + 9 * dpr, px, py + 9 * dpr, rx);
-        ctx.arcTo(px, py + 9 * dpr, px, py - 9 * dpr, rx);
-        ctx.arcTo(px, py - 9 * dpr, px + tw, py - 9 * dpr, rx);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        ctx.fillStyle = col;
-        ctx.beginPath();
-        ctx.arc(px + 7 * dpr, py, 3 * dpr, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillText(label, px + 14 * dpr, py + 3.5 * dpr);
-        ctx.globalAlpha = 1;
+        drawTradeTagPill(ctx, {
+          x: px,
+          y: cy,
+          label,
+          isBuy,
+          dpr,
+          fontSize,
+          opacity,
+        });
       });
 
       if (p.peakMult > 1.15 && p.phase !== 'waiting') {

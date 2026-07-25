@@ -26,25 +26,28 @@ export function PlayerXpCounter({ variant = 'full', className = '' }: PlayerXpCo
   if (variant === 'compact') {
     return (
       <div
-        className={`flex items-center gap-2 min-w-0 px-2 py-1 border border-cp-yellow/25 bg-black/60 ${className}`}
+        className={`bg-[#1f2025] border border-white/10 rounded-xl px-3 py-1.5 flex items-center gap-3 min-w-0 shrink-0 ${className}`}
         title={`${prog.xpToNextRank.toLocaleString()} XP to ${prog.isMaxRank ? 'max rank' : prog.nextRankTitle}`}
       >
-        <span className="text-[10px] shrink-0">⭐</span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-[9px] font-black text-cp-yellow truncate">{wallet.xp.toLocaleString()} XP</span>
-            <span className="text-[8px] font-bold text-cp-cyan shrink-0">{prog.rankTitle}</span>
-          </div>
-          <div className="h-1 mt-0.5 bg-white/10 overflow-hidden">
+        <span className="text-sm leading-none shrink-0 self-center" aria-hidden>
+          ⭐
+        </span>
+        <div className="flex flex-col gap-1 min-w-0">
+          <span className="text-xs font-bold text-white tracking-wide whitespace-nowrap">
+            {wallet.xp.toLocaleString('en-US')} XP
+          </span>
+          <div className="w-24 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
             <motion.div
-              className="h-full bg-gradient-to-r from-cp-yellow to-cp-cyan"
+              className="h-full bg-gradient-to-r from-amber-500 to-yellow-400 rounded-full"
               initial={false}
               animate={{ width: `${pct}%` }}
               transition={{ duration: 0.4, ease: 'easeOut' }}
-              style={{ boxShadow: '0 0 6px rgba(252,238,10,0.5)' }}
             />
           </div>
         </div>
+        <span className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md tracking-wider shrink-0">
+          {prog.rankTitle}
+        </span>
       </div>
     );
   }

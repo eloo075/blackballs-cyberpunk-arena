@@ -28,7 +28,7 @@ interface CrashControlsProps {
 
 const PERCENTS = [10, 25, 50, 100];
 const QUICK_ADD = [0.001, 0.01, 0.1, 1] as const;
-const LEVERAGE_PRESETS = [1, 2, 5, 10, 25, 50] as const;
+const LEVERAGE_PRESETS = [1, 1.5, 2, 5, 10, 25, 50] as const;
 const WAIT_FOR_ROUND_MSG = 'Wait for the next round — BUY/SELL open during the countdown.';
 
 function clampWager(amount: number, balance: number): number {
@@ -36,12 +36,22 @@ function clampWager(amount: number, balance: number): number {
   return Math.floor(Math.min(amount, balance) * 1000) / 1000;
 }
 
-function leverageGlow(level: number): string {
-  if (level >= 25) return 'rgba(255,0,60,0.55)';
-  if (level >= 10) return 'rgba(252,238,10,0.55)';
-  if (level >= 5) return 'rgba(157,0,255,0.45)';
-  return 'rgba(0,240,255,0.35)';
+function leveragePillClass(preset: number, active: boolean): string {
+  if (!active) {
+    return 'bg-[#2a2c33] text-white/55 border border-white/10 hover:bg-[#353842]';
+  }
+  if (preset >= 50) return 'bg-amber-400 text-black border-b-[3px] border-amber-600';
+  if (preset >= 25) return 'bg-rose-500 text-white border-b-[3px] border-rose-700';
+  if (preset >= 10) return 'bg-orange-500 text-white border-b-[3px] border-orange-700';
+  if (preset >= 5) return 'bg-violet-500 text-white border-b-[3px] border-violet-700';
+  if (preset >= 2) return 'bg-sky-500 text-white border-b-[3px] border-sky-700';
+  return 'bg-slate-500 text-white border-b-[3px] border-slate-700';
 }
+
+const ARCADE_BTN_BUY =
+  'bg-emerald-500 hover:bg-emerald-400 text-white font-black rounded-xl border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all';
+const ARCADE_BTN_SELL =
+  'bg-rose-500 hover:bg-rose-400 text-white font-black rounded-xl border-b-4 border-rose-700 active:border-b-0 active:translate-y-1 transition-all';
 
 export function CrashControls({
   phase,
@@ -183,20 +193,20 @@ export function CrashControls({
     : 'SELL SHORT';
 
   return (
-    <div className="cp-panel p-0 font-mono relative safe-bottom overflow-hidden bg-[#0a0a0c] border border-white/10">
+    <div className="cp-panel p-0 font-arcade relative safe-bottom overflow-hidden">
       {!walletConnected && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/85 backdrop-blur-sm px-4">
-          <span className="text-[10px] uppercase tracking-[0.25em] text-white/50 text-center">
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[#141518]/90 backdrop-blur-sm px-4 rounded-2xl">
+          <span className="text-sm font-extrabold text-white/70 text-center">
             Connect to trade
           </span>
-          <p className="text-[9px] text-white/40 text-center max-w-[260px] leading-relaxed">
+          <p className="text-xs text-white/45 text-center max-w-[260px] leading-relaxed">
             {vaultEnabled
               ? 'Real play: connect wallet + deposit in VAULT. Or try demo mode with free credits.'
               : 'Demo mode — connect for free $BlackBalls credits to practice.'}
           </p>
           <button
             onClick={onConnect}
-            className="touch-target touch-manipulation px-6 py-3 text-xs font-black bg-gradient-to-r from-cp-cyan to-cp-purple text-white w-full max-w-[240px] rounded-lg"
+            className="touch-target touch-manipulation px-6 py-3 text-sm font-black bg-sky-500 hover:bg-sky-400 text-white w-full max-w-[240px] rounded-xl border-b-4 border-sky-700 active:border-b-0 active:translate-y-1 transition-all"
           >
             {vaultEnabled ? 'CONNECT WALLET' : 'CONNECT · DEMO PLAY'}
           </button>
@@ -204,7 +214,7 @@ export function CrashControls({
             <button
               type="button"
               onClick={onTryDemo}
-              className="touch-target touch-manipulation px-4 py-2 text-[10px] font-bold border border-cp-yellow/50 text-cp-yellow hover:bg-cp-yellow/10 w-full max-w-[240px] rounded-lg"
+              className="touch-target touch-manipulation px-4 py-2 text-xs font-bold border border-white/10 bg-[#2a2c33] text-amber-300 hover:bg-[#353842] w-full max-w-[240px] rounded-xl"
             >
               TRY DEMO (FREE CREDITS)
             </button>
@@ -213,27 +223,23 @@ export function CrashControls({
       )}
 
       <div className="flex flex-col">
-        {/* wager amount — dedicated neon panel */}
+        {/* wager amount */}
         <div
-          className={`relative px-3 py-3 border-b border-cp-cyan/35 bg-gradient-to-r from-cp-cyan/5 via-cp-purple/5 to-cp-cyan/5 ${
+          className={`relative px-4 py-3 border-b border-white/5 bg-[#25262c] ${
             hasPosition ? 'opacity-50 pointer-events-none' : ''
           }`}
-          style={{ boxShadow: 'inset 0 0 16px rgba(0,240,255,0.08), 0 0 8px rgba(0,240,255,0.12)' }}
         >
           <div className="flex items-center justify-between gap-2 mb-2">
-            <span className="text-[10px] font-black uppercase tracking-[0.25em] neon-cyan">
-              💰 WAGER AMOUNT
+            <span className="text-xs font-extrabold text-white/80">
+              💰 Wager Amount
             </span>
-            <span className="text-[9px] text-white/40">
-              BALANCE{' '}
-              <span className="neon-cyan font-bold">{balance.toFixed(3)}</span> $BlackBalls
+            <span className="text-[11px] text-white/45">
+              Balance{' '}
+              <span className="text-sky-400 font-extrabold">{balance.toFixed(3)}</span> $BlackBalls
             </span>
           </div>
 
-          <div
-            className="flex items-center gap-2 mb-2 px-3 py-2 rounded-lg border-2 border-cp-cyan/50 bg-black/60"
-            style={{ boxShadow: '0 0 14px rgba(0,240,255,0.25), inset 0 0 10px rgba(0,240,255,0.06)' }}
-          >
+          <div className="flex items-center gap-2 mb-2 px-3 py-2 rounded-xl border border-white/10 bg-[#1f2025]">
             <input
               type="number"
               min="0"
@@ -247,19 +253,18 @@ export function CrashControls({
               disabled={hasPosition}
               placeholder="0.00"
               aria-label="Wager amount in BlackBalls"
-              className="flex-1 min-w-0 bg-transparent text-2xl sm:text-3xl font-black text-white outline-none disabled:opacity-50 tabular-nums neon-cyan placeholder:text-white/20"
-              style={{ fontFamily: 'Orbitron, sans-serif' }}
+              className="flex-1 min-w-0 bg-transparent text-2xl sm:text-3xl font-extrabold text-white outline-none disabled:opacity-50 tabular-nums placeholder:text-white/20"
             />
-            <span className="text-[11px] font-black neon-purple shrink-0">$BlackBalls</span>
+            <span className="text-xs font-extrabold text-white/50 shrink-0">$BlackBalls</span>
           </div>
 
           {percent > 0 && (
-            <div className="text-[9px] neon-cyan mb-2 text-center font-bold">
+            <div className="text-[11px] text-sky-400 mb-2 text-center font-bold">
               Using {percent}% of balance = {safeAmount.toFixed(4)} $BlackBalls
             </div>
           )}
 
-          <div className="text-[8px] text-white/35 uppercase tracking-wider mb-1">Quick add</div>
+          <div className="text-[10px] text-white/40 font-bold mb-1">Quick add</div>
           <div className="flex flex-wrap gap-1.5 mb-2">
             {QUICK_ADD.map(v => (
               <button
@@ -267,7 +272,7 @@ export function CrashControls({
                 type="button"
                 onClick={() => bumpAmount(v)}
                 disabled={hasPosition}
-                className="flex-1 min-w-[52px] min-h-[32px] rounded-md text-[10px] font-bold touch-manipulation disabled:opacity-30 border border-white/10 bg-black/40 text-white/50 hover:border-cp-cyan/50 hover:text-cp-cyan hover:bg-cp-cyan/10"
+                className="flex-1 min-w-[52px] min-h-[32px] rounded-lg text-xs font-bold touch-manipulation disabled:opacity-30 bg-[#2a2c33] text-white/60 border border-white/10 hover:bg-[#353842]"
               >
                 +{v}
               </button>
@@ -279,7 +284,7 @@ export function CrashControls({
                 setPercent(0);
               }}
               disabled={hasPosition}
-              className="min-w-[40px] min-h-[32px] rounded-md text-[10px] font-bold touch-manipulation disabled:opacity-30 border border-white/10 bg-black/40 text-white/50 hover:border-cp-cyan/50 hover:text-cp-cyan"
+              className="min-w-[40px] min-h-[32px] rounded-lg text-xs font-bold touch-manipulation disabled:opacity-30 bg-[#2a2c33] text-white/60 border border-white/10 hover:bg-[#353842]"
             >
               ½
             </button>
@@ -290,7 +295,7 @@ export function CrashControls({
                 setPercent(0);
               }}
               disabled={hasPosition}
-              className="min-w-[40px] min-h-[32px] rounded-md text-[10px] font-bold touch-manipulation disabled:opacity-30 border border-white/10 bg-black/40 text-white/50 hover:border-cp-cyan/50 hover:text-cp-cyan"
+              className="min-w-[40px] min-h-[32px] rounded-lg text-xs font-bold touch-manipulation disabled:opacity-30 bg-[#2a2c33] text-white/60 border border-white/10 hover:bg-[#353842]"
             >
               2×
             </button>
@@ -301,13 +306,13 @@ export function CrashControls({
                 setPercent(0);
               }}
               disabled={hasPosition}
-              className="min-w-[48px] min-h-[32px] rounded-md text-[10px] font-black touch-manipulation disabled:opacity-30 border-2 border-cp-yellow/60 bg-cp-yellow/10 neon-yellow hover:bg-cp-yellow/20"
+              className="min-w-[48px] min-h-[32px] rounded-lg text-xs font-extrabold touch-manipulation disabled:opacity-30 bg-amber-400 text-black border-b-2 border-amber-600 hover:bg-amber-300"
             >
               MAX
             </button>
           </div>
 
-          <div className="text-[8px] text-white/35 uppercase tracking-wider mb-1">% of balance</div>
+          <div className="text-[10px] text-white/40 font-bold mb-1">% of balance</div>
           <div className="flex gap-1.5">
             {PERCENTS.map(p => (
               <button
@@ -315,12 +320,11 @@ export function CrashControls({
                 type="button"
                 onClick={() => setPercent(p)}
                 disabled={hasPosition}
-                className={`flex-1 min-h-[34px] rounded-md text-[11px] font-black touch-manipulation disabled:opacity-30 ${
+                className={`flex-1 min-h-[36px] rounded-lg text-xs font-extrabold touch-manipulation disabled:opacity-30 ${
                   percent === p
-                    ? 'neon-cyan bg-cp-cyan/15 border-2 border-cp-cyan'
-                    : 'text-white/45 bg-black/40 border border-white/10 hover:border-cp-cyan/40 hover:text-cp-cyan'
+                    ? 'bg-sky-500 text-white border-b-[3px] border-sky-700'
+                    : 'bg-[#2a2c33] text-white/55 border border-white/10 hover:bg-[#353842]'
                 }`}
-                style={percent === p ? { boxShadow: '0 0 12px rgba(0,240,255,0.35)' } : undefined}
               >
                 {p}%
               </button>
@@ -328,101 +332,67 @@ export function CrashControls({
           </div>
         </div>
 
-        {/* leverage — dedicated neon panel */}
+        {/* leverage */}
         <div
-          className={`relative px-3 py-3 border-b border-cp-yellow/30 bg-gradient-to-r from-cp-yellow/5 via-cp-purple/5 to-cp-yellow/5 ${
+          className={`relative px-4 py-3 border-b border-white/5 bg-[#25262c] ${
             hasPosition ? 'opacity-50 pointer-events-none' : ''
           }`}
-          style={{
-            boxShadow:
-              leverage > 1
-                ? `inset 0 0 24px ${leverageGlow(leverage)}, 0 0 12px ${leverageGlow(leverage)}`
-                : 'inset 0 0 12px rgba(252,238,10,0.08)',
-          }}
         >
           <div className="flex items-center justify-between gap-2 mb-2">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black uppercase tracking-[0.25em] neon-yellow">
-                ⚡ LEVERAGE
+              <span className="text-xs font-extrabold text-amber-300">
+                ⚡ Leverage
               </span>
               {leverage > 1 && (
-                <span className="text-[8px] font-black px-1.5 py-0.5 rounded border border-cp-magenta/50 text-cp-magenta bg-cp-magenta/10 cp-pulse">
+                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
                   DEGEN MODE
                 </span>
               )}
             </div>
-            <span className="text-[9px] text-white/40">
-              EXPOSURE{' '}
-              <span className="neon-cyan font-bold">{notionalExposure.toFixed(3)}</span> $BlackBalls
+            <span className="text-[11px] text-white/45">
+              Exposure{' '}
+              <span className="text-sky-400 font-extrabold">{notionalExposure.toFixed(3)}</span> $BlackBalls
             </span>
           </div>
 
           <div className="flex items-center gap-3 mb-2">
-            <motion.div
-              key={leverage}
-              initial={{ scale: 1.15 }}
-              animate={{ scale: 1 }}
-              className="shrink-0 min-w-[72px] text-center px-2 py-1 rounded-lg border border-cp-yellow/50 bg-black/60"
-              style={{
-                boxShadow: `0 0 16px ${leverageGlow(leverage)}, inset 0 0 12px ${leverageGlow(leverage)}`,
-              }}
-            >
-              <div
-                className="text-2xl sm:text-3xl font-black leading-none neon-yellow tabular-nums"
-                style={{ fontFamily: 'Orbitron, sans-serif' }}
-              >
-                {leverage}x
+            <div className="shrink-0 min-w-[72px] text-center px-3 py-1.5 rounded-full bg-amber-400 text-black border-b-[3px] border-amber-600">
+              <div className="text-2xl sm:text-3xl font-extrabold leading-none tabular-nums">
+                {leverage % 1 === 0 ? `${leverage}x` : `${leverage.toFixed(1)}x`}
               </div>
-            </motion.div>
+            </div>
 
             <div className="flex-1 flex flex-col gap-1.5 min-w-0">
               <input
                 type="range"
                 min="1"
                 max="50"
-                step="1"
+                step="0.5"
                 value={leverage}
-                onChange={e => setLeverage(parseInt(e.target.value))}
+                onChange={e => setLeverage(parseFloat(e.target.value))}
                 disabled={hasPosition}
                 className="leverage-slider w-full h-2.5 cursor-pointer touch-manipulation disabled:opacity-30"
                 style={{
                   ['--lev-pct' as string]: `${((leverage - 1) / 49) * 100}%`,
-                  ['--lev-glow' as string]: leverageGlow(leverage),
                 }}
               />
-              <div className="flex justify-between text-[8px] text-white/35 uppercase tracking-wider">
+              <div className="flex justify-between text-[10px] text-white/40 font-bold">
                 <span>1x safe</span>
-                <span className="neon-magenta">50x max</span>
+                <span className="text-rose-400">50x max</span>
               </div>
             </div>
           </div>
 
-          <div className="flex gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
             {LEVERAGE_PRESETS.map(preset => {
               const active = leverage === preset;
-              const hot = preset >= 10;
               return (
                 <button
                   key={preset}
                   type="button"
                   onClick={() => setLeverage(preset)}
                   disabled={hasPosition}
-                  className={`flex-1 min-h-[34px] rounded-md text-[11px] font-black touch-manipulation transition-all disabled:opacity-30 ${
-                    active
-                      ? hot
-                        ? 'neon-magenta bg-cp-magenta/20 border-2 border-cp-magenta'
-                        : 'neon-yellow bg-cp-yellow/15 border-2 border-cp-yellow'
-                      : 'text-white/45 bg-black/40 border border-white/10 hover:border-cp-yellow/40 hover:text-cp-yellow'
-                  }`}
-                  style={
-                    active
-                      ? {
-                          boxShadow: hot
-                            ? '0 0 14px rgba(255,0,60,0.45)'
-                            : '0 0 14px rgba(252,238,10,0.35)',
-                        }
-                      : undefined
-                  }
+                  className={`flex-1 min-w-[40px] min-h-[36px] rounded-full text-xs font-extrabold touch-manipulation transition-all disabled:opacity-30 ${leveragePillClass(preset, active)}`}
                 >
                   {preset}x
                 </button>
@@ -432,14 +402,14 @@ export function CrashControls({
         </div>
 
         {/* auto take-profit */}
-        <div className="flex items-center justify-between px-3 py-2 text-[10px] border-b border-white/10 bg-black/30">
-          <span className="text-white/35 text-[9px] uppercase tracking-wider">
+        <div className="flex items-center justify-between px-4 py-2.5 text-xs border-b border-white/5 bg-[#1f2025]">
+          <span className="text-white/40 text-[11px] font-bold">
             {holdBonuses.stimmy > 0
               ? `+${Math.round(holdBonuses.stimmy * 100)}% stimmy active`
               : 'Wager → leverage → BUY / SELL'}
           </span>
           <div className="flex items-center gap-1.5">
-            <span className="text-white/30 uppercase text-[9px] tracking-wider">Auto TP</span>
+            <span className="text-white/35 text-[11px] font-bold">Auto TP</span>
             <input
               type="number"
               min="1.01"
@@ -451,9 +421,9 @@ export function CrashControls({
                 onSetAutoSell(e.target.value ? parseFloat(e.target.value) : null);
               }}
               placeholder="OFF"
-              className="w-16 bg-black/50 border border-cp-yellow/30 px-2 py-1 text-[10px] text-cp-yellow text-right outline-none focus:border-cp-yellow/60 focus:shadow-[0_0_8px_rgba(252,238,10,0.3)]"
+              className="w-16 bg-[#2a2c33] border border-white/10 rounded-lg px-2 py-1 text-[11px] text-amber-300 text-right outline-none focus:border-amber-400/50"
             />
-            <span className="text-white/30">x</span>
+            <span className="text-white/35">x</span>
           </div>
         </div>
 
@@ -464,29 +434,26 @@ export function CrashControls({
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="px-3 py-2 border-b border-white/10 bg-black/40 overflow-hidden"
+              className="px-3 py-2 border-b border-white/5 bg-[#25262c] overflow-hidden"
             >
-              <div className="flex items-center justify-between text-[11px] gap-2">
-                <span className={positionSide === 'buy' ? 'text-cp-green font-bold' : 'text-cp-magenta font-bold'}>
+              <div className="flex items-center justify-between text-xs gap-2">
+                <span className={positionSide === 'buy' ? 'text-emerald-400 font-extrabold' : 'text-rose-400 font-extrabold'}>
                   {positionSide === 'buy' ? 'LONG' : 'SHORT'} · {positionAmount.toFixed(3)} $BlackBalls
                 </span>
                 <span
-                  className={`font-black px-2 py-0.5 rounded border text-[11px] shrink-0 ${
-                    positionLeverage >= 10
-                      ? 'neon-magenta border-cp-magenta/60 bg-cp-magenta/15'
-                      : positionLeverage > 1
-                        ? 'neon-yellow border-cp-yellow/60 bg-cp-yellow/10'
-                        : 'text-white/50 border-white/20'
+                  className={`font-extrabold px-2.5 py-0.5 rounded-full text-xs shrink-0 ${
+                    positionLeverage >= 50
+                      ? 'bg-amber-400 text-black'
+                      : positionLeverage >= 10
+                        ? 'bg-rose-500 text-white'
+                        : positionLeverage > 1
+                          ? 'bg-amber-400/90 text-black'
+                          : 'bg-[#2a2c33] text-white/55 border border-white/10'
                   }`}
-                  style={
-                    positionLeverage > 1
-                      ? { boxShadow: `0 0 10px ${leverageGlow(positionLeverage)}` }
-                      : undefined
-                  }
                 >
                   {positionLeverage}x LEV
                 </span>
-                <span className={positionPnl >= 0 ? 'text-cp-green font-bold' : 'text-cp-magenta font-bold'}>
+                <span className={positionPnl >= 0 ? 'text-emerald-400 font-extrabold' : 'text-rose-400 font-extrabold'}>
                   {positionPnl >= 0 ? '+' : ''}
                   {positionPnl.toFixed(3)} ({positionPct >= 0 ? '+' : ''}
                   {positionPct.toFixed(1)}%)
@@ -503,13 +470,13 @@ export function CrashControls({
 
         {/* BUY / SELL */}
         {(tradeBlockReason || tradeError) && walletConnected && (
-          <div className="mx-2 mt-2 px-2.5 py-2 text-[9px] leading-relaxed border rounded-lg bg-cp-yellow/5 border-cp-yellow/35 text-cp-yellow">
+          <div className="mx-3 mt-2 px-3 py-2 text-xs leading-relaxed rounded-xl bg-amber-400/10 border border-amber-400/25 text-amber-200 font-bold">
             {tradeError ?? tradeBlockReason}
             {tradeBlockReason?.includes('Vault balance is 0') && onTryDemo && (
               <button
                 type="button"
                 onClick={onTryDemo}
-                className="block mt-2 text-[9px] font-black underline text-cp-cyan"
+                className="block mt-2 text-xs font-extrabold underline text-sky-400"
               >
                 Or switch to demo mode with free credits →
               </button>
@@ -517,67 +484,51 @@ export function CrashControls({
           </div>
         )}
         {walletConnected && isDemoWallet && (
-          <div className="mx-2 mt-2 px-2.5 py-1 text-[8px] text-center text-cp-green/90 border border-cp-green/25 bg-cp-green/5">
+          <div className="mx-3 mt-2 px-3 py-1.5 text-[11px] text-center text-emerald-300 border border-emerald-500/20 bg-emerald-500/10 rounded-xl font-bold">
             DEMO MODE · off-chain credits · no real tokens at risk
           </div>
         )}
-        <div className="grid grid-cols-2 gap-0 p-2 bg-[#0d0d10]">
+        <div className="grid grid-cols-2 gap-3 p-3">
           <button
             onClick={() => handleTrade('buy')}
             disabled={busy}
-            className={`touch-manipulation min-h-[56px] sm:min-h-[52px] mx-1 rounded-xl font-black text-base sm:text-sm tracking-wide transition-all ${
-              busy ? 'opacity-35 cursor-not-allowed' : buyLooksActive ? '' : 'opacity-40'
+            className={`touch-manipulation min-h-[56px] py-3 px-4 text-sm sm:text-base ${ARCADE_BTN_BUY} ${
+              busy || !buyLooksActive ? 'opacity-40 cursor-not-allowed' : ''
             }`}
-            style={{
-              background: 'linear-gradient(180deg, #1a4d2e 0%, #0d2818 100%)',
-              color: '#4ade80',
-              boxShadow: buyLooksActive
-                ? '0 0 20px rgba(74,222,128,0.25), inset 0 1px 0 rgba(255,255,255,0.1)'
-                : undefined,
-              border: '1px solid rgba(74,222,128,0.3)',
-            }}
           >
             {buyLabel}
             {!hasPosition && (
-              <span className="block text-[10px] font-bold neon-cyan mt-0.5">
+              <span className="block text-xs font-bold opacity-90 mt-0.5">
                 {safeAmount.toFixed(3)} $BlackBalls
                 {leverage > 1 ? ` · ${leverage}x` : ''}
               </span>
             )}
             {!hasPosition && entriesOpen && (
-              <span className="block text-[9px] font-normal opacity-50">{waitLeft.toFixed(1)}s to enter @ 1.00x</span>
+              <span className="block text-[11px] font-bold opacity-70">{waitLeft.toFixed(1)}s to enter @ 1.00x</span>
             )}
             {!entriesOpen && !hasPosition && (
-              <span className="block text-[9px] font-normal opacity-50">ROUND LIVE</span>
+              <span className="block text-[11px] font-bold opacity-70">ROUND LIVE</span>
             )}
           </button>
           <button
             onClick={() => handleTrade('sell')}
             disabled={busy}
-            className={`touch-manipulation min-h-[56px] sm:min-h-[52px] mx-1 rounded-xl font-black text-base sm:text-sm tracking-wide transition-all ${
-              busy ? 'opacity-35 cursor-not-allowed' : sellLooksActive ? '' : 'opacity-40'
+            className={`touch-manipulation min-h-[56px] py-3 px-4 text-sm sm:text-base ${ARCADE_BTN_SELL} ${
+              busy || !sellLooksActive ? 'opacity-40 cursor-not-allowed' : ''
             }`}
-            style={{
-              background: 'linear-gradient(180deg, #4d1a1a 0%, #280d0d 100%)',
-              color: '#f87171',
-              boxShadow: sellLooksActive
-                ? '0 0 20px rgba(248,113,113,0.25), inset 0 1px 0 rgba(255,255,255,0.1)'
-                : undefined,
-              border: '1px solid rgba(248,113,113,0.3)',
-            }}
           >
             {sellLabel}
             {!hasPosition && (
-              <span className="block text-[10px] font-bold neon-cyan mt-0.5">
+              <span className="block text-xs font-bold opacity-90 mt-0.5">
                 {safeAmount.toFixed(3)} $BlackBalls
                 {leverage > 1 ? ` · ${leverage}x` : ''}
               </span>
             )}
             {!hasPosition && entriesOpen && (
-              <span className="block text-[9px] font-normal opacity-50">{waitLeft.toFixed(1)}s to enter @ 1.00x</span>
+              <span className="block text-[11px] font-bold opacity-70">{waitLeft.toFixed(1)}s to enter @ 1.00x</span>
             )}
             {!entriesOpen && !hasPosition && (
-              <span className="block text-[9px] font-normal opacity-50">ROUND LIVE</span>
+              <span className="block text-[11px] font-bold opacity-70">ROUND LIVE</span>
             )}
           </button>
         </div>
@@ -589,7 +540,7 @@ export function CrashControls({
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className={`mx-2 mb-2 p-2 text-center text-xs font-bold rounded-lg ${lastResult.won ? 'text-cp-green bg-cp-green/10 border border-cp-green/30' : 'text-cp-magenta bg-cp-magenta/10 border border-cp-magenta/30'}`}
+            className={`mx-3 mb-3 p-3 text-center text-sm font-extrabold rounded-xl ${lastResult.won ? 'text-emerald-300 bg-emerald-500/15 border border-emerald-500/25' : 'text-rose-300 bg-rose-500/15 border border-rose-500/25'}`}
           >
             {lastResult.won
               ? `+${lastResult.amount.toFixed(3)} $BlackBalls @ ${lastResult.price.toFixed(2)}x${lastResult.bonusAmount ? ` (+${lastResult.bonusAmount.toFixed(3)} bonus)` : ''}${lastResult.frenzyProc ? ' · FRENZY!' : ''}`

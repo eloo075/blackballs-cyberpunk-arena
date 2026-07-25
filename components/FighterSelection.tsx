@@ -4,10 +4,89 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MAX_FIGHTER_LEVEL, scaleFighterStats } from '@/lib/arena-rewards';
 import { computeUnlockCostFromPower, formatUnlockCost, getFighterUnlockRequirement, isFreeFighter } from '@/lib/fighter-unlocks';
-import { FIGHTERS, RARITY_COLOR, type Fighter } from '@/lib/fighters';
-import { FighterPortrait } from '@/components/fighter-portrait';
+import { FIGHTERS, type Fighter, type Rarity } from '@/lib/fighters';
+import { FighterArt } from '@/components/fighter-art';
 import { useFighterProgress } from '@/hooks/use-fighter-progress';
 import { useFighterUnlocks } from '@/hooks/use-fighter-unlocks';
+
+const STAT_BAR: Record<string, string> = {
+  ATK: 'bg-gradient-to-r from-rose-600 to-red-400',
+  HP: 'bg-gradient-to-r from-emerald-600 to-green-400',
+  SPD: 'bg-gradient-to-r from-cyan-600 to-blue-400',
+  LCK: 'bg-gradient-to-r from-amber-500 to-yellow-300',
+};
+
+const STAT_BAR_MODAL: Record<string, string> = {
+  PWR: 'bg-gradient-to-r from-violet-600 to-purple-400',
+  ...STAT_BAR,
+};
+
+const FIGHTER_BACKDROP: Record<string, string> = {
+  pepe_prime: 'bg-gradient-to-b from-emerald-900/60 to-teal-950/80',
+  based_frog: 'bg-gradient-to-b from-emerald-900/60 to-teal-950/80',
+  street_rat: 'bg-gradient-to-b from-zinc-800 to-stone-900',
+  giga_chad: 'bg-gradient-to-b from-amber-700/50 to-red-950/80',
+  wojak: 'bg-gradient-to-b from-purple-900/60 to-slate-950',
+  bullx: 'bg-gradient-to-b from-orange-600/60 to-yellow-950/80',
+  dogelord: 'bg-gradient-to-b from-sky-900/50 to-blue-950/80',
+  mewtrix: 'bg-gradient-to-b from-purple-900/50 to-fuchsia-950/80',
+  diamond_degen: 'bg-gradient-to-b from-cyan-800/40 to-slate-950',
+  pingu: 'bg-gradient-to-b from-cyan-700/40 to-indigo-950/80',
+  rug_reaper: 'bg-gradient-to-b from-violet-900/60 to-black',
+  zog: 'bg-gradient-to-b from-fuchsia-700/50 to-purple-950/80',
+};
+
+const RARITY_STYLE: Record<Rarity, { card: string; badge: string }> = {
+  COMMON: {
+    card: 'border-slate-700/50',
+    badge: 'bg-slate-800/90 text-slate-300 border border-slate-600/50',
+  },
+  RARE: {
+    card: 'border-cyan-500/60 shadow-[0_0_15px_rgba(6,182,212,0.15)]',
+    badge: 'bg-cyan-950/90 text-cyan-300 border border-cyan-500/50 shadow-[0_0_10px_rgba(6,182,212,0.2)]',
+  },
+  EPIC: {
+    card: 'border-purple-500/60 shadow-[0_0_15px_rgba(168,85,247,0.2)]',
+    badge: 'bg-purple-950/90 text-purple-300 border border-purple-500/50 shadow-[0_0_10px_rgba(168,85,247,0.25)]',
+  },
+  LEGENDARY: {
+    card: 'border-amber-400 shadow-[0_0_20px_rgba(251,191,36,0.25)]',
+    badge: 'bg-amber-950/90 text-amber-200 border border-amber-400/60 shadow-[0_0_12px_rgba(251,191,36,0.3)]',
+  },
+};
+
+function FighterArtSlot({
+  fighter,
+  locked = false,
+  tall = false,
+}: {
+  fighter: Fighter;
+  locked?: boolean;
+  tall?: boolean;
+}) {
+  const backdrop = FIGHTER_BACKDROP[fighter.id] ?? 'bg-gradient-to-b from-zinc-800 to-stone-900';
+  return (
+    <div
+      className={`relative w-full overflow-hidden ${tall ? 'h-52' : 'h-44 sm:h-48'} ${backdrop} ${
+        locked ? 'brightness-[0.55] saturate-[0.65]' : ''
+      }`}
+    >
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_20%,rgba(255,255,255,0.08),transparent_55%)] pointer-events-none" />
+      <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
+      <div className="absolute inset-0 flex items-end justify-center pb-1 transition-transform duration-300 group-hover:scale-105">
+        <div className="relative w-[88%] max-w-[148px] aspect-[3/4]">
+          <FighterArt
+            fighterId={fighter.id}
+            glowColor={fighter.glowColor}
+            locked={locked}
+            fill
+            className="w-full h-full"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface FighterSelectionProps {
   selectedFighterId?: string | null;
@@ -37,95 +116,79 @@ export function FighterSelection({ selectedFighterId, onSelectFighter }: Fighter
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.04, type: 'spring', stiffness: 220 }}
-              whileHover={isLocked ? undefined : { scale: 1.04, y: -6 }}
-              whileTap={isLocked ? undefined : { scale: 0.97 }}
+              whileHover={isLocked ? undefined : { scale: 1.03, y: -4 }}
+              whileTap={isLocked ? undefined : { scale: 0.98 }}
               onClick={() => setModalFighter(fighter)}
-              className={`group relative text-left rounded-sm overflow-hidden transition-shadow ${
-                isLocked ? 'cursor-not-allowed' : 'cursor-pointer'
-              } ${selected ? 'ring-2 ring-white/80' : ''}`}
-              style={{
-                border: `2px solid ${fighter.color}`,
-                boxShadow: selected
-                  ? `0 0 24px ${fighter.glowColor}, 0 0 48px ${fighter.glowColor}44`
-                  : `0 0 12px ${fighter.glowColor}66, 0 4px 20px rgba(0,0,0,0.6)`,
-              }}
+              className={`group relative text-left rounded-2xl overflow-hidden bg-[#1f2025] border-2 transition-transform ${
+                RARITY_STYLE[fighter.rarity].card
+              } ${isLocked ? 'cursor-not-allowed' : 'cursor-pointer'} ${
+                selected ? 'ring-2 ring-amber-400/50 ring-offset-2 ring-offset-[#141518]' : ''
+              }`}
             >
-              <div className={`relative aspect-[3/4] bg-[#050714] overflow-hidden ${isLocked ? 'grayscale-[0.55] brightness-75' : ''}`}>
-                <FighterPortrait fighter={fighter} />
+              <div className="relative">
+                <FighterArtSlot fighter={fighter} locked={isLocked} />
 
-                <div
-                  className="absolute top-2 left-2 px-1.5 py-0.5 text-[9px] font-black tracking-wider bg-black/75 border"
-                  style={{ color: fighter.color, borderColor: `${fighter.color}88` }}
-                >
+                <div className="absolute top-2 left-2 px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-black/50 text-white/90 border border-white/10 backdrop-blur-sm">
                   PWR {scaled.power}
                 </div>
 
                 <div
-                  className="absolute top-2 right-2 text-[7px] font-black uppercase px-1 py-0.5 bg-black/75 border"
-                  style={{
-                    color: RARITY_COLOR[fighter.rarity],
-                    borderColor: `${RARITY_COLOR[fighter.rarity]}66`,
-                  }}
+                  className={`absolute top-2 right-2 text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full backdrop-blur-sm ${RARITY_STYLE[fighter.rarity].badge}`}
                 >
                   {fighter.rarity}
                 </div>
 
                 {!isLocked && prog.level > 1 && (
-                  <div className="absolute bottom-2 left-2 px-1.5 py-0.5 text-[8px] font-black bg-cp-yellow/90 text-black">
+                  <div className="absolute bottom-2 left-2 px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-400 text-black shadow-md">
                     LVL {prog.level}
                   </div>
                 )}
 
                 {isLocked && (
-                  <div className="absolute inset-0 bg-black/55 backdrop-blur-[2px] flex flex-col items-center justify-center p-2">
+                  <div className="absolute inset-0 bg-[#141518]/60 flex flex-col items-center justify-center p-2 backdrop-blur-[2px]">
                     <span className="text-2xl mb-1">🔒</span>
-                    <span className="text-[10px] font-black text-white/90 tracking-widest">LOCKED</span>
-                    <span className="text-[9px] text-cp-yellow mt-1 text-center">
+                    <span className="text-xs font-extrabold text-white/90">LOCKED</span>
+                    <span className="text-[10px] text-amber-300 mt-1 text-center font-bold">
                       {formatUnlockCost(required ?? computeUnlockCostFromPower(fighter.power))} $BlackBalls
                     </span>
                   </div>
                 )}
               </div>
 
-              <div
-                className="px-2 py-1.5 text-center border-t-2 bg-black/90"
-                style={{ borderColor: fighter.color }}
-              >
-                <div
-                  className="text-[11px] sm:text-xs font-black tracking-wide truncate"
-                  style={{ color: fighter.color, fontFamily: 'Orbitron, sans-serif' }}
-                >
+              <div className="px-3 py-2 text-center border-t border-white/5 bg-[#25262c]">
+                <div className="text-sm font-extrabold tracking-wide truncate text-white">
                   {fighter.name}
                 </div>
-                <div className="text-[8px] text-white/40 truncate">{fighter.title}</div>
+                <div className="text-[10px] text-white/40 truncate font-bold">{fighter.title}</div>
               </div>
 
               {/* Stat bars */}
-              <div className="px-2 py-1.5 grid grid-cols-4 gap-1 border-t bg-black/95" style={{ borderColor: `${fighter.color}22` }}>
+              <div className="px-3 py-2.5 space-y-1.5 border-t border-white/5 bg-[#1f2025]">
                 {([['ATK', scaled.atk], ['HP', scaled.hp], ['SPD', scaled.spd], ['LCK', scaled.luck]] as const).map(
                   ([label, val]) => (
-                    <div key={label} className="text-center">
-                      <div className="text-[7px] text-white/30">{label}</div>
-                      <div className="text-[9px] font-bold" style={{ color: fighter.color }}>{val}</div>
-                      <div className="h-0.5 mt-0.5 bg-white/10 overflow-hidden rounded-full">
-                        <div className="h-full rounded-full" style={{ width: `${val}%`, background: fighter.color }} />
+                    <div key={label} className="flex items-center gap-2">
+                      <span className="text-[10px] font-extrabold text-white/40 w-7">{label}</span>
+                      <div className="flex-1 h-2.5 rounded-full bg-[#2a2c33] overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${STAT_BAR[label]}`}
+                          style={{ width: `${val}%` }}
+                        />
                       </div>
+                      <span className="text-[10px] font-extrabold text-white/60 w-6 text-right tabular-nums">{val}</span>
                     </div>
                   ),
                 )}
               </div>
 
               {isFreeFighter(fighter) ? (
-                <div
-                  className="py-1 text-center text-[9px] font-bold border-t bg-black/95"
-                  style={{ borderColor: `${fighter.color}44`, color: fighter.color }}
-                >
+                <div className="py-2 text-center text-[11px] font-extrabold border-t border-white/5 bg-[#25262c] text-emerald-400">
                   FREE · LVL {prog.level}
                 </div>
               ) : (
                 <div
-                  className="flex items-center justify-center gap-1 py-1 text-[9px] font-bold border-t bg-black/95"
-                  style={{ borderColor: `${fighter.color}44`, color: isLocked ? '#fcee0a' : fighter.color }}
+                  className={`flex items-center justify-center gap-1 py-2 text-[11px] font-extrabold border-t border-white/5 bg-[#25262c] ${
+                    isLocked ? 'text-amber-300' : 'text-white/55'
+                  }`}
                 >
                   {isLocked ? '🔒' : '✓'} {required?.toLocaleString()} $BlackBalls
                 </div>
@@ -135,7 +198,7 @@ export function FighterSelection({ selectedFighterId, onSelectFighter }: Fighter
         })}
       </div>
 
-      <p className="mt-3 text-[10px] text-white/40 text-center font-mono">
+      <p className="mt-3 text-xs text-white/40 text-center font-bold">
         Balance: {blackballsBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })} $BlackBalls ·
         Only 2 weakest fighters free · Unlock cost = power³ × 25
       </p>
@@ -195,54 +258,57 @@ function FighterSelectModal({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#141518]/85 backdrop-blur-sm p-4"
     >
       <motion.div
         initial={{ scale: 0.9, y: 20 }}
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.9, y: 20 }}
         onClick={e => e.stopPropagation()}
-        className="max-w-sm w-full overflow-hidden font-mono max-h-[90vh] overflow-y-auto"
-        style={{ border: `2px solid ${f.color}`, boxShadow: `0 0 40px ${f.glowColor}88` }}
+        className={`max-w-sm w-full overflow-hidden font-arcade max-h-[90vh] overflow-y-auto rounded-2xl bg-[#1f2025] border-2 ${RARITY_STYLE[f.rarity].card}`}
       >
-        <div className={`relative aspect-[3/4] bg-[#050714] overflow-hidden ${!unlocked ? 'grayscale-[0.5] brightness-75' : ''}`}>
-          <FighterPortrait fighter={f} />
+        <div className="relative group">
+          <FighterArtSlot fighter={f} locked={!unlocked} tall />
           <button
             onClick={onClose}
-            className="absolute top-2 right-2 w-7 h-7 bg-black/80 border border-white/20 text-white/60 hover:text-cp-magenta text-sm z-10"
+            className="absolute top-2 right-2 w-8 h-8 bg-black/50 border border-white/10 text-white/70 hover:text-white rounded-xl text-sm z-10 font-bold backdrop-blur-sm"
           >
             ×
           </button>
-          <div className="absolute bottom-0 inset-x-0 p-3 bg-gradient-to-t from-black via-black/90 to-transparent">
-            <div className="text-lg font-black" style={{ color: f.color, fontFamily: 'Orbitron, sans-serif' }}>
-              {f.name}
-            </div>
-            <div className="text-[10px] text-white/50">{f.title}</div>
-            <div className="text-[9px] text-cp-yellow mt-1">LVL {progress.level} · {progress.wins} arena wins</div>
+          <div
+            className={`absolute top-2 left-2 text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full ${RARITY_STYLE[f.rarity].badge}`}
+          >
+            {f.rarity}
+          </div>
+          <div className="absolute bottom-0 inset-x-0 p-4 bg-gradient-to-t from-[#1f2025] via-[#1f2025]/95 to-transparent">
+            <div className="text-xl font-extrabold text-white">{f.name}</div>
+            <div className="text-xs text-white/50 font-bold">{f.title}</div>
+            <div className="text-[11px] text-amber-300 mt-1 font-bold">LVL {progress.level} · {progress.wins} arena wins</div>
           </div>
         </div>
 
-        <div className="p-4 bg-black/95 border-t-2" style={{ borderColor: f.color }}>
-          <div className="grid grid-cols-5 gap-2 text-center mb-3">
-            {[['PWR', scaled.power], ['ATK', scaled.atk], ['HP', scaled.hp], ['SPD', scaled.spd], ['LCK', scaled.luck]].map(
+        <div className="p-4 bg-[#1f2025] border-t border-white/5">
+          <div className="space-y-2 mb-4">
+            {([['PWR', scaled.power], ['ATK', scaled.atk], ['HP', scaled.hp], ['SPD', scaled.spd], ['LCK', scaled.luck]] as const).map(
               ([label, value]) => (
-                <div key={label}>
-                  <div className="text-[8px] text-white/30">{label}</div>
-                  <div className="text-sm font-bold" style={{ color: f.color }}>
-                    {value}
+                <div key={label} className="flex items-center gap-2">
+                  <span className="text-xs font-extrabold text-white/40 w-8">{label}</span>
+                  <div className="flex-1 h-2.5 rounded-full bg-[#2a2c33] overflow-hidden">
+                    <div className={`h-full rounded-full ${STAT_BAR_MODAL[label]}`} style={{ width: `${value}%` }} />
                   </div>
+                  <span className="text-sm font-extrabold text-white/70 w-8 text-right tabular-nums">{value}</span>
                 </div>
               ),
             )}
           </div>
 
           {unlocked && (
-            <div className="mb-3 p-2 border border-cp-cyan/30 bg-cp-cyan/5">
-              <div className="flex items-center justify-between text-[10px]">
+            <div className="mb-3 p-3 rounded-xl border border-white/5 bg-[#25262c]">
+              <div className="flex items-center justify-between text-xs font-bold">
                 <span className="text-white/50">Fight coins</span>
-                <span className="font-bold text-cp-cyan">{progress.coins.toLocaleString()} 🪙</span>
+                <span className="font-extrabold text-sky-400">{progress.coins.toLocaleString()} 🪙</span>
               </div>
-              <div className="text-[9px] text-white/30 mt-1">Win battles to earn coins · spend to level up</div>
+              <div className="text-[11px] text-white/35 mt-1 font-bold">Win battles to earn coins · spend to level up</div>
               {progress.level < MAX_FIGHTER_LEVEL && (
                 <button
                   type="button"
@@ -251,27 +317,23 @@ function FighterSelectModal({
                     onLevelUp();
                   }}
                   disabled={!canLevelUp}
-                  className="mt-2 w-full py-1.5 text-[10px] font-black border disabled:opacity-40"
-                  style={{
-                    borderColor: canLevelUp ? f.color : '#444',
-                    color: canLevelUp ? f.color : '#666',
-                  }}
+                  className="mt-2 w-full py-2 text-xs font-extrabold rounded-xl border-b-4 border-violet-700 bg-violet-500 text-white disabled:opacity-40 disabled:border-b-0 active:border-b-0 active:translate-y-0.5 transition-all"
                 >
                   {canLevelUp
-                    ? `⬆ LEVEL UP (${levelUpCost.toLocaleString()} coins)`
-                    : `⬆ NEED ${levelUpCost.toLocaleString()} coins`}
+                    ? `⬆ Level Up (${levelUpCost.toLocaleString()} coins)`
+                    : `⬆ Need ${levelUpCost.toLocaleString()} coins`}
                 </button>
               )}
             </div>
           )}
 
-          <div className="text-[10px] text-cp-yellow/80 mb-1">{f.buff.label}</div>
-          <p className="text-[10px] text-white/50 leading-relaxed mb-2">{f.lore}</p>
+          <div className="text-xs text-amber-300 font-extrabold mb-1">{f.buff.label}</div>
+          <p className="text-xs text-white/50 leading-relaxed mb-3 font-bold">{f.lore}</p>
 
           {!unlocked && required != null && (
-            <div className="mb-3 p-2 border border-cp-yellow/40 bg-cp-yellow/5 text-[11px] text-cp-yellow text-center">
+            <div className="mb-3 p-3 rounded-xl border border-amber-400/25 bg-amber-400/10 text-xs text-amber-200 text-center font-bold">
               🔒 Requires {formatUnlockCost(required)} $BlackBalls (power {f.power})
-              <div className="text-[9px] text-white/40 mt-1">
+              <div className="text-[11px] text-white/40 mt-1">
                 You have {blackballsBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
               </div>
             </div>
@@ -280,12 +342,11 @@ function FighterSelectModal({
           <button
             onClick={onSelect}
             disabled={!unlocked}
-            className="w-full py-2.5 font-black text-sm tracking-wider disabled:opacity-40 transition-all"
-            style={{
-              background: unlocked ? f.color : '#222',
-              color: unlocked ? '#000' : '#666',
-              boxShadow: unlocked ? `0 0 20px ${f.glowColor}` : undefined,
-            }}
+            className={`w-full py-3 font-extrabold text-sm rounded-xl transition-all ${
+              unlocked
+                ? 'bg-emerald-500 hover:bg-emerald-400 text-white border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1'
+                : 'bg-[#2a2c33] text-white/40 border border-white/10'
+            }`}
           >
             {unlocked ? 'SELECT FOR ARENA' : `LOCKED — ${required?.toLocaleString()} $BlackBalls`}
           </button>

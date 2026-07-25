@@ -7,11 +7,12 @@ export function DailyChallengesPanel() {
   const { state, claimChallenge } = useCompetitive();
 
   return (
-    <div className="cp-panel p-3 hud-corners">
-      <div className="text-[10px] font-black uppercase tracking-[0.2em] neon-yellow mb-2">
-        DAILY CHALLENGES
+    <div className="cp-panel overflow-hidden font-arcade">
+      <div className="px-3 py-2.5 bg-gradient-to-r from-amber-500/10 to-transparent border-b border-white/5">
+        <div className="text-sm font-extrabold text-white/85">Daily Challenges</div>
+        <div className="text-[10px] text-white/40 font-bold mt-0.5">Complete tasks for bonus XP</div>
       </div>
-      <div className="space-y-2">
+      <div className="p-3 space-y-2">
         {DAILY_CHALLENGES.map(ch => {
           const progress = Math.min(ch.target, state.dailyProgress[ch.id] ?? 0);
           const claimed = state.dailyClaimed.includes(ch.id);
@@ -21,21 +22,22 @@ export function DailyChallengesPanel() {
           return (
             <div
               key={ch.id}
-              className="p-2 bg-black/30 border border-cp-cyan/10"
-              style={ready ? { borderColor: '#fcee0a88' } : undefined}
+              className={`p-2.5 rounded-xl bg-[#25262c] border ${
+                ready ? 'border-amber-400/40 bg-amber-400/5' : 'border-white/5'
+              }`}
             >
               <div className="flex items-center justify-between gap-2">
-                <div className="text-[10px] text-white/80">{ch.label}</div>
-                <div className="text-[9px] text-cp-yellow shrink-0">+{ch.xpReward} XP</div>
+                <div className="text-xs text-white/80 font-bold">{ch.label}</div>
+                <div className="text-[10px] text-amber-300 shrink-0 font-extrabold">+{ch.xpReward} XP</div>
               </div>
-              <div className="flex items-center gap-2 mt-1.5">
-                <div className="flex-1 h-1 bg-black/50 overflow-hidden">
+              <div className="flex items-center gap-2 mt-2">
+                <div className="flex-1 h-2 rounded-full bg-[#2a2c33] overflow-hidden">
                   <div
-                    className="h-full bg-gradient-to-r from-cp-cyan to-cp-yellow"
+                    className="h-full bg-gradient-to-r from-cyan-600 to-amber-400 rounded-full"
                     style={{ width: `${pct}%` }}
                   />
                 </div>
-                <span className="text-[8px] text-white/40 w-8 text-right">
+                <span className="text-[10px] text-white/40 w-10 text-right font-extrabold tabular-nums">
                   {progress}/{ch.target}
                 </span>
               </div>
@@ -43,13 +45,13 @@ export function DailyChallengesPanel() {
                 <button
                   type="button"
                   onClick={() => claimChallenge(ch.id)}
-                  className="mt-2 w-full py-1 text-[9px] font-black bg-cp-yellow/20 text-cp-yellow border border-cp-yellow/50 hover:bg-cp-yellow/30"
+                  className="mt-2 w-full py-1.5 text-[11px] font-extrabold bg-amber-500 hover:bg-amber-400 text-black rounded-lg border-b-[3px] border-amber-700 active:border-b-0 active:translate-y-0.5 transition-all"
                 >
-                  CLAIM REWARD
+                  Claim Reward
                 </button>
               )}
               {claimed && (
-                <div className="mt-1 text-[8px] text-cp-green text-center">✓ CLAIMED</div>
+                <div className="mt-1.5 text-[10px] text-emerald-400 text-center font-extrabold">✓ Claimed</div>
               )}
             </div>
           );

@@ -16,7 +16,7 @@ export function HowToPlayModal({ open, onClose }: HowToPlayModalProps) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-sm"
+          className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#141518]/85 backdrop-blur-sm"
           onClick={onClose}
         >
           <motion.div
@@ -24,17 +24,17 @@ export function HowToPlayModal({ open, onClose }: HowToPlayModalProps) {
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 24, opacity: 0 }}
             transition={{ type: 'spring', damping: 26, stiffness: 320 }}
-            className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto bg-[#07091c] border border-cp-cyan/30 sm:rounded-lg shadow-[0_0_40px_rgba(0,240,255,0.15)]"
+            className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto bg-[#1f2025] border border-white/5 sm:rounded-2xl font-arcade"
             onClick={e => e.stopPropagation()}
           >
-            <div className="sticky top-0 z-20 flex items-center justify-between px-3 py-2 bg-[#07091c]/95 border-b border-white/10 backdrop-blur">
-              <span className="text-[10px] font-black tracking-widest text-cp-yellow">GUIDE</span>
+            <div className="sticky top-0 z-20 flex items-center justify-between px-4 py-2.5 bg-[#1f2025]/95 border-b border-white/5 backdrop-blur">
+              <span className="text-sm font-extrabold text-amber-300">Guide</span>
               <button
                 type="button"
                 onClick={onClose}
-                className="cp-btn px-3 py-1.5 text-[10px] border border-cp-magenta/40 text-cp-magenta hover:bg-cp-magenta/10"
+                className="px-3 py-1.5 text-xs font-extrabold rounded-xl bg-[#2a2c33] border border-white/10 text-white/70 hover:text-white"
               >
-                CLOSE
+                Close
               </button>
             </div>
             <HowToPlayGuide />

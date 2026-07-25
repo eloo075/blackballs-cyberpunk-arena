@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
-import { Orbitron, JetBrains_Mono } from "next/font/google";
+import { Fredoka, JetBrains_Mono } from "next/font/google";
 import { AppProviders } from "@/components/app-providers";
 import "./globals.css";
 
-const orbitron = Orbitron({
+const fredoka = Fredoka({
   subsets: ["latin"],
-  weight: ["400", "700", "900"],
-  variable: "--font-orbitron",
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-fredoka",
 });
 const jetbrains = JetBrains_Mono({
   subsets: ["latin"],
@@ -15,8 +15,8 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "$BlackBalls // CYBERPUNK DEGEN ARENA",
-  description: "Cyberpunk Solana crash game & meme fighter arena",
+  title: "$BlackBalls — Degen Arcade",
+  description: "Solana crash game & meme fighter arena. Rug or moon — your balls, your call.",
   icons: {
     icon: [
       { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
@@ -35,7 +35,7 @@ export const viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${orbitron.variable} ${jetbrains.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`${fredoka.variable} ${jetbrains.variable}`} suppressHydrationWarning>
       <body suppressHydrationWarning>
         <AppProviders>{children}</AppProviders>
       </body>

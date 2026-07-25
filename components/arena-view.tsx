@@ -630,45 +630,55 @@ export function ArenaView() {
         <div className="w-full lg:w-[240px] shrink-0 flex flex-col gap-3">
           <DailyChallengesPanel />
           {/* trending meta */}
-          <div className="cp-panel p-3 hud-corners">
-            <div className="text-[10px] font-black uppercase tracking-[0.2em] neon-magenta mb-2">TRENDING_META</div>
-            <div className="space-y-2">
+          <div className="cp-panel overflow-hidden font-arcade">
+            <div className="px-3 py-2.5 bg-gradient-to-r from-amber-500/10 to-transparent border-b border-white/5">
+              <div className="text-sm font-extrabold text-white/85">Trending Meta</div>
+            </div>
+            <div className="p-3 space-y-2">
               {trending.map((f, i) => (
-                <div key={f.id} className="flex items-center gap-2 p-1.5 bg-black/30 border border-cp-cyan/10">
-                  <div className="text-xs font-black text-white/30 w-4">#{i + 1}</div>
-                  <div className="w-8 h-8 shrink-0 flex items-center justify-center" style={{ background: `radial-gradient(circle, ${f.color}33, transparent 70%)` }}>
-                    <FighterArt fighterId={f.id} size={30} glowColor={f.glowColor} />
+                <div key={f.id} className="flex items-center gap-2 p-2 rounded-xl bg-[#25262c] border border-white/5">
+                  <div className="text-xs font-extrabold text-white/35 w-5">#{i + 1}</div>
+                  <div className="w-10 h-10 shrink-0 rounded-xl overflow-hidden border border-white/10" style={{ background: `radial-gradient(circle, ${f.color}44, #2a2c33 70%)` }}>
+                    <FighterArt fighterId={f.id} size={40} glowColor={f.glowColor} fill className="w-full h-full" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[10px] font-bold truncate" style={{ color: f.color }}>{f.name}</div>
-                    <div className="text-[8px] text-cp-yellow truncate">{f.buff.label}</div>
+                    <div className="text-xs font-extrabold truncate text-white">{f.name}</div>
+                    <div className="text-[10px] text-amber-300/80 truncate font-bold">{f.buff.label}</div>
                   </div>
-                  <div className="text-[9px] font-bold text-cp-cyan">{f.activity}%</div>
+                  <div className="text-[10px] font-extrabold text-cyan-400">{f.activity}%</div>
                 </div>
               ))}
             </div>
 
-            <div className="mt-3 pt-3 border-t border-cp-cyan/10 space-y-2">
-              <div className="text-[9px] uppercase tracking-[0.2em] text-white/40">TRENDING_MARKET</div>
+            <div className="px-3 py-2 border-t border-white/5 bg-gradient-to-r from-violet-500/10 to-transparent">
+              <div className="text-[11px] font-extrabold text-white/70">Trending Market</div>
+            </div>
+            <div className="p-3 pt-2 space-y-2">
               {marketLoading ? (
-                <div className="text-[9px] text-white/30">LOADING_MARKET_PRICES...</div>
+                <div className="text-[10px] text-white/35 font-bold">Loading market…</div>
               ) : trendingMarket.length === 0 ? (
-                <div className="text-[9px] text-white/30">NO_MARKET_DATA_AVAILABLE</div>
+                <div className="text-[10px] text-white/35 font-bold">No market data</div>
               ) : (
                 trendingMarket.map((token) => {
                   const up = token.priceChange24h >= 0;
                   const hot = token.priceChange24h >= 10;
                   return (
-                    <div key={token.symbol} className="flex items-center gap-2 p-2 bg-black/20 border border-cp-cyan/10 rounded-lg">
-                      <div className="w-8 h-8 rounded-full overflow-hidden bg-slate-950">
+                    <div key={token.symbol} className="flex items-center gap-2 p-2 rounded-xl bg-[#25262c] border border-white/5">
+                      <div className="w-8 h-8 rounded-full overflow-hidden bg-[#2a2c33] border border-white/10">
                         <img src={token.logoUrl || generatePlaceholderLogo(token.symbol)} alt={token.symbol} className="w-full h-full object-cover" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-[10px] font-bold text-white truncate">{token.symbol}</div>
-                        <div className="text-[8px] text-white/40">{formatPrice(token.price)}</div>
+                        <div className="text-xs font-extrabold text-white truncate">{token.symbol}</div>
+                        <div className="text-[10px] text-white/40 font-bold">{formatPrice(token.price)}</div>
                       </div>
-                      <div className={`text-[9px] font-black ${up ? 'text-cp-green' : 'text-cp-magenta'}`}> {up ? '+' : ''}{token.priceChange24h.toFixed(2)}%</div>
-                      {hot && <div className="text-[8px] font-black uppercase tracking-[0.2em] px-1.5 py-0.5 rounded-full bg-cp-magenta/15 text-cp-magenta border border-cp-magenta/30">HOT</div>}
+                      <div className={`text-[10px] font-extrabold ${up ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {up ? '+' : ''}{token.priceChange24h.toFixed(2)}%
+                      </div>
+                      {hot && (
+                        <div className="text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                          HOT
+                        </div>
+                      )}
                     </div>
                   );
                 })
@@ -677,9 +687,11 @@ export function ArenaView() {
           </div>
 
           {/* battle log */}
-          <div className="cp-panel p-3 flex-1 min-h-[160px] hud-corners">
-            <div className="text-[10px] font-black uppercase tracking-[0.2em] neon-yellow mb-2">BATTLE_LOG</div>
-            <div className="space-y-1 text-[10px] text-white/30 min-h-[80px]">
+          <div className="cp-panel overflow-hidden flex-1 min-h-[160px] font-arcade">
+            <div className="px-3 py-2.5 bg-gradient-to-r from-amber-500/10 to-transparent border-b border-white/5">
+              <div className="text-sm font-extrabold text-white/85">Battle Log</div>
+            </div>
+            <div className="p-3 space-y-1 text-xs text-white/35 min-h-[80px] font-bold">
               {inBattle ? (
                 battleLog.map((log, i) => (
                   <div key={i} className="flex items-start gap-2 py-1">

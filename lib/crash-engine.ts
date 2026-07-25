@@ -16,8 +16,8 @@ import type { RoundSummary } from './crash-types';
 /** House edge as a percentage point (4 = 4%). */
 export const HOUSE_EDGE_PERCENT = 4;
 
-/** Fraction of rounds forced to instant 1.00x rug (3%). */
-export const INSTANT_RUG_RATE = 0.03;
+/** Fraction of rounds forced to instant 1.00x rug (~5%). */
+export const INSTANT_RUG_RATE = 0.05;
 
 /** Hard cap on crash multiplier (moons are very rare). */
 export const MAX_CRASH_POINT = 25;
@@ -60,10 +60,11 @@ export function hexToUnitFloat(hex: string): number {
 
 /**
  * Piecewise crash curve — tuned for degen-friendly distribution:
- *   ~4% instant rug @ 1.00x
- *   ~73% between 1.01–3x
+ *   ~5% instant rug @ 1.00x
+ *   ~38% between 1.01–1.50x
+ *   ~35% between 1.50–3x
  *   ~16% between 3–9x
- *   ~6% between 9–20x
+ *   ~5% between 9–20x
  *   ~1% between 20–25x (very rare moon)
  */
 export function crashPointFromRandom(
@@ -79,8 +80,10 @@ export function crashPointFromRandom(
   const t = (r - INSTANT_RUG_RATE) / (1 - INSTANT_RUG_RATE);
 
   let mult: number;
-  if (t < 0.76) {
-    mult = 1.01 + 1.99 * Math.pow(t / 0.76, 0.88);
+  if (t < 0.4) {
+    mult = 1.01 + 0.49 * Math.pow(t / 0.4, 0.72);
+  } else if (t < 0.76) {
+    mult = 1.5 + 1.5 * Math.pow((t - 0.4) / 0.36, 0.85);
   } else if (t < 0.93) {
     mult = 3 + 6 * Math.pow((t - 0.76) / 0.17, 0.82);
   } else if (t < 0.988) {
@@ -147,7 +150,7 @@ export function computeCrashPointLegacy(serverSeed: string, gameId: number): num
 export function generateSeedHistory(count: number, clientSeed = DEFAULT_CLIENT_SEED): RoundSummary[] {
   const entries: RoundSummary[] = [];
   for (let i = count; i >= 1; i--) {
-    const roundSeed = createHash('sha256').update(`bb-history-v4:${clientSeed}:${i}`).digest('hex');
+    const roundSeed = createHash('sha256').update(`bb-history-v5:${clientSeed}:${i}`).digest('hex');
     const result = computeProvablyFairCrash({ serverSeed: roundSeed, clientSeed, nonce: i });
     entries.push({
       id: i,

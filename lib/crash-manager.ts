@@ -527,7 +527,7 @@ class CrashManager {
     this.round.revealed = true;
     this.history.unshift({
       id: this.round.id,
-      crashPoint: this.peakMult,
+      crashPoint: this.round.crashPoint,
       serverSeedHash: this.round.serverSeedHash,
       serverSeed: this.round.serverSeed,
       clientSeed: this.round.clientSeed,
@@ -758,7 +758,7 @@ class CrashManager {
     settlement?: SettlementAction;
     action?: 'open' | 'close';
   } {
-    const lev = Math.round(leverage);
+    const lev = Math.round(leverage * 2) / 2;
     if (lev < MIN_LEVERAGE || lev > MAX_LEVERAGE) {
       return { ok: false, error: 'invalid leverage' };
     }

@@ -7,13 +7,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, '..');
 
 const sources = [
-  join(
-    root,
-    'public',
-    'favicon-source.png',
-  ),
-  'C:\\Users\\lotfi\\.cursor\\projects\\c-Users-lotfi-Downloads-fianl-before-edits\\assets\\c__Users_lotfi_AppData_Roaming_Cursor_User_workspaceStorage_cabfaa8dac4bc66f7910db7a115fd193_images_Picsart_26-07-21_13-36-21-877-4c65452d-b763-46c2-bc80-041ed3e073d2.png',
-  join(root, 'public', 'blackballs-neon-logo.png'),
+  'C:\\Users\\lotfi\\.cursor\\projects\\c-Users-lotfi-Downloads-fianl-before-edits\\assets\\c__Users_lotfi_AppData_Roaming_Cursor_User_workspaceStorage_cabfaa8dac4bc66f7910db7a115fd193_images_Picsart_26-07-25_12-49-46-317-dfae6af9-489e-416c-8804-8e287ffdac5a.png',
+  join(root, 'public', 'favicon-source.png'),
+  join(root, 'public', 'blackballs-logo-transparent.png'),
 ];
 
 async function pickSource() {
@@ -28,37 +24,18 @@ async function pickSource() {
   throw new Error('No favicon source image found');
 }
 
-function isNeonPixel(r, g, b) {
-  const max = Math.max(r, g, b);
-
-  // Bright white/cyan nodes
-  if (max > 195 && b > 165 && g > 140) return true;
-
-  // Kill dark/mid tones (brick, shadows) even if slightly blue-tinted
-  if (max < 115) return false;
-
-  // Neon tube core + glow
-  if (b > 135 && b > r + 28 && g > 85) return true;
-  if (b > 115 && b > r + 40 && max > 130) return true;
-
-  return false;
-}
-
-function stripBackground(data, width, height) {
+/** Remove outer black square; keep cyan circle + black line art. */
+function stripBlackBackground(data, width, height) {
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
       const r = data[i];
       const g = data[i + 1];
       const b = data[i + 2];
-
-      if (!isNeonPixel(r, g, b)) {
+      const max = Math.max(r, g, b);
+      if (max < 28) {
         data[i + 3] = 0;
-        continue;
       }
-
-      // Boost visibility for favicon sizes
-      data[i + 3] = 255;
     }
   }
 }
@@ -69,14 +46,14 @@ async function main() {
 
   const base = sharp(input).ensureAlpha();
   const { data, info } = await base.raw().toBuffer({ resolveWithObject: true });
-  stripBackground(data, info.width, info.height);
+  stripBlackBackground(data, info.width, info.height);
 
   let processed = sharp(data, {
     raw: { width: info.width, height: info.height, channels: 4 },
   });
 
   processed = processed
-    .trim({ threshold: 12 })
+    .trim({ threshold: 8 })
     .resize(512, 512, {
       fit: 'contain',
       background: { r: 0, g: 0, b: 0, alpha: 0 },
@@ -89,12 +66,10 @@ async function main() {
   await sharp(png512).resize(32, 32).png().toFile(join(root, 'public', 'favicon-32.png'));
   await sharp(png512).resize(16, 16).png().toFile(join(root, 'public', 'favicon-16.png'));
 
-  // Minimal ICO wrapper (PNG-in-ICO — supported by all modern browsers)
   const png32 = await sharp(png512).resize(32, 32).png().toBuffer();
-  const ico = buildIco([png32]);
-  writeFileSync(join(root, 'app', 'favicon.ico'), ico);
+  writeFileSync(join(root, 'app', 'favicon.ico'), buildIco([png32]));
 
-  console.log('Created app/icon.png, app/apple-icon.png, app/favicon.ico');
+  console.log('Created app/icon.png, app/apple-icon.png, app/favicon.ico, public/favicon-*.png');
 }
 
 function buildIco(images) {

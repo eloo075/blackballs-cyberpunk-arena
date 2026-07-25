@@ -12,19 +12,19 @@ export function LastHundred({ history }: { history: RoundSummary[] }) {
   const rugs = history.filter(r => r.crashPoint <= 1.01).length;
 
   return (
-    <div className="cp-panel p-2 font-mono">
-      <div className="flex items-center justify-between gap-2 mb-1.5">
-        <div className="text-[9px] font-black uppercase tracking-[0.2em] neon-cyan">LAST_100</div>
+    <div className="cp-panel p-3 font-arcade">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="text-sm font-extrabold text-white/80">Last 100</div>
         {history.length > 0 && (
-          <div className="text-[8px] text-white/35 flex gap-2">
+          <div className="text-[11px] text-white/40 flex gap-2 font-bold">
             <span>avg {avg.toFixed(2)}x</span>
-            <span className="text-cp-magenta">{rugs} rugs</span>
-            <span className="text-cp-purple">{moons} moon</span>
+            <span className="text-rose-400">{rugs} rugs</span>
+            <span className="text-violet-400">{moons} moon</span>
           </div>
         )}
       </div>
-      <div className="flex flex-wrap gap-1 max-h-[88px] overflow-y-auto">
-        {history.length === 0 && <div className="text-[9px] text-white/30">// NO_ROUNDS_YET</div>}
+      <div className="flex flex-wrap gap-1.5 max-h-[88px] overflow-y-auto">
+        {history.length === 0 && <div className="text-xs text-white/35 font-bold">No rounds yet</div>}
         {history.map(r => {
           const tier = crashTier(r.crashPoint);
           const color = CRASH_TIER_COLOR[tier];
@@ -33,8 +33,8 @@ export function LastHundred({ history }: { history: RoundSummary[] }) {
               key={`${r.id}-${r.ts}`}
               initial={{ scale: 0, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="px-1.5 py-0.5 text-[8px] font-bold border shrink-0"
-              style={{ color, borderColor: color + '44', background: color + '11' }}
+              className="px-2 py-1 text-[11px] font-extrabold rounded-full shrink-0 bg-[#2a2c33]"
+              style={{ color }}
               title={`Round #${r.id} · ${r.crashPoint.toFixed(2)}x · ${tier.toUpperCase()}`}
             >
               {r.crashPoint.toFixed(2)}x
@@ -42,7 +42,7 @@ export function LastHundred({ history }: { history: RoundSummary[] }) {
           );
         })}
       </div>
-      <div className="mt-1.5 flex gap-2 text-[7px] text-white/25 uppercase tracking-wider">
+      <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-white/35 font-bold">
         <span style={{ color: CRASH_TIER_COLOR.rug }}>≤1x</span>
         <span style={{ color: CRASH_TIER_COLOR.low }}>1-3x</span>
         <span style={{ color: CRASH_TIER_COLOR.mid }}>3-9x</span>
