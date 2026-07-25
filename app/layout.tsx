@@ -14,15 +14,40 @@ const jetbrains = JetBrains_Mono({
   variable: "--font-jetbrains",
 });
 
+const SITE_URL = 'https://game.blackballs.site';
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: "$BlackBalls — Degen Arcade",
   description: "Solana crash game & meme fighter arena. Rug or moon — your balls, your call.",
+  applicationName: "$BlackBalls",
+  openGraph: {
+    type: "website",
+    url: SITE_URL,
+    siteName: "$BlackBalls",
+    title: "$BlackBalls — Degen Arcade",
+    description: "Solana crash game & meme fighter arena. Rug or moon — your balls, your call.",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "$BlackBalls Degen Arcade",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "$BlackBalls — Degen Arcade",
+    description: "Solana crash game & meme fighter arena. Rug or moon — your balls, your call.",
+    images: ["/og-image.png"],
+  },
   icons: {
     icon: [
       { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
       { url: "/favicon-16.png", sizes: "16x16", type: "image/png" },
     ],
-    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+    apple: [{ url: "/apple-icon.png", sizes: "180x180", type: "image/png" }],
   },
 };
 
