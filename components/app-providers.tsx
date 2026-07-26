@@ -11,6 +11,7 @@ import { CrashSpectatorProvider } from '@/components/crash-spectator-provider';
 import { SpectatorToastHost } from '@/components/SpectatorToastHost';
 import { CompetitiveProvider } from '@/hooks/use-competitive';
 import { AchievementToastHost } from '@/components/achievement-toast-host';
+import { LoadingScreen } from '@/components/loading-screen';
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
@@ -21,6 +22,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
         <WalletProvider>
           <CompetitiveProvider>
             <CrashSpectatorProvider>
+              <LoadingScreen />
               <ReferralUrlCapture />
               <WagmiWalletBridge />
               <SpectatorToastHost />

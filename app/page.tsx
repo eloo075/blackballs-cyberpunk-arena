@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Nav } from '@/components/nav';
 import { CrashView } from '@/components/crash-view';
@@ -23,7 +24,10 @@ export default function Page() {
         </AnimatePresence>
       </main>
       <footer className="text-center text-[10px] text-white/30 py-3 px-3 border-t border-white/5 safe-bottom">
-        $BlackBalls · Degen Arcade
+        $BlackBalls · Degen Arcade ·{' '}
+        <Link href="/guide" className="text-sky-400/70 hover:text-sky-300">
+          Player Guide
+        </Link>
       </footer>
     </div>
   );

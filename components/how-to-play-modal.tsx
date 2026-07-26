@@ -24,7 +24,7 @@ export function HowToPlayModal({ open, onClose }: HowToPlayModalProps) {
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 24, opacity: 0 }}
             transition={{ type: 'spring', damping: 26, stiffness: 320 }}
-            className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto bg-[#1f2025] border border-white/5 sm:rounded-2xl font-arcade"
+            className="w-full sm:max-w-lg max-h-[92vh] overflow-y-auto bg-[#1f2025] border border-white/5 sm:rounded-2xl font-arcade"
             onClick={e => e.stopPropagation()}
           >
             <div className="sticky top-0 z-20 flex items-center justify-between px-4 py-2.5 bg-[#1f2025]/95 border-b border-white/5 backdrop-blur">

@@ -37,7 +37,7 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
       <button type="button" onClick={() => setGuideOpen(true)} className={`${pillBtn} hidden sm:inline-flex`}>
         Guide
       </button>
-      <Link href="/how-to-play" className={`${pillBtn} sm:hidden`}>
+      <Link href="/guide" className={`${pillBtn} sm:hidden`}>
         Guide
       </Link>
     </>
