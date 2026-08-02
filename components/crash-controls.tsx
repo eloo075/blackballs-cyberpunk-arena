@@ -125,17 +125,22 @@ export function CrashControls({
   const [autoVal, setAutoVal] = useState('');
   const [busy, setBusy] = useState(false);
   const [tradeError, setTradeError] = useState<string | null>(null);
+  const [cashOutError, setCashOutError] = useState<string | null>(null);
   const [entryCooldown, setEntryCooldown] = useState(false);
   const [cancelNotice, setCancelNotice] = useState<string | null>(null);
   const cancelToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const entryCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const entriesOpen = phase === 'waiting' && waitLeft > COUNTDOWN_ENTRY_BUFFER_SEC;
-  const safeAmount = clampWager(
-    percent > 0 ? parseFloat((balance * percent / 100).toFixed(4)) : clampBetToBalance(amount, balance),
-    balance,
-  );
-  const notionalExposure = parseFloat((safeAmount * leverage).toFixed(4));
+  const rawWager = percent > 0
+    ? parseFloat((balance * percent / 100).toFixed(4))
+    : clampBetToBalance(amount, balance);
+  const safeAmount = clampWager(rawWager, balance);
+  const effectiveWager =
+    !hasPosition && balance > 0 && safeAmount <= 0
+      ? affordableBetAmount(usdPerToken, balance)
+      : safeAmount;
+  const notionalExposure = parseFloat((effectiveWager * leverage).toFixed(4));
 
   const liveMult = hasPosition && phase === 'waiting' ? 1.0 : mult;
   const positionPct = hasPosition
@@ -150,6 +155,7 @@ export function CrashControls({
     setBusy(false);
     setEntryCooldown(false);
     setTradeError(null);
+    setCashOutError(null);
     setCancelNotice(null);
     if (entryCooldownTimerRef.current) {
       clearTimeout(entryCooldownTimerRef.current);
@@ -171,8 +177,8 @@ export function CrashControls({
     !busy &&
     !entryCooldown &&
     !hasPosition &&
-    safeAmount > 0 &&
-    safeAmount <= balance + 0.0005;
+    effectiveWager > 0 &&
+    effectiveWager <= balance + 0.0005;
   const canOpenSell = canOpenBuy;
 
   const canCloseBuy =
@@ -191,11 +197,14 @@ export function CrashControls({
   const handleCashOut = async () => {
     if (!canCashOut || !onCashOut) return;
     setBusy(true);
+    setCashOutError(null);
     setTradeError(null);
     try {
       const result = await onCashOut(cashOutPct);
       if (!result.ok) {
-        setTradeError(result.error ?? 'Cash-out failed');
+        const msg = result.error ?? 'Cash-out failed';
+        setCashOutError(msg);
+        setTradeError(msg);
       }
     } finally {
       setBusy(false);
@@ -228,10 +237,10 @@ export function CrashControls({
     if (!hasPosition && balance <= 0) {
       return 'Balance is 0 — connect with demo credits or deposit to play.';
     }
-    if (!hasPosition && safeAmount > balance + 0.0005) {
-      return `Wager (${safeAmount.toFixed(3)}) exceeds balance (${balance.toFixed(3)}). Lower amount or use MAX.`;
+    if (!hasPosition && effectiveWager > balance + 0.0005) {
+      return `Wager (${effectiveWager.toFixed(3)}) exceeds balance (${balance.toFixed(3)}). Lower amount or use MAX.`;
     }
-    if (!hasPosition && safeAmount <= 0) {
+    if (!hasPosition && effectiveWager <= 0) {
       return 'Set a wager amount above 0.';
     }
     if (entriesOpen && !hasPosition) {
@@ -241,14 +250,22 @@ export function CrashControls({
   })();
 
   useEffect(() => {
-    if (balance <= 0) return;
+    if (hasPosition || balance <= 0) return;
+    if (percent > 0) return;
     setAmount(prev => {
-      if (prev <= 0 || prev > balance) {
-        return affordableBetAmount(usdPerToken, balance);
-      }
-      return clampBetToBalance(prev, balance);
+      if (prev > 0 && prev <= balance) return prev;
+      return affordableBetAmount(usdPerToken, balance);
     });
-  }, [usdPerToken, balance]);
+  }, [hasPosition, balance, usdPerToken, percent, gameId, roundEpoch]);
+
+  const prevHasPositionRef = useRef(false);
+  useEffect(() => {
+    if (prevHasPositionRef.current && !hasPosition && balance > 0) {
+      setPercent(0);
+      setAmount(affordableBetAmount(usdPerToken, balance));
+    }
+    prevHasPositionRef.current = hasPosition;
+  }, [hasPosition, balance, usdPerToken]);
 
   const showCancelSuccess = (message: string) => {
     setCancelNotice(message);
@@ -322,15 +339,15 @@ export function CrashControls({
         return;
       }
     } else if (side === 'buy' ? !canOpenBuy : !canOpenSell) {
-      if (safeAmount <= 0) setTradeError('Set a wager amount above 0.');
-      else if (safeAmount > balance) setTradeError(`Insufficient balance (${balance.toFixed(3)} available).`);
+      if (effectiveWager <= 0) setTradeError('Set a wager amount above 0.');
+      else if (effectiveWager > balance) setTradeError(`Insufficient balance (${balance.toFixed(3)} available).`);
       return;
     }
 
     setBusy(true);
     setTradeError(null);
     try {
-      const wager = closing ? positionAmount : safeAmount;
+      const wager = closing ? positionAmount : effectiveWager;
       const result = await onTrade(side, wager, closing ? positionLeverage : leverage);
       if (!result.ok) {
         const msg = result.error ?? 'Trade failed — check balance or try again.';
@@ -409,8 +426,8 @@ export function CrashControls({
             )}
             {!hasPosition && (
               <span className="block text-xs font-bold opacity-90 mt-0.5 normal-case tracking-normal">
-                {formatBetTokens(safeAmount)} {CURRENCY_LABEL}
-                <span className="text-white/50"> · {formatBetUsd(tokensToUsd(safeAmount, usdPerToken))}</span>
+                {formatBetTokens(effectiveWager)} {CURRENCY_LABEL}
+                <span className="text-white/50"> · {formatBetUsd(tokensToUsd(effectiveWager, usdPerToken))}</span>
                 {leverage > 1 ? ` · ${leverage}x` : ''}
               </span>
             )}
@@ -463,7 +480,7 @@ export function CrashControls({
           }`}
         >
           <WagerAmountPanel
-            amount={percent > 0 ? safeAmount : clampBetToBalance(amount, balance)}
+            amount={hasPosition ? clampBetToBalance(amount, balance) : effectiveWager}
             onAmountChange={v => setAmount(clampBetToBalance(v, balance))}
             balance={balance}
             disabled={hasPosition}
@@ -625,6 +642,11 @@ export function CrashControls({
         {livePosition && phase === 'running' && walletConnected && (
           <div className="px-3 py-2 border-b border-white/5 bg-emerald-500/10">
             <div className="text-[10px] font-extrabold text-emerald-300 mb-1.5">CASH OUT @ {mult.toFixed(2)}x</div>
+            {cashOutError && (
+              <div className="mb-2 px-2 py-1.5 text-[10px] font-bold rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-200">
+                {cashOutError}
+              </div>
+            )}
             <div className="flex gap-1 mb-2">
               {CASH_OUT_PCTS.map(p => (
                 <button

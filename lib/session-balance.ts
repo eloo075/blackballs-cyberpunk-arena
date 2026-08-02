@@ -119,6 +119,49 @@ export function guardPendingEntryOnStream(prev: FullState | null, next: FullStat
   };
 }
 
+/**
+ * Prevent stale SSE snapshots from clearing an open live position mid-round
+ * (multi-instance / reconnect race on serverless).
+ */
+export function guardLivePositionOnStream(prev: FullState | null, next: FullState): FullState {
+  if (!prev) return next;
+  if (isNewRoundTransition(prev, next)) return next;
+  if (prev.gameId !== next.gameId) return next;
+  if (prev.phase !== 'running' || next.phase !== 'running') return next;
+
+  const hadLive = prev.hasLivePosition || (prev.hasPosition && !prev.entryPending);
+  if (!hadLive || !prev.hasPosition) return next;
+
+  if (next.hasPosition) {
+    if (next.positionAmount <= prev.positionAmount + 0.001) return next;
+    return {
+      ...next,
+      positionAmount: prev.positionAmount,
+      positionSide: prev.positionSide,
+      positionLeverage: prev.positionLeverage,
+      positionEntryPrice: prev.positionEntryPrice,
+      hasLivePosition: true,
+      entryPending: false,
+    };
+  }
+
+  if (next.entryPending) return next;
+
+  const refund = next.balance - prev.balance;
+  if (refund >= prev.positionAmount * 0.05) return next;
+
+  return {
+    ...next,
+    hasPosition: true,
+    hasLivePosition: true,
+    entryPending: false,
+    positionSide: prev.positionSide,
+    positionAmount: prev.positionAmount,
+    positionLeverage: prev.positionLeverage,
+    positionEntryPrice: prev.positionEntryPrice,
+  };
+}
+
 /** Ensure flip SSE player view always has a numeric balance. */
 export function normalizeFlipStreamState(
   raw: FlipFullState,

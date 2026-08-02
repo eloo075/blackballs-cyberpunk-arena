@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import type { FullState } from '@/lib/crash-types';
 import { useWallet } from '@/lib/wallet-context';
-import { resolveClientSyncBalance, shouldApplyServerBalance, normalizeCrashStreamState, guardPendingEntryOnStream, resetPlayerViewForNewRound, isNewRoundTransition } from '@/lib/session-balance';
+import { resolveClientSyncBalance, shouldApplyServerBalance, normalizeCrashStreamState, guardPendingEntryOnStream, guardLivePositionOnStream, resetPlayerViewForNewRound, isNewRoundTransition } from '@/lib/session-balance';
 import { shouldSkipSessionSync, markSessionSynced } from '@/lib/sync-session-debounce';
 import { teardownEventSource } from '@/lib/crash-event-source';
 import { fetchJsonWithTimeout, actionErrorMessage } from '@/lib/action-timeout';
@@ -129,6 +129,7 @@ export function useCrashStream() {
           next = resetPlayerViewForNewRound(next);
         }
         next = guardPendingEntryOnStream(prev, next);
+        next = guardLivePositionOnStream(prev, next);
         stateRef.current = next;
         if (
           sessionReadyRef.current &&
@@ -288,6 +289,49 @@ export function useCrashStream() {
     if (!hydrated || state != null || !connected) return;
     void refreshGameState();
   }, [hydrated, connected, state, refreshGameState]);
+
+  const hadLivePositionRef = useRef(false);
+
+  // Recover when a live position vanishes mid-round (serverless instance desync).
+  useEffect(() => {
+    if (!address || !state) return;
+    const liveNow =
+      state.hasLivePosition ||
+      (state.hasPosition && state.phase === 'running' && !state.entryPending);
+
+    if (state.phase === 'running' && hadLivePositionRef.current && !liveNow) {
+      void refreshGameState();
+    }
+    hadLivePositionRef.current = liveNow;
+  }, [
+    address,
+    state?.phase,
+    state?.hasPosition,
+    state?.hasLivePosition,
+    state?.entryPending,
+    refreshGameState,
+  ]);
+
+  // Poll authoritative state while a live position is open.
+  useEffect(() => {
+    if (!address || !state || state.phase !== 'running') return;
+    const liveNow =
+      state.hasLivePosition ||
+      (state.hasPosition && !state.entryPending);
+    if (!liveNow) return;
+
+    const timer = setInterval(() => {
+      void refreshGameState();
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [
+    address,
+    state?.phase,
+    state?.hasPosition,
+    state?.hasLivePosition,
+    state?.entryPending,
+    refreshGameState,
+  ]);
 
   // Session sync — wallet-context boots once; here we only merge view in background.
   useEffect(() => {
@@ -530,6 +574,7 @@ export function useCrashStream() {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
+          void refreshGameState();
           return { ok: false, error: typeof data.error === 'string' ? data.error : 'Cash-out rejected' };
         }
         if (typeof data.balance === 'number') setBlackballsBalance(data.balance);
@@ -562,10 +607,11 @@ export function useCrashStream() {
         });
         return { ok: true, exitPrice: typeof data.exitPrice === 'number' ? data.exitPrice : undefined };
       } catch (err) {
+        void refreshGameState();
         return { ok: false, error: actionErrorMessage(err, 'Network error — try again') };
       }
     },
-    [address, setBlackballsBalance],
+    [address, setBlackballsBalance, refreshGameState],
   );
 
   return { state, connected, reconnecting, sessionReady, roundEpoch, streamEpoch, trade, cancelActivePosition, cashOut, setAutoSell, walletConnected: !!address };
