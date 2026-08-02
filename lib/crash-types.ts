@@ -65,6 +65,10 @@ export interface FullState {
   roundSellVolume: number;
   orderPressure: number;
   hasPosition: boolean;
+  /** True when margin is live in the running round (not countdown pending). */
+  hasLivePosition: boolean;
+  /** True when a countdown bet is locked but the round has not started. */
+  entryPending: boolean;
   positionSide: 'buy' | 'sell';
   positionAmount: number;
   positionLeverage: number;

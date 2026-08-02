@@ -23,7 +23,9 @@ export function liquidationPrice(
   if (side === 'buy') {
     return entry * (1 - 1 / leverage);
   }
-  return entry * (1 + 1 / leverage);
+  /** Shorts get a softer liq buffer — 10x liq @ ~1.15x instead of 1.10x. */
+  const shortBuffer = 0.005 * Math.min(leverage, 10);
+  return entry * (1 + 1 / leverage + shortBuffer);
 }
 
 export function isLiquidated(

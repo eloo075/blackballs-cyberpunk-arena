@@ -1,5 +1,10 @@
 'use client';
-import { useEffect, useState } from 'react';
+
+import { useEffect, useRef, useState } from 'react';
+import { WagerAmountPanel } from '@/components/wager-amount-panel';
+import { CURRENCY_LABEL } from '@/lib/format-currency';
+import { affordableBetAmount, clampBetToBalance, formatBetTokens, formatBetUsd, tokensToUsd } from '@/lib/bet-sizing';
+import { useTokenUsd } from '@/hooks/use-token-usd';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { HoldBonuses } from '@/lib/hold-bonuses';
 import { calcPositionPct, calcPositionPnl } from '@/lib/crash-pnl';
@@ -9,27 +14,49 @@ interface CrashControlsProps {
   mult: number;
   balance: number;
   hasPosition: boolean;
+  hasLivePosition?: boolean;
+  entryPending?: boolean;
   positionSide: 'buy' | 'sell';
   positionAmount: number;
   positionLeverage: number;
   positionEntryPrice: number;
   waitLeft: number;
+  gameId?: number;
+  roundEpoch?: number;
+  streamConnected?: boolean;
+  streamEpoch?: number;
   autoSell: number | null;
   lastResult: { won: boolean; amount: number; price: number; bonusAmount?: number; frenzyProc?: boolean } | null;
   holdBonuses: HoldBonuses;
   walletConnected: boolean;
+  sessionReady?: boolean;
   isDemoWallet?: boolean;
   vaultEnabled?: boolean;
   onConnect: () => void;
   onTryDemo?: () => void;
   onTrade: (side: 'buy' | 'sell', amount: number, leverage: number) => Promise<{ ok: boolean; error?: string }>;
+  onCancelEntry: () => Promise<{ ok: boolean; error?: string }>;
   onSetAutoSell: (v: number | null) => Promise<void>;
+  onCashOut?: (percent: number) => Promise<{ ok: boolean; error?: string; exitPrice?: number }>;
 }
 
-const PERCENTS = [10, 25, 50, 100];
-const QUICK_ADD = [0.001, 0.01, 0.1, 1] as const;
+const CASH_OUT_PCTS = [0.25, 0.5, 0.75, 1] as const;
 const LEVERAGE_PRESETS = [1, 1.5, 2, 5, 10, 25, 50] as const;
 const WAIT_FOR_ROUND_MSG = 'Wait for the next round — BUY/SELL open during the countdown.';
+/** Block entries in the last second — server may already be in the live round. */
+const COUNTDOWN_ENTRY_BUFFER_SEC = 1.0;
+
+function entryButtonSubtext(
+  phase: 'waiting' | 'running' | 'crashed',
+  waitLeft: number,
+  entriesOpen: boolean,
+): string {
+  if (entriesOpen) return `${waitLeft.toFixed(1)}s to enter @ 1.00x`;
+  if (phase === 'waiting' && waitLeft <= COUNTDOWN_ENTRY_BUFFER_SEC) return 'Starting soon…';
+  if (phase === 'crashed') return 'Rugged — wait for countdown';
+  if (phase === 'running') return 'Round in progress';
+  return 'Wait for countdown';
+}
 
 function clampWager(amount: number, balance: number): number {
   if (balance <= 0) return 0;
@@ -49,40 +76,63 @@ function leveragePillClass(preset: number, active: boolean): string {
 }
 
 const ARCADE_BTN_BUY =
-  'bg-emerald-500 hover:bg-emerald-400 text-white font-black rounded-xl border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all';
+  'bg-emerald-500 hover:bg-emerald-400 text-white font-black uppercase tracking-wider rounded-xl border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all';
 const ARCADE_BTN_SELL =
-  'bg-rose-500 hover:bg-rose-400 text-white font-black rounded-xl border-b-4 border-rose-700 active:border-b-0 active:translate-y-1 transition-all';
+  'bg-rose-500 hover:bg-rose-400 text-white font-black uppercase tracking-wider rounded-xl border-b-4 border-rose-700 active:border-b-0 active:translate-y-1 transition-all';
+const ARCADE_BTN_LOCKED =
+  'bg-[#2a2c33] text-white/35 font-black uppercase tracking-wider rounded-xl border border-white/10 cursor-not-allowed';
+const ARCADE_BTN_CANCEL_SHORT =
+  'bg-amber-400 hover:bg-amber-300 text-black font-black uppercase tracking-wider rounded-xl border-b-4 border-rose-600 active:border-b-0 active:translate-y-1 transition-all';
+const ARCADE_BTN_CANCEL_LONG =
+  'bg-amber-400 hover:bg-amber-300 text-black font-black uppercase tracking-wider rounded-xl border-b-4 border-emerald-600 active:border-b-0 active:translate-y-1 transition-all';
+const TRADE_BTN =
+  'touch-manipulation min-h-[52px] sm:min-h-[56px] py-2.5 sm:py-3 px-3 sm:px-4 text-sm sm:text-base font-black uppercase tracking-wider';
 
 export function CrashControls({
   phase,
   mult,
-  balance,
+  balance = 0,
   hasPosition,
+  hasLivePosition = false,
+  entryPending = false,
   positionSide,
   positionAmount,
   positionLeverage,
   positionEntryPrice,
   waitLeft,
+  gameId,
+  roundEpoch = 0,
+  streamConnected = true,
+  streamEpoch = 0,
   lastResult,
   holdBonuses,
   walletConnected,
+  sessionReady = true,
   isDemoWallet = false,
   vaultEnabled = false,
   onConnect,
   onTryDemo,
   onTrade,
+  onCancelEntry,
   onSetAutoSell,
+  onCashOut,
 }: CrashControlsProps) {
+  const { usdPerToken } = useTokenUsd();
   const [amount, setAmount] = useState(0.01);
   const [percent, setPercent] = useState(0);
+  const [cashOutPct, setCashOutPct] = useState(1);
   const [leverage, setLeverage] = useState(1);
   const [autoVal, setAutoVal] = useState('');
   const [busy, setBusy] = useState(false);
   const [tradeError, setTradeError] = useState<string | null>(null);
+  const [entryCooldown, setEntryCooldown] = useState(false);
+  const [cancelNotice, setCancelNotice] = useState<string | null>(null);
+  const cancelToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const entryCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const entriesOpen = phase === 'waiting';
+  const entriesOpen = phase === 'waiting' && waitLeft > COUNTDOWN_ENTRY_BUFFER_SEC;
   const safeAmount = clampWager(
-    percent > 0 ? parseFloat((balance * percent / 100).toFixed(4)) : amount,
+    percent > 0 ? parseFloat((balance * percent / 100).toFixed(4)) : clampBetToBalance(amount, balance),
     balance,
   );
   const notionalExposure = parseFloat((safeAmount * leverage).toFixed(4));
@@ -95,40 +145,85 @@ export function CrashControls({
     ? calcPositionPnl(positionSide, positionAmount, positionLeverage, positionEntryPrice, liveMult)
     : 0;
 
+  /** Wipe local UI locks when a new countdown round begins (crashed → waiting / new gameId). */
   useEffect(() => {
-    if (balance > 0 && amount > balance) {
-      setAmount(clampWager(amount, balance));
+    setBusy(false);
+    setEntryCooldown(false);
+    setTradeError(null);
+    setCancelNotice(null);
+    if (entryCooldownTimerRef.current) {
+      clearTimeout(entryCooldownTimerRef.current);
+      entryCooldownTimerRef.current = null;
     }
-    if (balance > 0 && balance < 0.01 && amount > balance) {
-      setAmount(clampWager(balance, balance));
-    }
-  }, [balance, amount]);
+  }, [phase, gameId, roundEpoch]);
+
+  useEffect(() => {
+    return () => {
+      if (cancelToastTimerRef.current) clearTimeout(cancelToastTimerRef.current);
+      if (entryCooldownTimerRef.current) clearTimeout(entryCooldownTimerRef.current);
+    };
+  }, []);
 
   const canOpenBuy =
     walletConnected &&
+    sessionReady &&
     entriesOpen &&
     !busy &&
+    !entryCooldown &&
     !hasPosition &&
     safeAmount > 0 &&
     safeAmount <= balance + 0.0005;
   const canOpenSell = canOpenBuy;
 
-  const canCloseBuy = walletConnected && entriesOpen && !busy && hasPosition && positionSide === 'sell';
-  const canCloseSell = walletConnected && entriesOpen && !busy && hasPosition && positionSide === 'buy';
+  const canCloseBuy =
+    walletConnected && sessionReady && entriesOpen && !busy && hasPosition && positionSide === 'sell' && !entryPending;
+  const canCloseSell =
+    walletConnected && sessionReady && entriesOpen && !busy && hasPosition && positionSide === 'buy' && !entryPending;
 
-  const buyLooksActive = hasPosition ? canCloseBuy : canOpenBuy;
-  const sellLooksActive = hasPosition ? canCloseSell : canOpenSell;
+  const stimmyLabel =
+    holdBonuses.stimmy > 0 ? `+${Math.round(holdBonuses.stimmy * 100)}% stimmy` : null;
+
+  const livePosition = hasLivePosition || (hasPosition && phase === 'running' && !entryPending);
+
+  const canCashOut =
+    walletConnected && phase === 'running' && livePosition && !busy && !!onCashOut;
+
+  const handleCashOut = async () => {
+    if (!canCashOut || !onCashOut) return;
+    setBusy(true);
+    setTradeError(null);
+    try {
+      const result = await onCashOut(cashOutPct);
+      if (!result.ok) {
+        setTradeError(result.error ?? 'Cash-out failed');
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** True when BUY/SELL must show locked — live round, rugged, or countdown closed (no pending cancel). */
+  const entriesClosed =
+    phase === 'running' ||
+    phase === 'crashed' ||
+    (phase === 'waiting' && !entriesOpen && !(entryPending && hasPosition));
 
   const tradeBlockReason = (() => {
     if (!walletConnected) return null;
+    if (phase === 'running' && livePosition) {
+      return `LIVE @ ${mult.toFixed(2)}x — use CASH OUT or Auto TP. Partial: 25/50/75/100%.`;
+    }
     if (phase === 'running' || phase === 'crashed') {
-      return hasPosition
-        ? `${WAIT_FOR_ROUND_MSG} Your position settles when the round crashes.`
+      return livePosition
+        ? `Round live — cash out anytime or wait for rug.`
         : WAIT_FOR_ROUND_MSG;
     }
-    if (busy) return 'Processing trade…';
+    if (phase === 'waiting' && waitLeft <= COUNTDOWN_ENTRY_BUFFER_SEC && !hasPosition) {
+      return 'Round starting — wait for the next countdown.';
+    }
+    if (busy && !entryPending) return 'Processing trade…';
     if (!hasPosition && balance <= 0 && vaultEnabled && !isDemoWallet) {
-      return 'Vault balance is 0 — deposit $BlackBalls via VAULT (top bar) to trade for real.';
+      return 'Vault balance is 0 — deposit BlackBalls via VAULT (top bar) to trade for real.';
     }
     if (!hasPosition && balance <= 0) {
       return 'Balance is 0 — connect with demo credits or deposit to play.';
@@ -145,23 +240,87 @@ export function CrashControls({
     return null;
   })();
 
-  const bumpAmount = (delta: number) => {
-    setAmount(parseFloat(Math.max(0, amount + delta).toFixed(4)));
-    setPercent(0);
+  useEffect(() => {
+    if (balance <= 0) return;
+    setAmount(prev => {
+      if (prev <= 0 || prev > balance) {
+        return affordableBetAmount(usdPerToken, balance);
+      }
+      return clampBetToBalance(prev, balance);
+    });
+  }, [usdPerToken, balance]);
+
+  const showCancelSuccess = (message: string) => {
+    setCancelNotice(message);
+    setTradeError(null);
+    if (cancelToastTimerRef.current) clearTimeout(cancelToastTimerRef.current);
+    cancelToastTimerRef.current = setTimeout(() => setCancelNotice(null), 4000);
+  };
+
+  const pendingShort = hasPosition && entryPending && positionSide === 'sell';
+  const pendingLong = hasPosition && entryPending && positionSide === 'buy';
+
+  const canCancel =
+    walletConnected && sessionReady && !busy && entryPending && hasPosition && phase === 'waiting';
+
+  const handleCancel = async () => {
+    if (!walletConnected || !sessionReady || busy) return;
+    if (!entryPending || !hasPosition) return;
+    setBusy(true);
+    setTradeError(null);
+    try {
+      const result = await onCancelEntry();
+      if (result.ok) {
+        showCancelSuccess(
+          positionSide === 'sell' ? 'Short position cancelled.' : 'Long position cancelled.',
+        );
+        setEntryCooldown(true);
+        entryCooldownTimerRef.current = setTimeout(() => {
+          setEntryCooldown(false);
+          entryCooldownTimerRef.current = null;
+        }, 700);
+      } else {
+        setTradeError(result.error ?? 'Failed to cancel');
+      }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleTrade = async (side: 'buy' | 'sell') => {
-    if (!walletConnected || busy) return;
+    if (!walletConnected) return;
+    if (busy) return;
+    if (!sessionReady) {
+      setTradeError('Syncing session — try again in a moment.');
+      return;
+    }
 
     if (phase === 'running' || phase === 'crashed') {
       setTradeError(WAIT_FOR_ROUND_MSG);
       return;
     }
 
+    // Pending countdown entries use dedicated cancel buttons — never trade here.
+    if (entryPending && hasPosition) {
+      setTradeError('Use the yellow cancel button to remove your countdown entry.');
+      return;
+    }
+
+    if (hasPosition && positionSide === side) {
+      setTradeError('Use the opposite side to close your position.');
+      return;
+    }
+
     const closing = hasPosition && positionSide !== side;
     if (closing) {
-      if (!canCloseBuy && side === 'buy') return;
-      if (!canCloseSell && side === 'sell') return;
+      if (side === 'buy' && !canCloseBuy) {
+        setTradeError('Cannot close short — wait for countdown or check position.');
+        return;
+      }
+      if (side === 'sell' && !canCloseSell) {
+        setTradeError('Cannot close long — wait for countdown or check position.');
+        return;
+      }
     } else if (side === 'buy' ? !canOpenBuy : !canOpenSell) {
       if (safeAmount <= 0) setTradeError('Set a wager amount above 0.');
       else if (safeAmount > balance) setTradeError(`Insufficient balance (${balance.toFixed(3)} available).`);
@@ -170,30 +329,104 @@ export function CrashControls({
 
     setBusy(true);
     setTradeError(null);
-    const wager = closing ? positionAmount : safeAmount;
-    const result = await onTrade(side, wager, closing ? positionLeverage : leverage);
-    setBusy(false);
-    if (!result.ok) {
-      const msg = result.error ?? 'Trade failed — check balance or try again.';
-      setTradeError(msg === 'invalid amount' ? `Insufficient balance (${balance.toFixed(3)} available).` : msg);
+    try {
+      const wager = closing ? positionAmount : safeAmount;
+      const result = await onTrade(side, wager, closing ? positionLeverage : leverage);
+      if (!result.ok) {
+        const msg = result.error ?? 'Trade failed — check balance or try again.';
+        setTradeError(msg === 'invalid amount' ? `Insufficient balance (${balance.toFixed(3)} available).` : msg);
+      }
+      if (!closing) setPercent(0);
+    } finally {
+      setBusy(false);
     }
-    if (!closing) setPercent(0);
   };
 
-  const buyLabel = hasPosition
-    ? positionSide === 'sell'
-      ? 'CLOSE SHORT'
-      : 'LONG LOCKED'
-    : 'BUY LONG';
+  const renderTradeButton = (side: 'buy' | 'sell') => {
+    const isBuy = side === 'buy';
+    const showCancel = isBuy ? pendingLong : pendingShort;
+    const oppositePending = isBuy ? pendingShort : pendingLong;
+    const cancelClass = isBuy ? ARCADE_BTN_CANCEL_LONG : ARCADE_BTN_CANCEL_SHORT;
+    const cancelLabel = isBuy ? 'CANCEL LONG' : 'CANCEL SHORT';
 
-  const sellLabel = hasPosition
-    ? positionSide === 'buy'
-      ? 'CLOSE LONG'
-      : 'SHORT LOCKED'
-    : 'SELL SHORT';
+    if (showCancel && phase === 'waiting') {
+      return (
+        <button
+          type="button"
+          onClick={handleCancel}
+          disabled={!canCancel}
+          className={`${TRADE_BTN} ${cancelClass} ${!canCancel ? 'opacity-40 cursor-not-allowed' : ''}`}
+        >
+          <span className="flex items-center justify-center gap-2">
+            <span aria-hidden className="text-lg leading-none">✕</span>
+            {busy ? 'CANCELLING…' : cancelLabel}
+          </span>
+        </button>
+      );
+    }
+
+    const locked = entriesClosed || oppositePending;
+    const disabled = locked || busy;
+
+    return (
+      <button
+        type="button"
+        onClick={() => handleTrade(side)}
+        disabled={disabled}
+        className={`${TRADE_BTN} ${
+          locked || oppositePending ? ARCADE_BTN_LOCKED : isBuy ? ARCADE_BTN_BUY : ARCADE_BTN_SELL
+        } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+      >
+        {locked || oppositePending ? (
+          <>
+            {isBuy ? 'BUY LONG (LOCKED)' : 'SELL SHORT (LOCKED)'}
+            <span className="block text-[10px] font-bold normal-case tracking-normal opacity-80 mt-0.5">
+              {phase === 'crashed'
+                ? 'Wait for countdown'
+                : phase === 'running'
+                  ? livePosition
+                    ? 'Use CASH OUT above'
+                    : 'Round in progress'
+                  : oppositePending
+                    ? isBuy
+                      ? 'Short active on right — cancel or wait'
+                      : 'Long active on left — cancel or wait'
+                    : 'Starting soon…'}
+            </span>
+          </>
+        ) : (
+          <>
+            {isBuy ? 'BUY LONG' : 'SELL SHORT'}
+            {isBuy && !hasPosition && stimmyLabel && (
+              <span className="block text-[10px] font-extrabold text-amber-300 mt-0.5 normal-case tracking-normal">
+                {stimmyLabel}
+              </span>
+            )}
+            {!isBuy && !hasPosition && (
+              <span className="block text-[10px] font-bold text-rose-200/80 mt-0.5 normal-case tracking-normal">
+                Shorts love rugs
+              </span>
+            )}
+            {!hasPosition && (
+              <span className="block text-xs font-bold opacity-90 mt-0.5 normal-case tracking-normal">
+                {formatBetTokens(safeAmount)} {CURRENCY_LABEL}
+                <span className="text-white/50"> · {formatBetUsd(tokensToUsd(safeAmount, usdPerToken))}</span>
+                {leverage > 1 ? ` · ${leverage}x` : ''}
+              </span>
+            )}
+            {!hasPosition && (
+              <span className="block text-[11px] font-bold opacity-70 normal-case tracking-normal">
+                {entryButtonSubtext(phase, waitLeft, entriesOpen)}
+              </span>
+            )}
+          </>
+        )}
+      </button>
+    );
+  };
 
   return (
-    <div className="cp-panel p-0 font-arcade relative safe-bottom overflow-hidden">
+    <div className="cp-panel p-0 font-arcade relative safe-bottom">
       {!walletConnected && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[#141518]/90 backdrop-blur-sm px-4 rounded-2xl">
           <span className="text-sm font-extrabold text-white/70 text-center">
@@ -202,7 +435,7 @@ export function CrashControls({
           <p className="text-xs text-white/45 text-center max-w-[260px] leading-relaxed">
             {vaultEnabled
               ? 'Real play: connect wallet + deposit in VAULT. Or try demo mode with free credits.'
-              : 'Demo mode — connect for free $BlackBalls credits to practice.'}
+              : 'Demo mode — connect for free BlackBalls credits to practice.'}
           </p>
           <button
             onClick={onConnect}
@@ -225,144 +458,50 @@ export function CrashControls({
       <div className="flex flex-col">
         {/* wager amount */}
         <div
-          className={`relative px-4 py-3 border-b border-white/5 bg-[#25262c] ${
+          className={`relative px-3 py-2 sm:px-4 sm:py-3 border-b border-white/5 bg-[#25262c] ${
             hasPosition ? 'opacity-50 pointer-events-none' : ''
           }`}
         >
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <span className="text-xs font-extrabold text-white/80">
-              💰 Wager Amount
-            </span>
-            <span className="text-[11px] text-white/45">
-              Balance{' '}
-              <span className="text-sky-400 font-extrabold">{balance.toFixed(3)}</span> $BlackBalls
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2 mb-2 px-3 py-2 rounded-xl border border-white/10 bg-[#1f2025]">
-            <input
-              type="number"
-              min="0"
-              step="0.001"
-              inputMode="decimal"
-              value={percent > 0 ? safeAmount : amount}
-              onChange={e => {
-                setAmount(parseFloat(e.target.value) || 0);
-                setPercent(0);
-              }}
-              disabled={hasPosition}
-              placeholder="0.00"
-              aria-label="Wager amount in BlackBalls"
-              className="flex-1 min-w-0 bg-transparent text-2xl sm:text-3xl font-extrabold text-white outline-none disabled:opacity-50 tabular-nums placeholder:text-white/20"
-            />
-            <span className="text-xs font-extrabold text-white/50 shrink-0">$BlackBalls</span>
-          </div>
-
-          {percent > 0 && (
-            <div className="text-[11px] text-sky-400 mb-2 text-center font-bold">
-              Using {percent}% of balance = {safeAmount.toFixed(4)} $BlackBalls
-            </div>
-          )}
-
-          <div className="text-[10px] text-white/40 font-bold mb-1">Quick add</div>
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {QUICK_ADD.map(v => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => bumpAmount(v)}
-                disabled={hasPosition}
-                className="flex-1 min-w-[52px] min-h-[32px] rounded-lg text-xs font-bold touch-manipulation disabled:opacity-30 bg-[#2a2c33] text-white/60 border border-white/10 hover:bg-[#353842]"
-              >
-                +{v}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => {
-                setAmount(parseFloat((amount / 2).toFixed(4)));
-                setPercent(0);
-              }}
-              disabled={hasPosition}
-              className="min-w-[40px] min-h-[32px] rounded-lg text-xs font-bold touch-manipulation disabled:opacity-30 bg-[#2a2c33] text-white/60 border border-white/10 hover:bg-[#353842]"
-            >
-              ½
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAmount(parseFloat((amount * 2).toFixed(4)));
-                setPercent(0);
-              }}
-              disabled={hasPosition}
-              className="min-w-[40px] min-h-[32px] rounded-lg text-xs font-bold touch-manipulation disabled:opacity-30 bg-[#2a2c33] text-white/60 border border-white/10 hover:bg-[#353842]"
-            >
-              2×
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAmount(parseFloat(balance.toFixed(4)));
-                setPercent(0);
-              }}
-              disabled={hasPosition}
-              className="min-w-[48px] min-h-[32px] rounded-lg text-xs font-extrabold touch-manipulation disabled:opacity-30 bg-amber-400 text-black border-b-2 border-amber-600 hover:bg-amber-300"
-            >
-              MAX
-            </button>
-          </div>
-
-          <div className="text-[10px] text-white/40 font-bold mb-1">% of balance</div>
-          <div className="flex gap-1.5">
-            {PERCENTS.map(p => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setPercent(p)}
-                disabled={hasPosition}
-                className={`flex-1 min-h-[36px] rounded-lg text-xs font-extrabold touch-manipulation disabled:opacity-30 ${
-                  percent === p
-                    ? 'bg-sky-500 text-white border-b-[3px] border-sky-700'
-                    : 'bg-[#2a2c33] text-white/55 border border-white/10 hover:bg-[#353842]'
-                }`}
-              >
-                {p}%
-              </button>
-            ))}
-          </div>
+          <WagerAmountPanel
+            amount={percent > 0 ? safeAmount : clampBetToBalance(amount, balance)}
+            onAmountChange={v => setAmount(clampBetToBalance(v, balance))}
+            balance={balance}
+            disabled={hasPosition}
+            percent={percent}
+            onPercentChange={setPercent}
+            showPercentButtons
+            showBalanceHint
+          />
         </div>
 
         {/* leverage */}
         <div
-          className={`relative px-4 py-3 border-b border-white/5 bg-[#25262c] ${
+          className={`relative px-3 py-2 sm:px-4 sm:py-3 border-b border-white/5 bg-[#25262c] ${
             hasPosition ? 'opacity-50 pointer-events-none' : ''
           }`}
         >
-          <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center justify-between gap-2 mb-1.5 sm:mb-2">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-extrabold text-amber-300">
-                ⚡ Leverage
-              </span>
+              <span className="text-xs font-extrabold text-amber-300">⚡ Leverage</span>
               {leverage > 1 && (
-                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                <span className="hidden sm:inline text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
                   DEGEN MODE
                 </span>
               )}
             </div>
-            <span className="text-[11px] text-white/45">
-              Exposure{' '}
-              <span className="text-sky-400 font-extrabold">{notionalExposure.toFixed(3)}</span> $BlackBalls
+            <span className="text-[10px] sm:text-[11px] text-white/45">
+              <span className="text-sky-400 font-extrabold">{notionalExposure.toFixed(2)}</span> exp.
             </span>
           </div>
 
-          <div className="flex items-center gap-3 mb-2">
-            <div className="shrink-0 min-w-[72px] text-center px-3 py-1.5 rounded-full bg-amber-400 text-black border-b-[3px] border-amber-600">
-              <div className="text-2xl sm:text-3xl font-extrabold leading-none tabular-nums">
+          <div className="flex items-center gap-2 sm:gap-3 mb-1.5 sm:mb-2">
+            <div className="shrink-0 min-w-[56px] sm:min-w-[72px] text-center px-2 py-1 sm:px-3 sm:py-1.5 rounded-full bg-amber-400 text-black border-b-[3px] border-amber-600">
+              <div className="text-xl sm:text-3xl font-extrabold leading-none tabular-nums">
                 {leverage % 1 === 0 ? `${leverage}x` : `${leverage.toFixed(1)}x`}
               </div>
             </div>
 
-            <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+            <div className="flex-1 flex flex-col gap-1 min-w-0">
               <input
                 type="range"
                 min="1"
@@ -371,28 +510,29 @@ export function CrashControls({
                 value={leverage}
                 onChange={e => setLeverage(parseFloat(e.target.value))}
                 disabled={hasPosition}
-                className="leverage-slider w-full h-2.5 cursor-pointer touch-manipulation disabled:opacity-30"
+                className="leverage-slider w-full h-2 sm:h-2.5 cursor-pointer touch-manipulation disabled:opacity-30"
                 style={{
                   ['--lev-pct' as string]: `${((leverage - 1) / 49) * 100}%`,
                 }}
               />
-              <div className="flex justify-between text-[10px] text-white/40 font-bold">
+              <div className="hidden sm:flex justify-between text-[10px] text-white/40 font-bold">
                 <span>1x safe</span>
                 <span className="text-rose-400">50x max</span>
               </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1 sm:gap-1.5">
             {LEVERAGE_PRESETS.map(preset => {
               const active = leverage === preset;
+              const hideOnMobile = preset === 1.5 || preset === 25;
               return (
                 <button
                   key={preset}
                   type="button"
                   onClick={() => setLeverage(preset)}
                   disabled={hasPosition}
-                  className={`flex-1 min-w-[40px] min-h-[36px] rounded-full text-xs font-extrabold touch-manipulation transition-all disabled:opacity-30 ${leveragePillClass(preset, active)}`}
+                  className={`flex-1 min-w-[36px] min-h-[32px] sm:min-h-[36px] rounded-full text-[11px] sm:text-xs font-extrabold touch-manipulation transition-all disabled:opacity-30 ${leveragePillClass(preset, active)} ${hideOnMobile ? 'hidden sm:flex' : ''}`}
                 >
                   {preset}x
                 </button>
@@ -401,8 +541,8 @@ export function CrashControls({
           </div>
         </div>
 
-        {/* auto take-profit */}
-        <div className="flex items-center justify-between px-4 py-2.5 text-xs border-b border-white/5 bg-[#1f2025]">
+        {/* auto take-profit — desktop only */}
+        <div className="hidden sm:flex items-center justify-between px-4 py-2.5 text-xs border-b border-white/5 bg-[#1f2025]">
           <span className="text-white/40 text-[11px] font-bold">
             {holdBonuses.stimmy > 0
               ? `+${Math.round(holdBonuses.stimmy * 100)}% stimmy active`
@@ -438,7 +578,7 @@ export function CrashControls({
             >
               <div className="flex items-center justify-between text-xs gap-2">
                 <span className={positionSide === 'buy' ? 'text-emerald-400 font-extrabold' : 'text-rose-400 font-extrabold'}>
-                  {positionSide === 'buy' ? 'LONG' : 'SHORT'} · {positionAmount.toFixed(3)} $BlackBalls
+                  {positionSide === 'buy' ? 'LONG' : 'SHORT'} · {positionAmount.toFixed(3)} {CURRENCY_LABEL}
                 </span>
                 <span
                   className={`font-extrabold px-2.5 py-0.5 rounded-full text-xs shrink-0 ${
@@ -460,15 +600,69 @@ export function CrashControls({
                 </span>
               </div>
               <div className="text-[10px] text-white/40 mt-0.5">
-                ENTRY {positionEntryPrice.toFixed(4)}x
-                {phase === 'waiting' && ' · LIVE @ ROUND START'}
-                {phase === 'running' && ` · NOW ${mult.toFixed(4)}x`}
+                {entryPending && phase === 'waiting' ? (
+                  <span className="text-amber-300 font-bold">COUNTDOWN ENTRY · starts @ 1.00x when timer hits 0</span>
+                ) : (
+                  <>
+                    ENTRY {positionEntryPrice.toFixed(4)}x
+                    {phase === 'waiting' && ' · LIVE @ ROUND START'}
+                    {phase === 'running' && ` · NOW ${mult.toFixed(4)}x`}
+                  </>
+                )}
               </div>
+              {holdBonuses.stimmy > 0 && (
+                <div className="text-[10px] text-amber-300 font-extrabold mt-0.5">
+                  +{Math.round(holdBonuses.stimmy * 100)}% stimmy on wins — because you hold BlackBalls
+                </div>
+              )}
+              {positionSide === 'sell' && (
+                <div className="text-[10px] text-rose-300/80 font-bold mt-0.5">Shorts love rugs 💀</div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
 
+        {livePosition && phase === 'running' && walletConnected && (
+          <div className="px-3 py-2 border-b border-white/5 bg-emerald-500/10">
+            <div className="text-[10px] font-extrabold text-emerald-300 mb-1.5">CASH OUT @ {mult.toFixed(2)}x</div>
+            <div className="flex gap-1 mb-2">
+              {CASH_OUT_PCTS.map(p => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setCashOutPct(p)}
+                  disabled={busy}
+                  className={`flex-1 min-h-[32px] rounded-lg text-[10px] font-extrabold touch-manipulation ${
+                    cashOutPct === p
+                      ? 'bg-emerald-500 text-white border-b-2 border-emerald-700'
+                      : 'bg-[#2a2c33] text-white/55 border border-white/10'
+                  }`}
+                >
+                  {p * 100}%
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={handleCashOut}
+              disabled={!canCashOut}
+              className={`w-full touch-manipulation min-h-[48px] py-2.5 text-sm font-black rounded-xl border-b-4 active:border-b-0 active:translate-y-1 transition-all ${
+                canCashOut
+                  ? 'bg-emerald-500 hover:bg-emerald-400 text-white border-emerald-700'
+                  : 'bg-[#2a2c33] text-white/40 border-white/10 cursor-not-allowed'
+              }`}
+            >
+              {cashOutPct >= 1 ? 'CASH OUT 100%' : `PARTIAL CASH OUT ${cashOutPct * 100}%`}
+            </button>
+          </div>
+        )}
+
         {/* BUY / SELL */}
+        {cancelNotice && walletConnected && (
+          <div className="mx-3 mt-2 px-3 py-2 text-xs leading-relaxed rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-200 font-bold">
+            {cancelNotice}
+          </div>
+        )}
         {(tradeBlockReason || tradeError) && walletConnected && (
           <div className="mx-3 mt-2 px-3 py-2 text-xs leading-relaxed rounded-xl bg-amber-400/10 border border-amber-400/25 text-amber-200 font-bold">
             {tradeError ?? tradeBlockReason}
@@ -484,53 +678,15 @@ export function CrashControls({
           </div>
         )}
         {walletConnected && isDemoWallet && (
-          <div className="mx-3 mt-2 px-3 py-1.5 text-[11px] text-center text-emerald-300 border border-emerald-500/20 bg-emerald-500/10 rounded-xl font-bold">
+          <div className="hidden sm:block mx-3 mt-2 px-3 py-1.5 text-[11px] text-center text-emerald-300 border border-emerald-500/20 bg-emerald-500/10 rounded-xl font-bold">
             DEMO MODE · off-chain credits · no real tokens at risk
           </div>
         )}
+
+        {/* BUY / SELL — same markup on all screen sizes (no sticky / no duplicate logic) */}
         <div className="grid grid-cols-2 gap-3 p-3">
-          <button
-            onClick={() => handleTrade('buy')}
-            disabled={busy}
-            className={`touch-manipulation min-h-[56px] py-3 px-4 text-sm sm:text-base ${ARCADE_BTN_BUY} ${
-              busy || !buyLooksActive ? 'opacity-40 cursor-not-allowed' : ''
-            }`}
-          >
-            {buyLabel}
-            {!hasPosition && (
-              <span className="block text-xs font-bold opacity-90 mt-0.5">
-                {safeAmount.toFixed(3)} $BlackBalls
-                {leverage > 1 ? ` · ${leverage}x` : ''}
-              </span>
-            )}
-            {!hasPosition && entriesOpen && (
-              <span className="block text-[11px] font-bold opacity-70">{waitLeft.toFixed(1)}s to enter @ 1.00x</span>
-            )}
-            {!entriesOpen && !hasPosition && (
-              <span className="block text-[11px] font-bold opacity-70">ROUND LIVE</span>
-            )}
-          </button>
-          <button
-            onClick={() => handleTrade('sell')}
-            disabled={busy}
-            className={`touch-manipulation min-h-[56px] py-3 px-4 text-sm sm:text-base ${ARCADE_BTN_SELL} ${
-              busy || !sellLooksActive ? 'opacity-40 cursor-not-allowed' : ''
-            }`}
-          >
-            {sellLabel}
-            {!hasPosition && (
-              <span className="block text-xs font-bold opacity-90 mt-0.5">
-                {safeAmount.toFixed(3)} $BlackBalls
-                {leverage > 1 ? ` · ${leverage}x` : ''}
-              </span>
-            )}
-            {!hasPosition && entriesOpen && (
-              <span className="block text-[11px] font-bold opacity-70">{waitLeft.toFixed(1)}s to enter @ 1.00x</span>
-            )}
-            {!entriesOpen && !hasPosition && (
-              <span className="block text-[11px] font-bold opacity-70">ROUND LIVE</span>
-            )}
-          </button>
+          {renderTradeButton('buy')}
+          {renderTradeButton('sell')}
         </div>
       </div>
 
@@ -543,8 +699,8 @@ export function CrashControls({
             className={`mx-3 mb-3 p-3 text-center text-sm font-extrabold rounded-xl ${lastResult.won ? 'text-emerald-300 bg-emerald-500/15 border border-emerald-500/25' : 'text-rose-300 bg-rose-500/15 border border-rose-500/25'}`}
           >
             {lastResult.won
-              ? `+${lastResult.amount.toFixed(3)} $BlackBalls @ ${lastResult.price.toFixed(2)}x${lastResult.bonusAmount ? ` (+${lastResult.bonusAmount.toFixed(3)} bonus)` : ''}${lastResult.frenzyProc ? ' · FRENZY!' : ''}`
-              : `${lastResult.amount >= 0 ? '+' : ''}${lastResult.amount.toFixed(3)} $BlackBalls @ ${lastResult.price.toFixed(2)}x`}
+              ? `+${lastResult.amount.toFixed(3)} ${CURRENCY_LABEL} @ ${lastResult.price.toFixed(2)}x${lastResult.bonusAmount ? ` (+${lastResult.bonusAmount.toFixed(3)} bonus)` : ''}${lastResult.frenzyProc ? ' · FRENZY!' : ''}`
+              : `${lastResult.amount >= 0 ? '+' : ''}${lastResult.amount.toFixed(3)} ${CURRENCY_LABEL} @ ${lastResult.price.toFixed(2)}x`}
           </motion.div>
         )}
       </AnimatePresence>

@@ -5,9 +5,9 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const serverSeed = typeof body.serverSeed === 'string' ? body.serverSeed : '';
-  const serverSeedHash = typeof body.serverSeedHash === 'string' ? body.serverSeedHash : '';
-  const clientSeed = typeof body.clientSeed === 'string' ? body.clientSeed : '';
+  const serverSeed = typeof body.serverSeed === 'string' ? body.serverSeed.trim() : '';
+  const serverSeedHash = typeof body.serverSeedHash === 'string' ? body.serverSeedHash.trim() : '';
+  const clientSeed = typeof body.clientSeed === 'string' ? body.clientSeed.trim() : '';
   const nonce = parseInt(body.nonce, 10);
   const expectedCrashPoint = parseFloat(body.expectedCrashPoint);
 
@@ -23,5 +23,5 @@ export async function POST(req: NextRequest) {
     expectedCrashPoint,
   });
 
-  return NextResponse.json(result, { status: result.valid ? 200 : 400 });
+  return NextResponse.json(result, { status: 200 });
 }

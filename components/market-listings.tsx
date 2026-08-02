@@ -1,35 +1,11 @@
 'use client';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMarketListings } from '@/hooks/use-market-listings';
-import { useMounted } from '@/hooks/use-mounted';
 import { formatPrice, formatMarketCap, generatePlaceholderLogo, type MarketListing } from '@/lib/market-types';
 
 export function MarketListings() {
-  const { listings, loading, lastOk, lastUpdate } = useMarketListings();
-  const mounted = useMounted();
-  const [ageSec, setAgeSec] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!mounted || !lastUpdate) {
-      setAgeSec(null);
-      return;
-    }
-    const tick = () => setAgeSec(Math.floor((Date.now() - lastUpdate) / 1000));
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [mounted, lastUpdate]);
-
-  const status = loading
-    ? 'Syncing…'
-    : lastOk === false
-      ? 'Offline'
-      : mounted && ageSec != null
-        ? `${ageSec}s ago`
-        : '—';
-
-  const live = !loading && lastOk !== false;
+  const { listings, loading } = useMarketListings();
 
   return (
     <div className="bg-[#1f2025] border border-white/5 rounded-2xl p-4 font-arcade overflow-hidden">
@@ -37,13 +13,10 @@ export function MarketListings() {
         <div className="flex items-center gap-2 min-w-0">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
           <span className="text-sm font-extrabold text-white/90">Live Market</span>
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#2a2c33] border border-white/5 text-[10px] font-bold text-white/55">
-            {live ? 'Live' : 'Paused'}
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-[10px] font-bold text-emerald-400">
+            Live
           </span>
         </div>
-        <span className="text-[10px] text-white/40 font-semibold shrink-0" suppressHydrationWarning>
-          {status}
-        </span>
       </div>
       <p className="text-[10px] text-white/35 font-bold mb-3">Meme coins pumping while you degen · DexScreener feed</p>
 
@@ -53,8 +26,8 @@ export function MarketListings() {
         )}
         {!loading && listings.length === 0 && (
           <div className="flex justify-center py-4">
-            <span className="inline-block bg-rose-500/10 text-rose-400 border border-rose-500/20 px-3 py-2 rounded-xl text-xs font-semibold">
-              Prices took a nap — retrying in a sec
+            <span className="inline-block bg-white/5 text-white/45 border border-white/10 px-3 py-2 rounded-xl text-xs font-semibold">
+              Fetching prices…
             </span>
           </div>
         )}

@@ -63,7 +63,7 @@ export function BossFightCard({ onChallengeBoss, disabled }: BossFightCardProps)
           <div className="text-[9px] text-cp-yellow mt-1">
             {freeLeft > 0
               ? `${freeLeft} free attempt today`
-              : `Retry costs ${BOSS_RETRY_COST} $BlackBalls`}
+              : `Retry costs ${BOSS_RETRY_COST} BlackBalls`}
             {!disabled ? '' : ' · Select your fighter first'}
           </div>
         </div>
@@ -78,7 +78,7 @@ export function BossFightCard({ onChallengeBoss, disabled }: BossFightCardProps)
             boxShadow: canFight ? `0 0 16px ${boss.glowColor}` : undefined,
           }}
         >
-          {needsPay && wallet.blackballsBalance < BOSS_RETRY_COST ? 'NEED 50 BB' : '⚔ BOSS FIGHT'}
+          {needsPay && wallet.blackballsBalance < BOSS_RETRY_COST ? `NEED 50 BlackBalls` : '⚔ BOSS FIGHT'}
         </button>
       </div>
     </motion.div>

@@ -67,13 +67,13 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
             />
           </div>
           <div>
-            <div className="text-2xl font-extrabold text-white">$BlackBalls</div>
-            <div className="text-[11px] text-white/45 mt-0.5 font-bold">Degen Arcade · Crash + Arena</div>
+            <div className="text-2xl font-extrabold text-white">BlackBalls</div>
+            <div className="text-[11px] text-white/45 mt-0.5 font-bold">Crash · Flip · Arena</div>
           </div>
         </div>
         <p className="mt-3 text-xs text-white/60 leading-relaxed max-w-[360px] mx-auto font-bold">
-          Multiplier starts at 1.00x, climbs until it rugs. Go long if you want up, short if you want down. Set Auto TP
-          or get rekt — the chart does not care about your feelings.
+          Multiplier starts at 1.00x, climbs until it rugs. Go long if you want up, short if you want down. Manual cash-out,
+          partial exits, Auto TP — or get rekt. The chart does not care about your feelings.
         </p>
       </header>
 
@@ -87,7 +87,7 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
             </div>
             <div className="rounded-xl bg-[#1f2025] border border-emerald-500/20 p-2 text-center">
               <div className="font-extrabold text-emerald-400">Running</div>
-              <div className="text-white/45 mt-1">Multiplier climbs. Auto TP can cash you out.</div>
+              <div className="text-white/45 mt-1">Multiplier climbs. Manual + partial cash-out. Auto TP still works.</div>
             </div>
             <div className="rounded-xl bg-[#1f2025] border border-rose-500/20 p-2 text-center">
               <div className="font-extrabold text-rose-400">Crashed · 5s</div>
@@ -95,9 +95,9 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
             </div>
           </div>
           <InfoBox variant="amber">
-            <strong>Important:</strong> You cannot manually cash out during the live round. Use{' '}
-            <span className="text-amber-100">Auto TP</span> before the round starts, or your position rides until crash /
-            liquidation.
+            <strong>During the live round:</strong> Hit <span className="text-emerald-300">CASH OUT</span> anytime for
+            25% / 50% / 75% / 100% of your position. Auto TP still fires automatically. Entries only open during the
+            10s countdown @ 1.00x.
           </InfoBox>
         </GuideSection>
 
@@ -109,7 +109,7 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
             </li>
             <li>
               <span className="text-cyan-400">2.</span> Set your <span className="text-amber-300">Wager</span> — how
-              many $BlackBalls you put up as margin.
+              many BlackBalls you put up as margin.
             </li>
             <li>
               <span className="text-cyan-400">3.</span> Pick <span className="text-amber-300">Leverage</span> (1x–50x).
@@ -117,15 +117,16 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
             </li>
             <li>
               <span className="text-cyan-400">4.</span> Optional: set <span className="text-amber-300">Auto TP</span>{' '}
-              (e.g. 2.0x) to auto-cash out when the multiplier hits your target.
+              (e.g. 2.0x) — or plan to manual cash-out during the run.
             </li>
             <li>
               <span className="text-cyan-400">5.</span> During the <span className="text-cyan-400">countdown only</span>
               , click <span className="text-emerald-400">BUY LONG</span> or <span className="text-rose-400">SELL SHORT</span>.
+              Holders see <span className="text-amber-300">+30% stimmy</span> on the buttons.
             </li>
             <li>
-              <span className="text-cyan-400">6.</span> Round starts at <span className="text-white">1.00x</span> — your
-              entry is always 1.00x for human players.
+              <span className="text-cyan-400">6.</span> Round starts at <span className="text-white">1.00x</span> — cash
+              out manually anytime, or let Auto TP / rug settle you.
             </li>
           </ol>
           <InfoBox variant="cyan">
@@ -145,7 +146,7 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
             <br />
             Max loss = your full wager (margin)
           </div>
-          <p className="text-[11px] text-white/55">Example: 1.0 $BlackBalls @ 2x leverage</p>
+          <p className="text-[11px] text-white/55">Example: 1.0 BlackBalls @ 2x leverage</p>
           <div className="grid grid-cols-2 gap-1.5 text-[10px]">
             <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-2">
               <div className="text-emerald-400 font-extrabold">Exit @ 2.00x</div>
@@ -161,9 +162,8 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
             </div>
           </div>
           <InfoBox variant="emerald">
-            <strong>How to actually win as a buyer:</strong> Set Auto TP (e.g. 1.5x or 2x). If the chart hits your
-            target during the run, you auto-cash out with profit. If you hold through the rug without Auto TP, you lose
-            your margin.
+            <strong>How to actually win as a buyer:</strong> Manual cash-out at your target, or set Auto TP (e.g. 1.5x or
+            2x). Most rounds land 1.5x–4.5x — that&apos;s the dopamine zone. Big wins (8x+) get chat highlights.
           </InfoBox>
         </GuideSection>
 
@@ -178,7 +178,7 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
             <br />
             Max loss = your full wager (margin)
           </div>
-          <p className="text-[11px] text-white/55">Example: 1.0 $BlackBalls @ 2x leverage</p>
+          <p className="text-[11px] text-white/55">Example: 1.0 BlackBalls @ 2x leverage</p>
           <div className="grid grid-cols-2 gap-1.5 text-[10px]">
             <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-2">
               <div className="text-emerald-400 font-extrabold">Exit @ 0.50x</div>
@@ -194,8 +194,8 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
             </div>
           </div>
           <InfoBox variant="rose">
-            <strong>Short strategy:</strong> Best on low / instant rugs. If the chart moons before crash, a short gets
-            wrecked — especially with high leverage (liquidation hits sooner on the way up).
+            <strong>Short strategy — Shorts love rugs:</strong> Best on low / instant rugs and near-miss rugs (1.85x–1.97x).
+            If the chart moons before crash, a short gets wrecked — 10x short now liquidates ~1.15x (softer than before).
           </InfoBox>
         </GuideSection>
 
@@ -215,7 +215,7 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
               ['Long', '2x', '0.50x'],
               ['Long', '10x', '0.90x'],
               ['Short', '2x', '1.50x'],
-              ['Short', '10x', '1.10x'],
+              ['Short', '10x', '~1.15x'],
             ].map(([side, lev, liq]) => (
               <div key={`${side}-${lev}`} className="grid grid-cols-3 gap-px bg-white/5 text-center py-1.5 text-white/65">
                 <div className={side === 'Long' ? 'text-emerald-400' : 'text-rose-400'}>{side}</div>
@@ -231,24 +231,26 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
         </GuideSection>
 
         {/* Auto TP */}
-        <GuideSection emoji="🎚️" title="Auto Take-Profit (Auto TP)" accentClass="from-sky-500/15 to-transparent">
+        <GuideSection emoji="🎚️" title="Auto TP + Manual Cash-Out" accentClass="from-sky-500/15 to-transparent">
           <p>
-            Set a target multiplier in the <span className="text-sky-400">Auto TP</span> field before the round (e.g.{' '}
-            <span className="text-amber-300">2.0</span>).
+            <span className="text-sky-400">Auto TP</span> — set before the round (e.g.{' '}
+            <span className="text-amber-300">2.0</span>). Server auto-closes when hit.
+          </p>
+          <p className="mt-2">
+            <span className="text-emerald-400">Manual Cash-Out</span> — during the live round, tap{' '}
+            <strong>CASH OUT</strong> for 25% / 50% / 75% / 100%. Partial exits let you bank profit and leave a runner.
           </p>
           <ul className="space-y-1 text-[11px] list-none">
             <li>
-              <span className="text-emerald-400">Long:</span> auto-closes when multiplier ≥ entry × Auto TP (2.0 → cash
-              out at 2.00x)
+              <span className="text-emerald-400">Long:</span> Auto TP when mult ≥ target · manual anytime mult &gt; 1.00x
             </li>
             <li>
-              <span className="text-rose-400">Short:</span> auto-closes when multiplier drops to your target on the way
-              down
+              <span className="text-rose-400">Short:</span> Auto TP on the way down · manual anytime before rug
             </li>
           </ul>
           <InfoBox variant="cyan">
-            This is your only way to take profit during a live round. No button mashing — set it and let the server do
-            the work.
+            8x+ cash-outs trigger big win animations + Hall of Fame highlights. Near-miss rugs (just under your TP) will
+            haunt you — that&apos;s the game.
           </InfoBox>
         </GuideSection>
 
@@ -260,21 +262,22 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
           </p>
           <div className="grid grid-cols-2 gap-1.5 text-[10px]">
             <div className="rounded-lg bg-rose-500/10 border border-rose-500/20 p-2">
-              <div className="text-rose-400 font-extrabold">~5% instant rug</div>
-              <div className="text-white/50 mt-0.5">Crashes at 1.00x</div>
+              <div className="text-rose-400 font-extrabold">3% instant rug</div>
+              <div className="text-white/50 mt-0.5">Exactly 3% crash at 1.00x</div>
             </div>
             <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-2">
-              <div className="text-amber-300 font-extrabold">Most rounds</div>
-              <div className="text-white/50 mt-0.5">1.01x – 9x range</div>
+              <div className="text-amber-300 font-extrabold">Sweet spot</div>
+              <div className="text-white/50 mt-0.5">~45% land 1.5x – 4.5x</div>
             </div>
             <div className="rounded-lg bg-violet-500/10 border border-violet-500/20 p-2 col-span-2">
-              <div className="text-violet-300 font-extrabold">Rare moons</div>
-              <div className="text-white/50 mt-0.5">Up to 25x max — don&apos;t bet the farm expecting these</div>
+              <div className="text-violet-300 font-extrabold">Rare moons + near-miss</div>
+              <div className="text-white/50 mt-0.5">Up to 40x max · occasional 1.85x–1.97x &quot;so close&quot; rugs</div>
             </div>
           </div>
           <p className="text-[11px] text-white/45">
-            Live buy/sell volume wiggles the chart visually but does <strong>not</strong> change the crash outcome — the
-            path is pre-generated from the seed.
+            Target ~3% house edge (~97% RTP). Public stats panel shows Last 100 / Last 1000 averages. After every crash,
+            hit <strong>Verify this round</strong> (one-click). Live buy/sell volume wiggles the chart visually but does{' '}
+            <strong>not</strong> change the crash outcome.
           </p>
         </GuideSection>
 
@@ -283,7 +286,7 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
           <p className="text-[11px]">Hold ecosystem tokens in your wallet for combat and payout boosts:</p>
           <ul className="space-y-1 text-[11px] list-none">
             <li>
-              <span className="text-amber-300">$BlackBalls</span> — +30% stimmy (bigger crash payouts & arena damage/loot)
+              <span className="text-amber-300">BlackBalls</span> — +30% stimmy (bigger crash payouts & arena damage/loot)
             </li>
             <li>
               <span className="text-cyan-400">ANSEM</span> — +20% stimmy
@@ -303,7 +306,7 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
           <p>
             Arena is a turn-based <span className="text-fuchsia-300">meme fighter battle</span> mode — separate from Crash.
             Pick a fighter, face a random opponent (or the daily boss), and brawl for{' '}
-            <span className="text-amber-300">XP</span>, <span className="text-sky-400">$BlackBalls loot</span>, and{' '}
+            <span className="text-amber-300">XP</span>, <span className="text-sky-400">BlackBalls loot</span>, and{' '}
             <span className="text-yellow-300">fight coins</span> to level your fighter up.
           </p>
           <div className="flex gap-2 items-center mt-1">
@@ -327,7 +330,7 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
             </li>
             <li>
               <span className="text-amber-300">Locked fighters:</span> unlock when your{' '}
-              <strong>$BlackBalls balance</strong> hits the threshold — stronger = pricier
+              <strong>BlackBalls balance</strong> hits the threshold — stronger = pricier
             </li>
             <li>
               <span className="text-white/50">Formula:</span>{' '}
@@ -335,9 +338,18 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
             </li>
           </ul>
           <InfoBox variant="cyan">
-            Unlocking is a balance gate — you keep your $BlackBalls. Hold more to access stronger fighters with higher
+            Unlocking is a balance gate — you keep your BlackBalls. Hold more to access stronger fighters with higher
             base stats.
           </InfoBox>
+        </GuideSection>
+
+        <GuideSection emoji="📊" title="Stat Points & Equipment" accentClass="from-yellow-500/15 to-transparent">
+          <p>Every <span className="text-amber-300">2 levels</span> you earn stat points to allocate into ATK / HP / SPD / LCK.</p>
+          <ul className="space-y-1 text-[11px] list-none">
+            <li><span className="text-rose-400">ATK</span> +2 per point · <span className="text-emerald-400">HP</span> +5 per point</li>
+            <li><span className="text-cyan-400">SPD</span> +1 · <span className="text-amber-300">LCK</span> +1</li>
+            <li><span className="text-violet-300">Equipment:</span> Weapon / Armor / Accessory slots — drops from wins or buy with fight coins</li>
+          </ul>
         </GuideSection>
 
         <GuideSection emoji="📊" title="Fighter Leveling" accentClass="from-yellow-500/15 to-transparent">
@@ -365,13 +377,13 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
           </div>
         </GuideSection>
 
-        <GuideSection emoji="🎮" title="How a Battle Works" accentClass="from-sky-500/15 to-transparent">
+        <GuideSection emoji="🎮" title="How a Battle Works (Auto + Manual)" accentClass="from-sky-500/15 to-transparent">
           <ol className="space-y-1 list-none text-[11px]">
-            <li><span className="text-sky-400">1.</span> Select an unlocked fighter from the roster</li>
-            <li><span className="text-sky-400">2.</span> Optional: set an arena wager (0 / 10 / 25 / 50 / 100 BB)</li>
-            <li><span className="text-sky-400">3.</span> Face a random opponent (level 1–3) or the daily boss</li>
-            <li><span className="text-sky-400">4.</span> Turn-based combat — up to 10 rounds, 2.2s per round</li>
-            <li><span className="text-sky-400">5.</span> First to 0 HP loses · timeout = higher HP wins</li>
+            <li><span className="text-sky-400">1.</span> Select an unlocked fighter · toggle <strong>Auto</strong> (default) or <strong>Manual</strong></li>
+            <li><span className="text-sky-400">2.</span> Wager: presets or custom 0–500 BlackBalls</li>
+            <li><span className="text-sky-400">3.</span> Challenge a leaderboard player for 15 BlackBalls (optional)</li>
+            <li><span className="text-sky-400">4.</span> Manual mode: pick skills each turn — Heavy Strike, Defensive Stance, Quick Heal, Crit Boost, Stun, Life Steal</li>
+            <li><span className="text-sky-400">5.</span> Fast rounds (~2.5–3s) · first to 0 HP loses</li>
           </ol>
           <div className="rounded-xl bg-[#1f2025] border border-white/10 p-2.5 text-[10px] space-y-1">
             <div><span className="text-emerald-400">Your dodge:</span> 12% chance opponent misses</div>
@@ -395,14 +407,20 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
             <li><span className="text-orange-300">3-win streak:</span> ×1.5 · <span className="text-orange-300">5-win:</span> ×2 · <span className="text-orange-300">10-win:</span> ×3</li>
             <li><span className="text-rose-400">Boss fight:</span> ×3 on XP, loot & coins</li>
           </ul>
-          <p className="text-[11px] font-extrabold text-white/80 mt-2">$BlackBalls loot (win only):</p>
+          <p className="text-[11px] font-extrabold text-white/80 mt-2">BlackBalls loot (win only):</p>
           <p className="text-[11px] text-white/55">
-            Base 5–19 BB × stimmy hold bonus × streak × boss multiplier. Credited to your balance instantly.
+            Base 5–19 BlackBalls × stimmy hold bonus × streak × boss multiplier. Credited to your balance instantly.
           </p>
           <p className="text-[11px] font-extrabold text-white/80 mt-2">Arena wager (optional):</p>
           <p className="text-[11px] text-white/55">
-            Put 10–100 BB on the line before a fight. <span className="text-emerald-400">Win → get 2× wager back</span>.
-            Lose → wager is gone. Not available on boss fights.
+            Free-form 0–500 BlackBalls (presets for speed). <span className="text-emerald-400">Win → 2× wager back</span>. Lose → gone.
+          </p>
+        </GuideSection>
+
+        <GuideSection emoji="⚔️" title="Challenge System" accentClass="from-amber-500/15 to-transparent">
+          <p className="text-[11px]">
+            Spend <span className="text-amber-300">15 BlackBalls</span> to challenge a specific player from the leaderboard.
+            Higher PWR opponents = bigger bragging rights and XP.
           </p>
         </GuideSection>
 
@@ -413,7 +431,7 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
           </p>
           <ul className="space-y-1 text-[11px] list-none">
             <li><span className="text-emerald-400">1 free attempt</span> per day</li>
-            <li><span className="text-amber-300">Retries:</span> 50 $BlackBalls each</li>
+            <li><span className="text-amber-300">Retries:</span> 50 BlackBalls each</li>
           </ul>
           <p className="text-[11px] font-extrabold text-white/70 mt-2">Daily challenges (reset every day):</p>
           <div className="grid grid-cols-1 gap-1 text-[10px]">
@@ -460,7 +478,7 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
           <InfoBox variant="amber">
             <strong>🪂 Bi-Weekly Leaderboard Airdrop (every 15 days):</strong> At the end of each 15-day season
             snapshot, the <strong>top-ranked players on the leaderboard</strong> by total XP receive a{' '}
-            <span className="text-amber-100">$BlackBalls airdrop</span> to their connected wallet. Higher rank = bigger
+            <span className="text-amber-100">BlackBalls airdrop</span> to their connected wallet. Higher rank = bigger
             drop. Play Arena, complete dailies, and stack XP before each snapshot to qualify.
           </InfoBox>
           <ul className="space-y-1 text-[10px] list-none text-white/50">
@@ -475,17 +493,16 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
         <GuideSection emoji="🚫" title="Common Rekt Moves" accentClass="from-orange-500/15 to-transparent">
           <ul className="space-y-1.5 text-[11px] list-none">
             <li>
-              <span className="text-rose-400">✗</span> Going long with no Auto TP and holding through the rug
+              <span className="text-rose-400">✗</span> Forgetting to manual cash-out OR set Auto TP — both exist for a reason
             </li>
             <li>
               <span className="text-rose-400">✗</span> 10x long on instant rugs (liquidates at 0.90x)
             </li>
             <li>
-              <span className="text-rose-400">✗</span> Shorting a moon round without understanding liquidation at 1.10x
-              (10x short)
+              <span className="text-rose-400">✗</span> Shorting a moon without remembering <span className="text-rose-300">Shorts love rugs</span> — but hate pumps (10x liq ~1.15x)
             </li>
             <li>
-              <span className="text-rose-400">✗</span> Trying to click cash out mid-round — use Auto TP instead
+              <span className="text-rose-400">✗</span> Ignoring the Verify button after crash — trust but verify, degen
             </li>
             <li>
               <span className="text-rose-400">✗</span> Fighting the boss with a level 1 free fighter and wondering why you got folded
@@ -494,12 +511,76 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
               <span className="text-rose-400">✗</span> Ignoring daily challenges — free XP for the airdrop grind
             </li>
             <li>
-              <span className="text-emerald-400">✓</span> Crash: wager + leverage + Auto TP during countdown
+              <span className="text-emerald-400">✓</span> Crash: wager + leverage + Auto TP or manual cash-out during the run
             </li>
             <li>
               <span className="text-emerald-400">✓</span> Arena: level fighters, chase upsets & streaks, stack XP before the 15-day snapshot
             </li>
           </ul>
+        </GuideSection>
+
+        {/* ── BLACK FLIP ── */}
+        <div className="rounded-2xl bg-gradient-to-r from-orange-500/10 via-transparent to-orange-500/5 border border-orange-500/20 px-3 py-2 text-center">
+          <span className="text-xs font-extrabold text-orange-300 tracking-wide">🪙 BLACK FLIP — 50/50 PvP</span>
+        </div>
+
+        <GuideSection emoji="🪙" title="Black Flip — How to Play" accentClass="from-orange-500/15 to-transparent">
+          <p>
+            Pure <span className="text-orange-400">50/50</span> coin flip PvP. Pick{' '}
+            <span className="text-orange-300">HEADS</span> or <span className="text-amber-200">TAILS</span>, set your bet,
+            and flip the official BlackBalls coin. Winner takes the pot minus rake.
+          </p>
+          <ol className="space-y-1 list-none text-[11px]">
+            <li><span className="text-orange-400">1.</span> Connect wallet (real vault or demo)</li>
+            <li><span className="text-orange-400">2.</span> Choose <strong>1v1 Instant</strong> or <strong>Dogpile Pot</strong></li>
+            <li><span className="text-orange-400">3.</span> Pick HEADS or TAILS + wager (+ optional taunt)</li>
+            <li><span className="text-orange-400">4.</span> Watch the coin flip — provably fair commit-reveal</li>
+            <li><span className="text-orange-400">5.</span> Win → pot minus rake · Lose → wager gone</li>
+          </ol>
+        </GuideSection>
+
+        <GuideSection emoji="💸" title="Flip Rake & BlackBalls Perks" accentClass="from-amber-500/15 to-transparent">
+          <div className="grid grid-cols-2 gap-2 text-[10px]">
+            <div className="rounded-lg bg-[#1f2025] border border-white/10 p-2">
+              <div className="text-white/50 font-extrabold">Base rake</div>
+              <div className="text-rose-300 font-extrabold">3%</div>
+            </div>
+            <div className="rounded-lg bg-amber-400/10 border border-amber-400/25 p-2">
+              <div className="text-amber-200/70 font-extrabold">BlackBalls holder</div>
+              <div className="text-amber-300 font-extrabold">1.5% rake · 500 BlackBalls max</div>
+            </div>
+          </div>
+          <InfoBox variant="amber">
+            Hold BlackBalls in your wallet — UI shows: &quot;You&apos;re paying only 1.5% rake because you hold
+            BlackBalls.&quot; Rake is configurable server-side (can go to 0% for promos).
+          </InfoBox>
+        </GuideSection>
+
+        <GuideSection emoji="⚔️" title="1v1 vs Dogpile" accentClass="from-violet-500/15 to-transparent">
+          <p className="text-[11px] font-extrabold text-white/80">1v1 Instant:</p>
+          <p className="text-[11px] text-white/55">
+            Open a match or join an open opposite-side lobby at the same wager. Matched → flip → winner takes ~2× wager
+            minus rake. Bot fills empty slots after ~6s so demo always feels live.
+          </p>
+          <p className="text-[11px] font-extrabold text-white/80 mt-2">Dogpile Pot:</p>
+          <p className="text-[11px] text-white/55">
+            Multiple players stack on HEADS or TAILS. Every ~30s the pot flips if both sides have bets. Winners split
+            proportionally. One-sided pots refund when timer ends.
+          </p>
+        </GuideSection>
+
+        <GuideSection emoji="🎯" title="Flip Tips & Social" accentClass="from-cyan-500/15 to-transparent">
+          <ul className="space-y-1 text-[11px] list-none">
+            <li><span className="text-emerald-400">✓</span> Drop a taunt when joining — shows in live feed</li>
+            <li><span className="text-emerald-400">✓</span> Hit <strong>Revenge</strong> after a loss to re-challenge last opponent</li>
+            <li><span className="text-emerald-400">✓</span> Win streaks show on the panel — ride the heater</li>
+            <li><span className="text-emerald-400">✓</span> Big wins (50+ BlackBalls profit) hit Hall of Fame + chat highlight</li>
+            <li><span className="text-rose-400">✗</span> Don&apos;t flip your entire stack on tilt — 50/50 is still 50/50</li>
+          </ul>
+          <InfoBox variant="cyan">
+            Every flip is provably fair — server seed hash committed before the flip, seed revealed after. Verify via the
+            same HMAC scheme as Crash.
+          </InfoBox>
         </GuideSection>
 
         {/* Quick start */}
@@ -512,26 +593,32 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
               <span className="text-amber-300">1.</span> Connect wallet · deposit or use demo
             </li>
             <li>
-              <span className="text-amber-300">2.</span> Wager + leverage + Auto TP
+              <span className="text-amber-300">2.</span> Wager + leverage + Auto TP (or plan manual exit)
             </li>
             <li>
-              <span className="text-amber-300">3.</span> Countdown → BUY (long) or SELL (short) @ 1.00x
+              <span className="text-amber-300">3.</span> Countdown → BUY / SELL @ 1.00x · watch +30% stimmy if you hold BlackBalls
             </li>
             <li>
-              <span className="text-amber-300">4.</span> Watch the chart — Auto TP cashes you out or you ride to rug
+              <span className="text-amber-300">4.</span> Live round → CASH OUT partial/full or let Auto TP hit
             </li>
             <li>
-              <span className="text-amber-300">5.</span> Arena → pick fighter → battle → level up → stack XP
+              <span className="text-amber-300">5.</span> After rug → Verify round · check public stats
             </li>
             <li>
-              <span className="text-amber-300">6.</span> Ranking tab → climb leaderboard → qualify for 15-day airdrop
+              <span className="text-amber-300">6.</span> Black Flip → 1v1 or Dogpile → stack win streaks
+            </li>
+            <li>
+              <span className="text-amber-300">7.</span> Arena → Manual skills or Auto · level · challenge · stack XP
+            </li>
+            <li>
+              <span className="text-amber-300">8.</span> Ranking tab → climb leaderboard → qualify for 15-day airdrop
             </li>
           </ol>
         </section>
       </div>
 
       <footer className="relative z-10 border-t border-white/5 bg-[#25262c] px-4 py-3 text-center">
-        <div className="text-[10px] text-white/40 font-bold">Provably fair · 4% house edge · NFA · DYOR · touch grass occasionally</div>
+        <div className="text-[10px] text-white/40 font-bold">Provably fair · ~3% house edge · ~97% RTP · NFA · DYOR · touch grass occasionally</div>
         <div className="text-xs font-extrabold text-amber-300 mt-1">game.blackballs.site</div>
       </footer>
     </div>

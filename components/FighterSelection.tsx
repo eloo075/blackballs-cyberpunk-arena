@@ -149,7 +149,7 @@ export function FighterSelection({ selectedFighterId, onSelectFighter }: Fighter
                     <span className="text-2xl mb-1">🔒</span>
                     <span className="text-xs font-extrabold text-white/90">LOCKED</span>
                     <span className="text-[10px] text-amber-300 mt-1 text-center font-bold">
-                      {formatUnlockCost(required ?? computeUnlockCostFromPower(fighter.power))} $BlackBalls
+                      {formatUnlockCost(required ?? computeUnlockCostFromPower(fighter.power))} BlackBalls
                     </span>
                   </div>
                 )}
@@ -190,7 +190,7 @@ export function FighterSelection({ selectedFighterId, onSelectFighter }: Fighter
                     isLocked ? 'text-amber-300' : 'text-white/55'
                   }`}
                 >
-                  {isLocked ? '🔒' : '✓'} {required?.toLocaleString()} $BlackBalls
+                  {isLocked ? '🔒' : '✓'} {required?.toLocaleString()} BlackBalls
                 </div>
               )}
             </motion.button>
@@ -199,7 +199,7 @@ export function FighterSelection({ selectedFighterId, onSelectFighter }: Fighter
       </div>
 
       <p className="mt-3 text-xs text-white/40 text-center font-bold">
-        Balance: {blackballsBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })} $BlackBalls ·
+        Balance: {blackballsBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })} BlackBalls ·
         Only 2 weakest fighters free · Unlock cost = power³ × 25
       </p>
 
@@ -332,7 +332,7 @@ function FighterSelectModal({
 
           {!unlocked && required != null && (
             <div className="mb-3 p-3 rounded-xl border border-amber-400/25 bg-amber-400/10 text-xs text-amber-200 text-center font-bold">
-              🔒 Requires {formatUnlockCost(required)} $BlackBalls (power {f.power})
+              🔒 Requires {formatUnlockCost(required)} BlackBalls (power {f.power})
               <div className="text-[11px] text-white/40 mt-1">
                 You have {blackballsBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
               </div>
@@ -348,7 +348,7 @@ function FighterSelectModal({
                 : 'bg-[#2a2c33] text-white/40 border border-white/10'
             }`}
           >
-            {unlocked ? 'SELECT FOR ARENA' : `LOCKED — ${required?.toLocaleString()} $BlackBalls`}
+            {unlocked ? 'SELECT FOR ARENA' : `LOCKED — ${required?.toLocaleString()} BlackBalls`}
           </button>
         </div>
       </motion.div>

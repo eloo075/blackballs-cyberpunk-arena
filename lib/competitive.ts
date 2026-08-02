@@ -78,3 +78,6 @@ export const FREE_BOSS_ATTEMPTS = 1;
 export const BOSS_RETRY_COST = 50;
 
 export const WAGER_OPTIONS = [0, 10, 25, 50, 100] as const;
+export const WAGER_MIN = 0;
+export const WAGER_MAX = 500;
+export const CHALLENGE_COST_BB = 15;

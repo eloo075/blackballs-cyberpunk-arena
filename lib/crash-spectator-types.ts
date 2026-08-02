@@ -22,13 +22,13 @@ export interface CrashSpectatorEvent {
 export const CRASH_GAME_CHANNEL = 'crash-game';
 
 export function isGoldHighlight(event: CrashSpectatorEvent): boolean {
-  return (event.leverage ?? 1) > 20 || event.multiplier > 50;
+  return event.multiplier >= 8 || (event.leverage ?? 1) >= 10;
 }
 
 export function isHallOfFame(event: CrashSpectatorEvent): boolean {
   if (event.type !== 'cash_out') return false;
   const profit = event.pnl ?? event.payout ?? 0;
-  return profit >= 500 || event.multiplier >= 50;
+  return event.multiplier >= 8 || profit >= 100;
 }
 
 export function isHallOfShame(event: CrashSpectatorEvent): boolean {
@@ -38,7 +38,7 @@ export function isHallOfShame(event: CrashSpectatorEvent): boolean {
 export function spectatorEventLabel(event: CrashSpectatorEvent): string {
   switch (event.type) {
     case 'player_joined':
-      return `${event.side === 'sell' ? 'SHORT' : 'LONG'} ${event.amount.toFixed(2)} $BlackBalls`;
+      return `${event.side === 'sell' ? 'SHORT' : 'LONG'} ${event.amount.toFixed(2)} BlackBalls`;
     case 'cash_out':
       return `CASHOUT @${event.multiplier.toFixed(2)}x`;
     case 'liquidation':

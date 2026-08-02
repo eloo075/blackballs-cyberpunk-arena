@@ -8,16 +8,20 @@ import { isVaultConfigured } from '@/lib/chain/public-config';
 import { VaultModal } from '@/components/VaultModal';
 import { PlayerXpCounter } from '@/components/player-xp-counter';
 import { HowToPlayModal } from '@/components/how-to-play-modal';
+import { WalletBalanceCards } from '@/components/wallet-balance-cards';
+import { DEMO_REFILL_BB } from '@/lib/demo-credits';
+import { syncGameSessionBalances } from '@/lib/sync-game-sessions';
 
 const LOGO_SRC = '/blackballs-logo-transparent.png';
 
 interface NavProps {
-  activeTab: 'crash' | 'arena' | 'leaderboard';
-  onTabChange: (t: 'crash' | 'arena' | 'leaderboard') => void;
+  activeTab: 'crash' | 'flip' | 'arena' | 'leaderboard';
+  onTabChange: (t: 'crash' | 'flip' | 'arena' | 'leaderboard') => void;
 }
 
 const TABS: { id: NavProps['activeTab']; label: string }[] = [
   { id: 'crash', label: 'Crash' },
+  { id: 'flip', label: 'Flip' },
   { id: 'arena', label: 'Arena' },
   { id: 'leaderboard', label: 'Ranking' },
 ];
@@ -25,71 +29,63 @@ const TABS: { id: NavProps['activeTab']; label: string }[] = [
 const pillBtn =
   'touch-manipulation touch-target px-3 py-2 text-xs font-extrabold rounded-xl bg-[#2a2c33] border border-white/10 text-white/80 hover:bg-[#353842] transition-colors';
 
+const mobileDisconnectBtn =
+  'touch-manipulation shrink-0 px-2 py-1.5 text-[10px] font-extrabold rounded-lg bg-[#2a2c33] border border-white/10 text-rose-300 hover:bg-[#353842] transition-colors';
+
+function WalletAvatar({ label }: { label: string }) {
+  const initials = label.replace(/[^a-zA-Z0-9]/g, '').slice(0, 2).toUpperCase() || '?';
+  return (
+    <div
+      className="w-9 h-9 shrink-0 rounded-full bg-amber-500/15 border border-amber-400/35 flex items-center justify-center text-[11px] font-extrabold text-amber-300"
+      aria-hidden
+    >
+      {initials}
+    </div>
+  );
+}
+
 export function Nav({ activeTab, onTabChange }: NavProps) {
-  const { wallet, connect, disconnect, displayAddress } = useWallet();
+  const { wallet, connect, disconnect, displayAddress, refillDemoCredits, holdBonuses } = useWallet();
   const { state: compState } = useCompetitive();
   const [vaultOpen, setVaultOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const vaultEnabled = isVaultConfigured();
 
-  const guideButton = (
-    <>
-      <button type="button" onClick={() => setGuideOpen(true)} className={`${pillBtn} hidden sm:inline-flex`}>
-        Guide
-      </button>
-      <Link href="/guide" className={`${pillBtn} sm:hidden`}>
-        Guide
-      </Link>
-    </>
-  );
+  const handleDemoRefill = async () => {
+    if (!wallet.connected || wallet.isRealWallet || !wallet.address) return;
+    const balance = refillDemoCredits();
+    const holdsBb = holdBonuses.active.some(b => b.token === 'BLACKBALLS');
+    await syncGameSessionBalances(
+      wallet.address,
+      balance,
+      holdBonuses.stimmy,
+      holdBonuses.frenzy,
+      holdsBb,
+      wallet.isRealWallet,
+    );
+  };
 
-  const vaultButton = vaultEnabled ? (
-    <button onClick={() => setVaultOpen(true)} className={`${pillBtn} text-amber-300`}>
-      Vault
-    </button>
-  ) : null;
-
-  const walletAction = wallet.connected ? (
-    <>
-      {guideButton}
-      {vaultButton}
-      <button onClick={disconnect} className={`${pillBtn} text-rose-300`}>
-        Disconnect
-      </button>
-    </>
-  ) : (
-    <>
-      {guideButton}
-      {vaultButton}
+  const demoRefillButton =
+    wallet.connected && !wallet.isRealWallet ? (
       <button
-        onClick={() => (vaultEnabled ? setVaultOpen(true) : connect())}
-        className="touch-manipulation touch-target px-4 py-2 text-xs font-extrabold bg-sky-500 hover:bg-sky-400 text-white rounded-xl border-b-4 border-sky-700 active:border-b-0 active:translate-y-1 transition-all shrink-0"
+        type="button"
+        onClick={() => void handleDemoRefill()}
+        className={`${pillBtn} text-emerald-300 border-emerald-500/30`}
+        title={`Top up to ${DEMO_REFILL_BB} demo BlackBalls`}
       >
-        Connect
+        +{DEMO_REFILL_BB} Demo BlackBalls
       </button>
-    </>
-  );
-
-  const mobileWalletChip = wallet.connected && (
-    <div className="flex flex-col items-end min-w-0 md:hidden mr-1 gap-1">
-      <span className="text-[11px] font-extrabold text-white/70 truncate max-w-[120px]">{displayAddress}</span>
-      <span className="text-[10px] text-white/45 whitespace-nowrap font-bold">
-        {wallet.blackballsBalance.toFixed(0)} $BlackBalls
-      </span>
-      <PlayerXpCounter variant="compact" />
-    </div>
-  );
+    ) : null;
 
   const desktopWalletDetails = wallet.connected && (
-    <div className="hidden md:flex flex-col items-end">
+    <div className="hidden md:flex flex-col items-end gap-1">
       <span className="text-[11px] font-extrabold text-white/70">{displayAddress}</span>
       <div className="flex items-center gap-2">
-        <span className="text-[10px] text-white/45 font-bold whitespace-nowrap">
-          {wallet.solBalance.toFixed(2)} SOL · {wallet.blackballsBalance.toFixed(1)} $BlackBalls
-          {compState.arenaWinStreak >= 2 && (
-            <span className="text-rose-400 font-extrabold"> · 🔥{compState.arenaWinStreak}</span>
-          )}
-        </span>
+        <WalletBalanceCards
+          solBalance={wallet.solBalance}
+          blackballsBalance={wallet.blackballsBalance}
+          arenaWinStreak={compState.arenaWinStreak}
+        />
         {wallet.airdropped && (
           <span className="text-[10px] font-extrabold px-2 py-0.5 bg-amber-400/15 text-amber-300 rounded-full border border-amber-400/25">
             AIRDROP
@@ -104,45 +100,118 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
       <VaultModal open={vaultOpen} onClose={() => setVaultOpen(false)} />
       <HowToPlayModal open={guideOpen} onClose={() => setGuideOpen(false)} />
       <header className="sticky top-0 z-40 border-b border-white/5 bg-[#1f2025]/95 backdrop-blur-md safe-bottom font-arcade">
-        {/* mobile: brand row */}
-        <div className="md:hidden max-w-[1700px] mx-auto px-3 py-2.5 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-9 h-9 shrink-0 flex items-center justify-center">
-              <img src={LOGO_SRC} alt="Blackballs Logo" className="w-full h-full object-contain drop-shadow-sm" />
+        {/* mobile — 3-row layout */}
+        <div className="md:hidden max-w-[1700px] mx-auto w-full px-3 pt-2.5">
+          {/* Row 1: Brand & session */}
+          <div className="flex justify-between items-center w-full gap-2 min-w-0">
+            <div className="flex items-center gap-2 min-w-0 shrink">
+              <div className="w-9 h-9 shrink-0 flex items-center justify-center">
+                <img src={LOGO_SRC} alt="Blackballs Logo" className="w-full h-full object-contain drop-shadow-sm" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-extrabold text-white truncate leading-tight">BlackBalls</div>
+                <div className="text-[10px] text-white/40 font-bold truncate">Degen Arcade</div>
+              </div>
             </div>
-            <div className="min-w-0">
-              <div className="text-sm font-extrabold text-white truncate">$BlackBalls</div>
-              <div className="text-[10px] text-white/40 font-bold truncate">Degen Arcade</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            {mobileWalletChip}
-            <div className="flex items-center gap-1">{walletAction}</div>
-          </div>
-        </div>
 
-        {/* mobile: tab bar */}
-        <nav className="md:hidden flex border-t border-white/5 max-w-[1700px] mx-auto bg-[#25262c]">
-          {TABS.map(t => (
-            <button
-              key={t.id}
-              onClick={() => onTabChange(t.id)}
-              className={`relative flex-1 touch-manipulation touch-target py-3 text-xs font-extrabold rounded-xl transition-all ${
-                activeTab === t.id
-                  ? 'bg-amber-500 text-black'
-                  : 'text-white/45 hover:text-white/70'
-              }`}
+            {wallet.connected ? (
+              <div className="flex items-center gap-2 min-w-0 max-w-[55%] justify-end">
+                <span className="text-[10px] font-extrabold text-white/60 truncate min-w-0">
+                  {displayAddress}
+                </span>
+                <button type="button" onClick={disconnect} className={mobileDisconnectBtn}>
+                  Disconnect
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => (vaultEnabled ? setVaultOpen(true) : connect())}
+                className="touch-manipulation shrink-0 px-3 py-1.5 text-[10px] font-extrabold bg-sky-500 hover:bg-sky-400 text-white rounded-lg border-b-2 border-sky-700 active:border-b-0"
+              >
+                Connect
+              </button>
+            )}
+          </div>
+
+          {/* Row 2: Stats & balances */}
+          {wallet.connected && (
+            <div className="flex flex-wrap items-center justify-between gap-2 w-full mt-4 min-w-0">
+              <div className="flex flex-row items-center gap-2 min-w-0 shrink">
+                <WalletAvatar label={displayAddress ?? wallet.address ?? '?'} />
+                <PlayerXpCounter variant="compact" className="min-w-0" />
+              </div>
+              <WalletBalanceCards
+                solBalance={wallet.solBalance}
+                blackballsBalance={wallet.blackballsBalance}
+                arenaWinStreak={compState.arenaWinStreak}
+                className="shrink-0 min-w-0 [&>div]:min-w-0 [&>div]:px-2 [&>div]:py-1"
+              />
+            </div>
+          )}
+
+          {/* Row 3: Action buttons */}
+          <div className="flex gap-2 w-full mt-3 mb-2 min-w-0">
+            {wallet.connected && !wallet.isRealWallet && (
+              <button
+                type="button"
+                onClick={() => void handleDemoRefill()}
+                className={`${pillBtn} flex-1 min-w-0 whitespace-nowrap text-emerald-300 border-emerald-500/30 justify-center`}
+                title={`Top up to ${DEMO_REFILL_BB} demo BlackBalls`}
+              >
+                +{DEMO_REFILL_BB} Demo BlackBalls
+              </button>
+            )}
+            {!wallet.connected && vaultEnabled && (
+              <button
+                type="button"
+                onClick={() => setVaultOpen(true)}
+                className={`${pillBtn} flex-1 min-w-0 whitespace-nowrap text-amber-300 justify-center`}
+              >
+                Vault
+              </button>
+            )}
+            <Link
+              href="/guide"
+              className={`${pillBtn} shrink-0 w-auto px-4 inline-flex items-center justify-center whitespace-nowrap`}
             >
-              {t.label}
-              {activeTab === t.id && (
-                <motion.div
-                  layoutId="nav-underline-mobile"
-                  className="absolute inset-x-3 bottom-1 h-0.5 bg-black/20 rounded-full"
-                />
-              )}
-            </button>
-          ))}
-        </nav>
+              Guide
+            </Link>
+            {wallet.connected && vaultEnabled && (
+              <button
+                type="button"
+                onClick={() => setVaultOpen(true)}
+                className={`${pillBtn} shrink-0 w-auto px-3 text-amber-300 whitespace-nowrap`}
+              >
+                Vault
+              </button>
+            )}
+          </div>
+
+          {/* tab bar */}
+          <nav className="flex border-t border-white/5 bg-[#25262c] -mx-3">
+            {TABS.map(t => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => onTabChange(t.id)}
+                className={`relative flex-1 touch-manipulation touch-target py-3 text-xs font-extrabold rounded-xl transition-all ${
+                  activeTab === t.id
+                    ? 'bg-amber-500 text-black'
+                    : 'text-white/45 hover:text-white/70'
+                }`}
+              >
+                {t.label}
+                {activeTab === t.id && (
+                  <motion.div
+                    layoutId="nav-underline-mobile"
+                    className="absolute inset-x-3 bottom-1 h-0.5 bg-black/20 rounded-full"
+                  />
+                )}
+              </button>
+            ))}
+          </nav>
+        </div>
 
         {/* desktop */}
         <div className="hidden md:flex max-w-[1700px] mx-auto px-4 py-2.5 items-center justify-between gap-3">
@@ -151,7 +220,7 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
               <img src={LOGO_SRC} alt="Blackballs Logo" className="w-full h-full object-contain drop-shadow-sm" />
             </div>
             <div>
-              <div className="text-base font-extrabold text-white">$BlackBalls</div>
+              <div className="text-base font-extrabold text-white">BlackBalls</div>
               <div className="text-[10px] text-white/40 font-bold -mt-0.5">Degen Arcade</div>
             </div>
           </div>
@@ -159,6 +228,7 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
             {TABS.map(t => (
               <button
                 key={t.id}
+                type="button"
                 onClick={() => onTabChange(t.id)}
                 className={`relative px-4 py-2 text-sm font-extrabold rounded-lg transition-all touch-manipulation ${
                   activeTab === t.id
@@ -173,7 +243,42 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
           <div className="flex items-center gap-2 shrink-0">
             {wallet.connected && <PlayerXpCounter variant="compact" className="hidden md:flex" />}
             {desktopWalletDetails}
-            <div className="flex items-center gap-1">{walletAction}</div>
+            <div className="flex items-center gap-1">
+              {wallet.connected ? (
+                <>
+                  {demoRefillButton}
+                  <button type="button" onClick={() => setGuideOpen(true)} className={pillBtn}>
+                    Guide
+                  </button>
+                  {vaultEnabled && (
+                    <button type="button" onClick={() => setVaultOpen(true)} className={`${pillBtn} text-amber-300`}>
+                      Vault
+                    </button>
+                  )}
+                  <button type="button" onClick={disconnect} className={`${pillBtn} text-rose-300`}>
+                    Disconnect
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button type="button" onClick={() => setGuideOpen(true)} className={pillBtn}>
+                    Guide
+                  </button>
+                  {vaultEnabled && (
+                    <button type="button" onClick={() => setVaultOpen(true)} className={`${pillBtn} text-amber-300`}>
+                      Vault
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => (vaultEnabled ? setVaultOpen(true) : connect())}
+                    className="touch-manipulation touch-target px-4 py-2 text-xs font-extrabold bg-sky-500 hover:bg-sky-400 text-white rounded-xl border-b-4 border-sky-700 active:border-b-0 active:translate-y-1 transition-all shrink-0"
+                  >
+                    Connect
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </header>

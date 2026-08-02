@@ -12,6 +12,8 @@ import type { Candle, FeedEvent, FullState, Phase, RoundSummary, TradeTag } from
 import { dispatchSettlement, type SettlementAction } from './chain/crash-vault-client';
 import { broadcastCrashEvent } from './supabase/broadcast-crash-event';
 import type { CrashSpectatorEventType } from './crash-spectator-types';
+import { DEMO_MIN_BALANCE } from './demo-credits';
+import { mirrorCrashBalanceToFlip } from './mirror-session-balance';
 
 interface BotPlayer {
   name: string;
@@ -42,6 +44,14 @@ interface PlayerState {
   positionAmount: number;
   positionLeverage: number;
   positionEntryPrice: number;
+  positionRoundId: number | null;
+  /** Countdown-phase bet — cleared when round starts or ends. */
+  pendingEntry: {
+    side: 'buy' | 'sell';
+    amount: number;
+    leverage: number;
+    roundId: number;
+  } | null;
   autoSell: number | null;
   lastResult: { won: boolean; amount: number; price: number; bonusAmount?: number; frenzyProc?: boolean } | null;
   stimmy: number;
@@ -49,10 +59,10 @@ interface PlayerState {
 }
 
 const TICK_MS = 250;
-const ROUND_WAIT_SECONDS = 10;
+const ROUND_WAIT_SECONDS = 20;
 const CRASH_HOLD_SECONDS = 5;
 const MAX_CANDLES = 60;
-const MAX_HISTORY = 100;
+const MAX_HISTORY = 1000;
 const MAX_FEED = 40;
 const MAX_TAGS = 20;
 
@@ -64,6 +74,8 @@ function emptyPlayerState(balance = 0): PlayerState {
     positionAmount: 0,
     positionLeverage: 1,
     positionEntryPrice: 1.0,
+    positionRoundId: null,
+    pendingEntry: null,
     autoSell: null,
     lastResult: null,
     stimmy: 0,
@@ -115,6 +127,8 @@ class CrashManager {
   private orderPressure = 0;
   private roundBuyVolume = 0;
   private roundSellVolume = 0;
+  /** Last round id that finished crash settlement — used to clear ghost positions. */
+  private lastSettledRoundId = 0;
 
   constructor() {
     this.history = generateSeedHistory(MAX_HISTORY);
@@ -158,7 +172,11 @@ class CrashManager {
 
   private countBuyersIn(): number {
     const botsIn = this.bots.filter(b => b.status === 'in').length;
-    const humansIn = Array.from(this.players.values()).filter(p => p.hasPosition).length;
+    const humansIn = Array.from(this.players.values()).filter(
+      p =>
+        p.hasPosition ||
+        (p.pendingEntry != null && p.pendingEntry.roundId === this.round.id),
+    ).length;
     return botsIn + humansIn;
   }
 
@@ -192,11 +210,174 @@ class CrashManager {
     return 1.0;
   }
 
-  syncPlayer(address: string, balance: number, bonuses?: { stimmy?: number; frenzy?: number }): number {
-    const player = this.getPlayer(address);
-    if (!player.hasPosition) {
-      player.balance = parseFloat(balance.toFixed(3));
+  private clearPlayerPosition(player: PlayerState) {
+    player.hasPosition = false;
+    player.positionAmount = 0;
+    player.positionLeverage = 1;
+    player.positionEntryPrice = 1.0;
+    player.positionRoundId = null;
+  }
+
+  private clearPendingEntry(player: PlayerState, refund: boolean) {
+    if (!player.pendingEntry) return;
+    if (refund && player.pendingEntry.amount > 0) {
+      player.balance = parseFloat((player.balance + player.pendingEntry.amount).toFixed(3));
     }
+    player.pendingEntry = null;
+  }
+
+  /** Wipe all betting flags — used on crash, new countdown, demo boot. */
+  private clearAllBettingState(player: PlayerState, refundPending: boolean) {
+    if (player.hasPosition) {
+      this.clearPlayerPosition(player);
+    }
+    this.clearPendingEntry(player, refundPending);
+  }
+
+  private forceClearAllPlayers(refundPending: boolean, reason: string) {
+    for (const [address, player] of this.players.entries()) {
+      if (player.hasPosition || player.pendingEntry) {
+        console.warn('[crash] forceClearAllPlayers', {
+          reason,
+          address: address.slice(0, 12),
+          hadPosition: player.hasPosition,
+          positionRoundId: player.positionRoundId,
+          pendingRoundId: player.pendingEntry?.roundId,
+          currentRoundId: this.round.id,
+          phase: this.phase,
+        });
+        this.clearAllBettingState(player, refundPending);
+      }
+    }
+  }
+
+  /** Refund locked margin when clearing a position that never settled. */
+  private releaseStalePosition(player: PlayerState, refundMargin: boolean) {
+    if (!player.hasPosition) return;
+    if (refundMargin && player.positionAmount > 0) {
+      player.balance = parseFloat((player.balance + player.positionAmount).toFixed(3));
+    }
+    this.clearPlayerPosition(player);
+  }
+
+  getPositionDebug(address: string) {
+    const player = this.getPlayer(address);
+    const pending =
+      player.pendingEntry?.roundId === this.round.id ? player.pendingEntry : null;
+    const showPending = pending != null && this.phase === 'waiting';
+    return {
+      phase: this.phase,
+      currentRoundId: this.round.id,
+      lastSettledRoundId: this.lastSettledRoundId,
+      hasPosition: player.hasPosition,
+      effectiveHasPosition: player.hasPosition || showPending,
+      hasLivePosition: player.hasPosition,
+      entryPending: showPending,
+      positionRoundId: player.positionRoundId,
+      positionSide: player.hasPosition ? player.positionSide : pending?.side ?? player.positionSide,
+      pendingEntry: player.pendingEntry,
+    };
+  }
+
+  /**
+   * Drop ghost entries before enter. Returns debug reason if something was cleared.
+   */
+  preparePlayerForEnter(address: string): string | null {
+    const player = this.getPlayer(address);
+    let cleared: string | null = null;
+
+    // Orphan countdown bet while round is live — promote, never silently discard margin.
+    if (this.phase === 'running') {
+      if (this.ensureLivePosition(player)) {
+        cleared = 'promoted pending entry to live position';
+      } else if (player.pendingEntry) {
+        const pr = player.pendingEntry.roundId;
+        if (pr !== this.round.id || pr <= this.lastSettledRoundId) {
+          this.clearPendingEntry(player, true);
+          cleared = `cleared stale pending during running (pendingRound=${pr})`;
+        }
+      }
+    }
+
+    if (this.phase === 'crashed' && player.pendingEntry) {
+      this.clearPendingEntry(player, true);
+      cleared = 'cleared pending (crashed phase)';
+    }
+
+    if (this.phase === 'waiting' && player.pendingEntry) {
+      const pr = player.pendingEntry.roundId;
+      if (pr !== this.round.id || pr <= this.lastSettledRoundId) {
+        this.clearPendingEntry(player, true);
+        cleared = `cleared stale pending (pendingRound=${pr}, current=${this.round.id}, settled=${this.lastSettledRoundId})`;
+      }
+    }
+
+    if (player.hasPosition) {
+      const rid = player.positionRoundId;
+      if (this.phase === 'crashed' || rid == null || rid !== this.round.id || rid <= this.lastSettledRoundId) {
+        this.releaseStalePosition(player, rid != null && rid > this.lastSettledRoundId);
+        cleared = `cleared stale position (posRound=${rid}, current=${this.round.id}, settled=${this.lastSettledRoundId})`;
+      }
+    }
+
+    if (cleared) this.emit();
+    return cleared;
+  }
+
+  /** Player-facing fields for API error recovery / client sync. */
+  clientPlayerView(address: string | null) {
+    const snap = this.snapshot(address);
+    return {
+      phase: snap.phase,
+      gameId: snap.gameId,
+      waitLeft: snap.waitLeft,
+      hasPosition: snap.hasPosition,
+      hasLivePosition: snap.hasLivePosition,
+      entryPending: snap.entryPending,
+      positionSide: snap.positionSide,
+      positionAmount: snap.positionAmount,
+      positionLeverage: snap.positionLeverage,
+      positionEntryPrice: snap.positionEntryPrice,
+      balance: snap.balance,
+    };
+  }
+
+  /** Force-align liquid balance from the other game (ignores pending/position guards). */
+  applyPeerBalance(address: string, balance: number): number {
+    const player = this.getPlayer(address);
+    player.balance = parseFloat(Math.max(0, balance).toFixed(3));
+    this.emit();
+    return player.balance;
+  }
+
+  /** @deprecated use preparePlayerForEnter */
+  reconcilePlayerPosition(address: string): void {
+    this.preparePlayerForEnter(address);
+  }
+
+  syncPlayer(
+    address: string,
+    balance: number,
+    bonuses?: { stimmy?: number; frenzy?: number },
+    options?: { boot?: boolean },
+  ): number {
+    const player = this.getPlayer(address);
+    const clientBalance = parseFloat(Math.max(0, balance).toFixed(3));
+    const isDemo = !address.startsWith('0x');
+
+    if (options?.boot) {
+      this.clearAllBettingState(player, true);
+      player.balance = clientBalance;
+    } else if (!player.hasPosition && !player.pendingEntry) {
+      if (clientBalance <= player.balance + 0.001) {
+        player.balance = clientBalance;
+      } else if (isDemo && clientBalance >= DEMO_MIN_BALANCE && player.balance < DEMO_MIN_BALANCE) {
+        player.balance = clientBalance;
+      }
+    } else if (isDemo && clientBalance >= DEMO_MIN_BALANCE && player.balance < DEMO_MIN_BALANCE) {
+      player.balance = clientBalance;
+    }
+
     if (bonuses) {
       player.stimmy = Math.max(0, bonuses.stimmy ?? player.stimmy);
       player.frenzy = Math.max(0, bonuses.frenzy ?? player.frenzy);
@@ -211,9 +392,9 @@ class CrashManager {
   }
 
   subscribe(address: string | null, fn: (s: FullState) => void): () => void {
-    const listener = () => fn(this.snapshot(address));
+    const listener = () => fn(this.snapshotForStream(address));
     this.listeners.add(listener);
-    fn(this.snapshot(address));
+    fn(this.snapshotForStream(address));
     return () => this.listeners.delete(listener);
   }
 
@@ -224,6 +405,8 @@ class CrashManager {
   private playerSnapshot(address: string | null): Pick<
     FullState,
     | 'hasPosition'
+    | 'hasLivePosition'
+    | 'entryPending'
     | 'positionSide'
     | 'positionAmount'
     | 'positionLeverage'
@@ -235,6 +418,8 @@ class CrashManager {
     if (!address) {
       return {
         hasPosition: false,
+        hasLivePosition: false,
+        entryPending: false,
         positionSide: 'buy',
         positionAmount: 0,
         positionLeverage: 1,
@@ -245,12 +430,17 @@ class CrashManager {
       };
     }
     const player = this.getPlayer(address);
+    const pending =
+      player.pendingEntry?.roundId === this.round.id ? player.pendingEntry : null;
+    const showPending = pending != null && this.phase === 'waiting';
     return {
-      hasPosition: player.hasPosition,
-      positionSide: player.positionSide,
-      positionAmount: player.positionAmount,
-      positionLeverage: player.positionLeverage,
-      positionEntryPrice: player.positionEntryPrice,
+      hasPosition: player.hasPosition || showPending,
+      hasLivePosition: player.hasPosition,
+      entryPending: showPending,
+      positionSide: player.hasPosition ? player.positionSide : pending?.side ?? player.positionSide,
+      positionAmount: player.hasPosition ? player.positionAmount : pending?.amount ?? 0,
+      positionLeverage: player.hasPosition ? player.positionLeverage : pending?.leverage ?? 1,
+      positionEntryPrice: player.hasPosition ? player.positionEntryPrice : 1.0,
       balance: player.balance,
       lastResult: player.lastResult,
       autoSell: player.autoSell,
@@ -283,6 +473,22 @@ class CrashManager {
       roundSellVolume: this.roundSellVolume,
       orderPressure: this.orderPressure,
       ...this.playerSnapshot(address),
+    };
+  }
+
+  /** Lightweight snapshot for SSE — omits heavy seed fields from history. */
+  snapshotForStream(address: string | null = null): FullState {
+    const full = this.snapshot(address);
+    return {
+      ...full,
+      history: full.history.map(h => ({
+        id: h.id,
+        crashPoint: h.crashPoint,
+        ts: h.ts,
+        instantRug: h.instantRug,
+        serverSeedHash: h.serverSeedHash.slice(0, 16),
+        serverSeed: null,
+      })),
     };
   }
 
@@ -335,6 +541,10 @@ class CrashManager {
     if (this.phase === 'crashed') {
       this.waitLeft -= TICK_MS / 1000;
       if (this.waitLeft <= 0) {
+        this.forceClearAllPlayers(true, 'new-countdown');
+        for (const player of this.players.values()) {
+          player.lastResult = null;
+        }
         this.phase = 'waiting';
         this.waitLeft = ROUND_WAIT_SECONDS;
         this.gameId++;
@@ -373,9 +583,7 @@ class CrashManager {
       price: this.mult,
     };
     this.pushFeed('YOU', 'rug', margin, this.mult, -margin, { leverage, side });
-    player.hasPosition = false;
-    player.positionAmount = 0;
-    player.positionLeverage = 1;
+    this.clearPlayerPosition(player);
     dispatchSettlement({
       type: 'loss',
       player: address,
@@ -440,6 +648,21 @@ class CrashManager {
   }
 
   private beginRound() {
+    for (const player of this.players.values()) {
+      const pending = player.pendingEntry;
+      if (pending && pending.roundId === this.round.id) {
+        player.hasPosition = true;
+        player.positionSide = pending.side;
+        player.positionAmount = pending.amount;
+        player.positionLeverage = pending.leverage;
+        player.positionEntryPrice = 1.0;
+        player.positionRoundId = this.round.id;
+        player.pendingEntry = null;
+      } else if (pending) {
+        this.clearPendingEntry(player, true);
+      }
+    }
+
     this.phase = 'running';
     this.elapsed = 0;
     this.mult = 1.0;
@@ -501,6 +724,7 @@ class CrashManager {
         const baseReturn = margin + pnl;
         const { total } = applyCrashPayout(baseReturn, holdBonusesFor(player));
         player.balance += total;
+        mirrorCrashBalanceToFlip(address, player.balance);
         dispatchSettlement({
           type: 'payout',
           player: address,
@@ -519,12 +743,23 @@ class CrashManager {
         amount: pnl,
         price: exitMult,
       };
-      player.hasPosition = false;
-      player.positionAmount = 0;
-      player.positionLeverage = 1;
+      this.clearPlayerPosition(player);
     }
 
+    this.forceClearAllPlayers(false, 'after-crash');
+    this.lastSettledRoundId = this.round.id;
     this.round.revealed = true;
+    const cp = this.round.crashPoint;
+    if (cp >= 1.85 && cp <= 1.97) {
+      this.pushFeed('SYSTEM', 'rug', 0, cp, 0);
+    }
+    for (const player of this.players.values()) {
+      if (!player.hasPosition || !player.autoSell || player.positionSide !== 'buy') continue;
+      const tp = player.positionEntryPrice * player.autoSell;
+      if (cp < tp && tp - cp <= 0.2) {
+        this.pushFeed('SYSTEM', 'rug', 0, cp, 0);
+      }
+    }
     this.history.unshift({
       id: this.round.id,
       crashPoint: this.round.crashPoint,
@@ -639,6 +874,55 @@ class CrashManager {
     if (this.tradeTags.length > MAX_TAGS) this.tradeTags.shift();
   }
 
+  private placePendingEntry(
+    address: string,
+    side: 'buy' | 'sell',
+    amount: number,
+    leverage: number,
+  ): { ok: boolean; error?: string; balance?: number; action?: 'open' } {
+    const player = this.getPlayer(address);
+    if (this.phase !== 'waiting') {
+      return { ok: false, error: 'wait for the next round' };
+    }
+
+    this.preparePlayerForEnter(address);
+    const pending = player.pendingEntry;
+
+    if (pending && pending.roundId === this.round.id) {
+      if (pending.side === side) {
+        return {
+          ok: false,
+          error: `already entered ${side === 'buy' ? 'long' : 'short'} this countdown`,
+        };
+      }
+      this.clearPendingEntry(player, true);
+    }
+
+    if (player.hasPosition) {
+      return { ok: false, error: 'already in position' };
+    }
+
+    const margin = Math.floor(amount * 1000) / 1000;
+    if (margin <= 0) return { ok: false, error: 'invalid amount' };
+    if (margin > player.balance + 0.0005) {
+      return {
+        ok: false,
+        error: `insufficient balance (${player.balance.toFixed(3)} BlackBalls available)`,
+      };
+    }
+
+    player.balance = parseFloat((player.balance - margin).toFixed(3));
+    player.pendingEntry = { side, amount: margin, leverage, roundId: this.round.id };
+
+    const notional = margin * leverage;
+    this.applyOrderFlow(side, notional);
+    this.pushFeed('YOU', side, margin, 1.0, -margin, { leverage, side });
+    this.pushTag('YOU', side, margin, 1.0);
+    this.emit();
+    mirrorCrashBalanceToFlip(address, player.balance);
+    return { ok: true, balance: player.balance, action: 'open' };
+  }
+
   private openPosition(
     address: string,
     side: 'buy' | 'sell',
@@ -650,73 +934,109 @@ class CrashManager {
     balance?: number;
     action?: 'open';
   } {
+    return this.placePendingEntry(address, side, amount, leverage);
+  }
+
+  private cancelPendingEntry(address: string): {
+    ok: boolean;
+    error?: string;
+    balance?: number;
+    action?: 'close';
+  } {
     const player = this.getPlayer(address);
-    if (this.phase !== 'waiting') {
-      return { ok: false, error: 'wait for the next round' };
+    const pending =
+      player.pendingEntry?.roundId === this.round.id ? player.pendingEntry : null;
+    if (!pending) {
+      return { ok: false, error: 'no pending entry' };
     }
-    if (player.hasPosition) return { ok: false, error: 'already in position' };
-
-    const margin = Math.floor(amount * 1000) / 1000;
-    if (margin <= 0) return { ok: false, error: 'invalid amount' };
-    if (margin > player.balance + 0.0005) {
-      return {
-        ok: false,
-        error: `insufficient balance (${player.balance.toFixed(3)} $BlackBalls available)`,
-      };
-    }
-
-    const entryPrice = 1.0;
-    player.hasPosition = true;
-    player.positionSide = side;
-    player.positionAmount = margin;
-    player.positionLeverage = leverage;
-    player.positionEntryPrice = entryPrice;
-    player.balance = parseFloat((player.balance - margin).toFixed(3));
-
-    const notional = margin * leverage;
-    this.applyOrderFlow(side, notional);
-    this.pushFeed('YOU', side, margin, entryPrice, -margin, { leverage, side });
-    this.pushTag('YOU', side, margin, entryPrice);
+    const closeSide = pending.side === 'buy' ? 'sell' : 'buy';
+    this.pushFeed('YOU', closeSide, pending.amount, 1.0, 0, {
+      leverage: pending.leverage,
+      side: pending.side,
+    });
+    this.clearPendingEntry(player, true);
     this.emit();
-    return { ok: true, balance: player.balance, action: 'open' };
+    mirrorCrashBalanceToFlip(address, player.balance);
+    return { ok: true, balance: player.balance, action: 'close' };
+  }
+
+  private ensureLivePosition(player: PlayerState): boolean {
+    if (player.hasPosition && player.positionAmount > 0) return true;
+
+    const pending =
+      player.pendingEntry?.roundId === this.round.id ? player.pendingEntry : null;
+    if (this.phase === 'running' && pending) {
+      player.hasPosition = true;
+      player.positionSide = pending.side;
+      player.positionAmount = pending.amount;
+      player.positionLeverage = pending.leverage;
+      player.positionEntryPrice = 1.0;
+      player.positionRoundId = this.round.id;
+      player.pendingEntry = null;
+      return true;
+    }
+
+    return false;
   }
 
   private closePosition(
     address: string,
+    percent = 1,
   ): {
     ok: boolean;
     error?: string;
     balance?: number;
     frenzyProc?: boolean;
     settlement?: SettlementAction;
-    action?: 'close';
+    action?: 'close' | 'partial';
+    cashedPct?: number;
+    exitPrice?: number;
   } {
     const player = this.getPlayer(address);
-    if (!player.hasPosition) return { ok: false, error: 'no position' };
+    const pct = Math.min(1, Math.max(0.01, percent));
 
     if (this.phase === 'waiting') {
+      const pending =
+        player.pendingEntry?.roundId === this.round.id ? player.pendingEntry : null;
+      if (pending) {
+        return this.cancelPendingEntry(address);
+      }
+      if (!player.hasPosition) {
+        return { ok: false, error: 'no position' };
+      }
+      if (pct < 1) return { ok: false, error: 'partial cash-out only during live round' };
       const margin = player.positionAmount;
       const closeSide = player.positionSide === 'buy' ? 'sell' : 'buy';
       const leverage = player.positionLeverage;
       const side = player.positionSide;
       player.balance += margin;
       this.pushFeed('YOU', closeSide, margin, 1.0, 0, { leverage, side });
-      player.hasPosition = false;
-      player.positionAmount = 0;
-      player.positionLeverage = 1;
+      this.clearPlayerPosition(player);
       this.emit();
       return { ok: true, balance: player.balance, action: 'close' };
     }
 
-    if (this.phase !== 'running') return { ok: false, error: 'not running' };
+    if (this.phase !== 'running') {
+      if (this.phase === 'crashed') {
+        return { ok: false, error: 'round ended — wait for the next countdown' };
+      }
+      return { ok: false, error: 'cash-out only during live round' };
+    }
+
+    if (!this.ensureLivePosition(player)) {
+      return { ok: false, error: 'no open position — enter during the countdown' };
+    }
 
     const margin = player.positionAmount;
+    const closeMargin = parseFloat((margin * pct).toFixed(3));
+    if (closeMargin <= 0) return { ok: false, error: 'invalid amount' };
+
     const leverage = player.positionLeverage;
     const side = player.positionSide;
     const entry = player.positionEntryPrice;
     const exit = this.mult;
-    const pnl = calcPositionPnl(player.positionSide, margin, leverage, entry, exit);
-    let returnAmount = margin + pnl;
+    const pnl = calcPositionPnl(player.positionSide, closeMargin, leverage, entry, exit);
+    let returnAmount = closeMargin + pnl;
     let frenzyProc = false;
     let bonusAmount: number | undefined;
 
@@ -727,22 +1047,37 @@ class CrashManager {
       frenzyProc = fp;
     }
 
-    player.balance += returnAmount;
+    player.balance = parseFloat((player.balance + returnAmount).toFixed(3));
     const closeSide = player.positionSide === 'buy' ? 'sell' : 'buy';
-    this.applyOrderFlow(closeSide, margin * leverage);
-    player.lastResult = {
-      won: pnl > 0,
-      amount: pnl,
-      price: exit,
-      bonusAmount: bonusAmount && bonusAmount > 0 ? bonusAmount : undefined,
-      frenzyProc: frenzyProc || undefined,
-    };
-    this.pushFeed('YOU', closeSide, margin, exit, pnl, { leverage, side });
-    this.pushTag('YOU', closeSide, margin, exit);
-    player.hasPosition = false;
-    player.positionAmount = 0;
-    player.positionLeverage = 1;
+    this.applyOrderFlow(closeSide, closeMargin * leverage);
+
+    const remaining = parseFloat((margin - closeMargin).toFixed(3));
+    const fullClose = pct >= 0.999 || remaining < 0.001;
+
+    if (fullClose) {
+      player.lastResult = {
+        won: pnl > 0,
+        amount: pnl,
+        price: exit,
+        bonusAmount: bonusAmount && bonusAmount > 0 ? bonusAmount : undefined,
+        frenzyProc: frenzyProc || undefined,
+      };
+      this.clearPlayerPosition(player);
+    } else {
+      player.positionAmount = remaining;
+      player.lastResult = {
+        won: pnl > 0,
+        amount: pnl,
+        price: exit,
+        bonusAmount: bonusAmount && bonusAmount > 0 ? bonusAmount : undefined,
+        frenzyProc: frenzyProc || undefined,
+      };
+    }
+
+    this.pushFeed('YOU', 'cashout', closeMargin, exit, pnl, { leverage, side });
+    this.pushTag('YOU', closeSide, closeMargin, exit);
     this.emit();
+    mirrorCrashBalanceToFlip(address, player.balance);
 
     const settlement: SettlementAction = {
       type: 'payout',
@@ -750,7 +1085,59 @@ class CrashManager {
       amount: returnAmount,
     };
 
-    return { ok: true, balance: player.balance, frenzyProc, settlement, action: 'close' };
+    return {
+      ok: true,
+      balance: player.balance,
+      frenzyProc,
+      settlement,
+      action: fullClose ? 'close' : 'partial',
+      cashedPct: pct,
+      exitPrice: exit,
+    };
+  }
+
+  /** Manual / partial cash-out during live running phase. */
+  cashOut(address: string, percent = 1) {
+    return this.closePosition(address, percent);
+  }
+
+  /** Cancel pending countdown entry or close an open position (waiting/running). */
+  cancelCountdownEntry(address: string): {
+    ok: boolean;
+    error?: string;
+    balance?: number;
+    action?: 'close' | 'partial';
+    exitPrice?: number;
+  } {
+    const player = this.getPlayer(address);
+    const pending =
+      player.pendingEntry?.roundId === this.round.id ? player.pendingEntry : null;
+
+    if (this.phase === 'waiting') {
+      if (pending) {
+        return this.cancelPendingEntry(address);
+      }
+      if (player.hasPosition && player.positionRoundId === this.round.id) {
+        return this.closePosition(address, 1);
+      }
+      const view = this.clientPlayerView(address);
+      if (!view.hasPosition && !view.entryPending) {
+        return { ok: true, balance: player.balance, action: 'close' };
+      }
+      return { ok: false, error: 'no pending entry to cancel' };
+    }
+
+    if (this.phase === 'running') {
+      if (this.ensureLivePosition(player) || player.hasPosition) {
+        return this.closePosition(address, 1);
+      }
+      if (pending) {
+        return this.cancelPendingEntry(address);
+      }
+      return { ok: false, error: 'no open position to close' };
+    }
+
+    return { ok: false, error: 'wait for the next round' };
   }
 
   trade(
@@ -764,7 +1151,9 @@ class CrashManager {
     balance?: number;
     frenzyProc?: boolean;
     settlement?: SettlementAction;
-    action?: 'open' | 'close';
+    action?: 'open' | 'close' | 'partial';
+    cashedPct?: number;
+    exitPrice?: number;
   } {
     const lev = Math.round(leverage * 2) / 2;
     if (lev < MIN_LEVERAGE || lev > MAX_LEVERAGE) {
@@ -772,21 +1161,46 @@ class CrashManager {
     }
 
     const player = this.getPlayer(address);
-    if (player.hasPosition) {
+
+    if (this.phase === 'waiting') {
+      this.preparePlayerForEnter(address);
+      const pending =
+        player.pendingEntry?.roundId === this.round.id ? player.pendingEntry : null;
+
+      if (pending) {
+        if (pending.side === side) {
+          return {
+            ok: false,
+            error: `already entered ${side === 'buy' ? 'long' : 'short'} this countdown`,
+          };
+        }
+        return this.cancelPendingEntry(address);
+      }
+
+      if (player.hasPosition) {
+        if (player.positionSide === side) {
+          return {
+            ok: false,
+            error: `already entered ${side === 'buy' ? 'long' : 'short'} this countdown`,
+          };
+        }
+        return this.closePosition(address);
+      }
+
+      return this.placePendingEntry(address, side, amount, lev);
+    }
+
+    if (this.phase === 'running') {
+      if (!player.hasPosition) {
+        return { ok: false, error: 'wait for the next round' };
+      }
       if (player.positionSide === side) {
         return { ok: false, error: 'use opposite side to close' };
-      }
-      if (this.phase !== 'waiting') {
-        return { ok: false, error: 'wait for the next round' };
       }
       return this.closePosition(address);
     }
 
-    if (this.phase !== 'waiting') {
-      return { ok: false, error: 'wait for the next round' };
-    }
-
-    return this.openPosition(address, side, amount, lev);
+    return { ok: false, error: 'wait for the next round' };
   }
 
   buy(address: string, amount: number, leverage = 1) {

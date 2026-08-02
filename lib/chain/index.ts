@@ -7,6 +7,7 @@ export {
   fromTokenWei,
   getSessionBalance,
   isVaultEnabled,
+  isOnChainPlayer,
   processSettlement,
   toTokenWei,
   verifyEscrowForWager,

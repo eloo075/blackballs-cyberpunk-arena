@@ -65,8 +65,15 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     let raf = 0;
+    let lastFrameMs = 0;
+    const SHIFT_LERP_PER_SEC = 7.2;
 
-    const render = () => {
+    const render = (frameMs: number) => {
+      const dt = lastFrameMs ? Math.min((frameMs - lastFrameMs) / 1000, 0.05) : 1 / 60;
+      lastFrameMs = frameMs;
+      shiftOffsetRef.current += (0 - shiftOffsetRef.current) * Math.min(1, SHIFT_LERP_PER_SEC * dt);
+      if (Math.abs(shiftOffsetRef.current) < 0.001) shiftOffsetRef.current = 0;
+
       const p = propsRef.current;
       const dpr = devicePixelRatio || 1;
       const cssW = canvas.offsetWidth;
@@ -76,15 +83,10 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
       ctx.clearRect(0, 0, w, h);
 
       const visible = p.candles;
-      const aspect = cssW / Math.max(cssH, 1);
-      const isSquare = cssW < 768 && aspect > 0.82 && aspect < 1.18;
-      const isNarrow = cssW < 420 || isSquare;
-      const isDesktop = cssW >= 768 && !isSquare;
-
-      const padLeft = (isDesktop ? 12 : 6) * dpr;
-      const padRight = (isNarrow ? 44 : isDesktop ? 58 : 52) * dpr;
-      const padTop = isSquare ? 8 * dpr : cssH < 360 && !isSquare ? 12 * dpr : 24 * dpr;
-      const padBottom = isSquare ? 12 * dpr : cssH < 360 && !isSquare ? 14 * dpr : 22 * dpr;
+      const padLeft = 12 * dpr;
+      const padRight = 58 * dpr;
+      const padTop = 24 * dpr;
+      const padBottom = 22 * dpr;
       const chartW = w - padLeft - padRight;
       const chartH = h - padTop - padBottom;
 
@@ -101,10 +103,10 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
 
       const yFor = (price: number) => padTop + chartH - ((price - minPrice) / (maxPrice - minPrice)) * chartH;
 
-      const baseFont = isNarrow ? 11 * dpr : isDesktop ? 10 * dpr : 9 * dpr;
+      const baseFont = 10 * dpr;
       ctx.font = `${baseFont}px JetBrains Mono`;
 
-      const gridSteps = isNarrow ? 4 : isDesktop ? 5 : 6;
+      const gridSteps = 5;
       for (let i = 0; i <= gridSteps; i++) {
         const price = minPrice + (i / gridSteps) * (maxPrice - minPrice);
         const y = yFor(price);
@@ -129,7 +131,7 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
       }
       ctx.textAlign = 'left';
 
-      const visibleCount = isSquare ? 28 : isNarrow ? 36 : MAX_VISIBLE;
+      const visibleCount = MAX_VISIBLE;
       const startIdx = Math.max(0, visible.length - visibleCount);
       const slice = visible.slice(startIdx);
 
@@ -137,8 +139,6 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
         shiftOffsetRef.current = 1;
       }
       prevCandleCountRef.current = visible.length;
-      shiftOffsetRef.current += (0 - shiftOffsetRef.current) * 0.12;
-      if (Math.abs(shiftOffsetRef.current) < 0.001) shiftOffsetRef.current = 0;
 
       layoutRef.current = computeChartLayout(
         cssW,
@@ -153,8 +153,8 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
 
       const slotW = chartW / visibleCount;
       const shiftPx = shiftOffsetRef.current * slotW;
-      const bodyRatio = isDesktop ? 0.88 : isSquare ? 0.92 : 0.9;
-      const maxBodyW = isDesktop ? 22 * dpr : 18 * dpr;
+      const bodyRatio = 0.88;
+      const maxBodyW = 22 * dpr;
 
       slice.forEach((c, i) => {
         const cx = padLeft + (i + 0.5) * slotW + shiftPx;
@@ -206,7 +206,7 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
         ctx.fillStyle = col;
         ctx.fillRect(padLeft + chartW, y - 9 * dpr, padRight, 18 * dpr);
         ctx.fillStyle = '#000';
-        ctx.font = `bold ${isDesktop ? 11 : 10}px JetBrains Mono`;
+        ctx.font = `bold ${11}px JetBrains Mono`;
         ctx.textAlign = 'center';
         ctx.fillText(`${p.mult.toFixed(2)}x`, padLeft + chartW + padRight / 2, y + 3.5 * dpr);
         ctx.textAlign = 'left';
@@ -250,7 +250,7 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
       raf = requestAnimationFrame(render);
     };
 
-    render();
+    raf = requestAnimationFrame(render);
     return () => cancelAnimationFrame(raf);
   }, []);
 

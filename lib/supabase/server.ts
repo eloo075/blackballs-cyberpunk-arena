@@ -1,4 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { applyDevSupabaseTlsWorkaround } from '@/lib/supabase/fetch';
+
+applyDevSupabaseTlsWorkaround();
 
 let adminClient: SupabaseClient | null = null;
 

@@ -11,6 +11,8 @@ import {
 import { getSupabaseBrowser, isSupabaseRealtimeConfigured } from '@/lib/supabase/client';
 
 const MAX_EVENTS = 40;
+const SHAME_TOAST_MS = 1800;
+const FAME_TOAST_MS = 2600;
 
 export interface SpectatorToast {
   id: string;
@@ -41,6 +43,10 @@ export function useCrashSpectatorChannel() {
   const seenIds = useRef(new Set<string>());
   const realtimeEnabled = isSupabaseRealtimeConfigured();
 
+  const dismissToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
   const pushEvent = useCallback((event: CrashSpectatorEvent) => {
     if (seenIds.current.has(event.id)) return;
     seenIds.current.add(event.id);
@@ -53,31 +59,27 @@ export function useCrashSpectatorChannel() {
 
     if (isHallOfFame(event)) {
       const profit = event.pnl ?? event.payout ?? 0;
-      setToasts(t => [
-        ...t,
-        {
-          id: `fame-${event.id}`,
-          kind: 'fame',
-          title: 'HALL OF FAME',
-          body: `${event.player} cashed +${profit.toFixed(0)} $BlackBalls @ ${event.multiplier.toFixed(2)}x`,
-        },
-      ]);
+      const id = `fame-${event.id}`;
+      const toast: SpectatorToast = {
+        id,
+        kind: 'fame',
+        title: 'FAME',
+        body: `${event.player} +${profit.toFixed(0)} @ ${event.multiplier.toFixed(2)}x`,
+      };
+      setToasts(t => [...t.filter(x => x.kind !== 'fame'), toast]);
+      window.setTimeout(() => dismissToast(id), FAME_TOAST_MS);
     } else if (isHallOfShame(event)) {
-      setToasts(t => [
-        ...t,
-        {
-          id: `shame-${event.id}`,
-          kind: 'shame',
-          title: 'HALL OF SHAME',
-          body: `${event.player} liquidated instantly @ ${event.multiplier.toFixed(2)}x`,
-        },
-      ]);
+      const id = `shame-${event.id}`;
+      const toast: SpectatorToast = {
+        id,
+        kind: 'shame',
+        title: 'SHAME',
+        body: `${event.player} rekt @ ${event.multiplier.toFixed(2)}x`,
+      };
+      setToasts(t => [...t.filter(x => x.kind !== 'shame'), toast]);
+      window.setTimeout(() => dismissToast(id), SHAME_TOAST_MS);
     }
-  }, []);
-
-  const dismissToast = useCallback((id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  }, []);
+  }, [dismissToast]);
 
   useEffect(() => {
     if (!realtimeEnabled) return;
@@ -96,14 +98,6 @@ export function useCrashSpectatorChannel() {
       void supabase.removeChannel(channel);
     };
   }, [realtimeEnabled, pushEvent]);
-
-  useEffect(() => {
-    if (toasts.length === 0) return;
-    const timer = setTimeout(() => {
-      setToasts(prev => prev.slice(1));
-    }, 5200);
-    return () => clearTimeout(timer);
-  }, [toasts]);
 
   return {
     events,

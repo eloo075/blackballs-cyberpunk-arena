@@ -10,7 +10,17 @@ import { HoldBonusBar } from '@/components/hold-bonus-bar';
 import { LiveActivityFeed } from '@/components/LiveActivityFeed';
 import { LastHundred } from '@/components/last-hundred';
 import { MarketListings } from '@/components/market-listings';
+import { CrashStatsPanel } from '@/components/crash-stats-panel';
+import { VerifyRoundButton } from '@/components/verify-round-button';
+import { HallOfFameToday } from '@/components/hall-of-fame-today';
+import { LoginStreakBanner } from '@/components/login-streak-banner';
+import { ResultFeedback } from '@/components/result-feedback';
+import { useResultFeedback } from '@/hooks/use-result-feedback';
+import { recordHallOfFame } from '@/lib/player-retention';
 import { isVaultConfigured } from '@/lib/chain/public-config';
+import { resolvePlayableBalance } from '@/lib/session-balance';
+import { CrashMobileHeader } from '@/components/crash-mobile-header';
+import { syncGameSessionBalances } from '@/lib/sync-game-sessions';
 
 const RUG_PARTICLES = Array.from({ length: 20 }, (_, i) => ({
   x: 50 + (((i * 17) % 100) - 50),
@@ -18,9 +28,10 @@ const RUG_PARTICLES = Array.from({ length: 20 }, (_, i) => ({
 }));
 
 export function CrashView() {
-  const { state, connected, trade, setAutoSell, walletConnected } = useCrashStream();
-  const { wallet, connect, disconnect, holdBonuses } = useWallet();
+  const { state, connected, reconnecting, sessionReady, roundEpoch, streamEpoch, trade, cancelActivePosition, cashOut, setAutoSell, walletConnected } = useCrashStream();
+  const { wallet, connect, disconnect, holdBonuses, displayAddress, refillDemoCredits } = useWallet();
   const { state: compState, recordCrashResult } = useCompetitive();
+  const { event: resultEvent, trigger: triggerResult, dismiss: dismissResult } = useResultFeedback();
   const [mobileFull, setMobileFull] = useState(false);
   const processedResultRef = useRef<string | null>(null);
   const vaultEnabled = isVaultConfigured();
@@ -30,29 +41,92 @@ export function CrashView() {
     window.setTimeout(() => connect(), 0);
   };
 
+  const handleDemoRefill = async () => {
+    if (!wallet.connected || wallet.isRealWallet || !wallet.address) return;
+    const balance = refillDemoCredits();
+    const holdsBb = holdBonuses.active.some(b => b.token === 'BLACKBALLS');
+    await syncGameSessionBalances(
+      wallet.address,
+      balance,
+      holdBonuses.stimmy,
+      holdBonuses.frenzy,
+      holdsBb,
+      wallet.isRealWallet,
+    );
+  };
+
   useEffect(() => {
     const lr = state?.lastResult;
-    if (!lr || state.gameId == null) return;
-    const fp = `${state.gameId}-${lr.won}-${lr.amount}-${lr.price}`;
+    if (!lr || state.phase !== 'crashed' || state.currentRound.crashPoint == null) return;
+    const fp = `${state.currentRound.id}-${lr.won}-${lr.amount}-${lr.price}`;
     if (processedResultRef.current === fp) return;
     processedResultRef.current = fp;
     recordCrashResult(lr.won, lr.price);
-  }, [state?.lastResult, state?.gameId, recordCrashResult]);
+
+    const totalWin = lr.amount + (lr.bonusAmount ?? 0);
+    const crashAt = state.currentRound.crashPoint;
+    if (lr.won) {
+      triggerResult({
+        won: true,
+        amount: totalWin,
+        subtitle: `@ ${lr.price.toFixed(2)}x${lr.bonusAmount ? ` · +${lr.bonusAmount.toFixed(2)} bonus` : ''}${lr.frenzyProc ? ' · FRENZY' : ''}`,
+        multiplier: lr.price,
+      });
+      if (lr.price >= 8 && wallet.address) {
+        recordHallOfFame({
+          player: displayAddress?.slice(0, 8) ?? 'YOU',
+          multiplier: lr.price,
+          profit: totalWin,
+        });
+      }
+    } else {
+      const lossDisplay = Math.abs(lr.amount);
+      triggerResult({
+        won: false,
+        amount: lossDisplay,
+        subtitle:
+          lr.price <= 1.01
+            ? `Rugged @ ${crashAt.toFixed(2)}x`
+            : `@ ${lr.price.toFixed(2)}x`,
+        multiplier: crashAt,
+      });
+    }
+  }, [state?.lastResult, state?.phase, state?.currentRound.id, state?.currentRound.crashPoint, recordCrashResult, wallet.address, displayAddress, triggerResult]);
 
   if (!state) {
     return (
       <div className="flex items-center justify-center min-h-[50vh] font-arcade px-4">
         <div className="text-center">
-          <div className="text-sm font-extrabold text-white/60">Connecting to arena…</div>
+          <div className="text-sm font-extrabold text-white/60">
+            {connected ? 'Loading game state…' : 'Connecting to Crash…'}
+          </div>
           <div className="text-xs text-white/35 mt-2">Provably fair · live stream</div>
         </div>
       </div>
     );
   }
 
+  const playableBalance = resolvePlayableBalance(
+    wallet,
+    walletConnected ? state.balance : undefined,
+  );
+  const showPosition = state.hasPosition && state.phase !== 'crashed';
+  const showLivePosition = state.hasLivePosition && state.phase === 'running';
+  const liveMult = showPosition && state.phase === 'waiting' ? 1.0 : state.mult;
+  const chartMult =
+    state.phase === 'crashed' && state.currentRound.crashPoint != null
+      ? state.currentRound.crashPoint
+      : state.mult;
+  const chartPeak =
+    state.phase === 'crashed' && state.currentRound.crashPoint != null
+      ? Math.max(state.peakMult, state.currentRound.crashPoint)
+      : state.peakMult;
+
   if (mobileFull) {
     return (
-      <motion.div
+      <>
+        <ResultFeedback event={resultEvent} onComplete={dismissResult} />
+        <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -66,38 +140,36 @@ export function CrashView() {
             Close
           </button>
           <ChartCanvas
+            key={`crash-chart-mobile-${state.gameId}-${streamEpoch}`}
             candles={state.candles}
             phase={state.phase}
-            mult={state.mult}
-            peakMult={state.peakMult}
+            mult={chartMult}
+            peakMult={chartPeak}
             elapsed={state.elapsed}
             tradeTags={state.tradeTags}
-            entryPrice={state.hasPosition ? state.positionEntryPrice : null}
+            entryPrice={showLivePosition ? state.positionEntryPrice : null}
           />
         </div>
       </motion.div>
+      </>
     );
   }
 
   return (
+    <>
+      <ResultFeedback event={resultEvent} onComplete={dismissResult} />
     <div className="flex flex-col lg:flex-row gap-2 sm:gap-3 p-2 sm:p-3 max-w-[1700px] mx-auto w-full">
       <div className="flex-1 flex flex-col gap-2 sm:gap-3 min-w-0">
-        {/* mobile status bar */}
-        <div className="sm:hidden cp-panel px-3 py-2.5 flex items-center justify-between text-xs gap-2">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className={`w-2 h-2 rounded-full shrink-0 ${connected ? 'bg-emerald-400' : 'bg-rose-400'}`} />
-            <span className="text-white/45 shrink-0">Round</span>
-            <span className="text-sky-400 font-extrabold">#{state.currentRound.id}</span>
-            <span className="text-white/25">·</span>
-            <span className="text-white/45 truncate">{state.buyersIn} in</span>
-            <span className="text-white/25">·</span>
-            <span className="text-emerald-400 shrink-0">↑{state.roundBuyVolume.toFixed(1)}</span>
-            <span className="text-rose-400 shrink-0">↓{state.roundSellVolume.toFixed(1)}</span>
-          </div>
-          {state.currentRound.crashPoint != null && (
-            <span className="text-rose-400 font-extrabold shrink-0">{state.currentRound.crashPoint.toFixed(2)}x</span>
-          )}
-        </div>
+        <CrashMobileHeader
+          blackballsBalance={playableBalance}
+          solBalance={wallet.solBalance}
+          phase={state.phase}
+          mult={state.mult}
+          waitLeft={state.waitLeft}
+          roundId={state.currentRound.id}
+          isDemoWallet={wallet.connected && !wallet.isRealWallet}
+          onDemoRefill={handleDemoRefill}
+        />
 
         {/* desktop status bar */}
         <div className="cp-panel px-4 py-2 items-center justify-between text-xs flex-wrap gap-2 hidden sm:flex">
@@ -139,19 +211,33 @@ export function CrashView() {
           </div>
         </div>
 
-        {/* chart container — canvas untouched; HTML multiplier overlay only */}
-        <div className="relative cp-panel overflow-visible w-[100vw] max-w-none aspect-square shrink-0 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:w-full sm:aspect-auto sm:flex-1 sm:min-h-[480px] sm:h-[60vh]">
+        {/* chart + cash-out dock — fixed block; controls scroll below without shrinking chart */}
+        <div className="flex flex-col gap-2 shrink-0 flex-none min-w-0">
+        <div className="relative cp-panel overflow-visible w-full min-h-[min(42vh,340px)] h-[min(42vh,340px)] sm:min-h-[480px] sm:h-[60vh] sm:max-h-none">
           <ChartCanvas
+            key={`crash-chart-${state.gameId}-${streamEpoch}`}
             candles={state.candles}
             phase={state.phase}
-            mult={state.mult}
-            peakMult={state.peakMult}
+            mult={chartMult}
+            peakMult={chartPeak}
             elapsed={state.elapsed}
             tradeTags={state.tradeTags}
-            entryPrice={state.hasPosition ? state.positionEntryPrice : null}
+            entryPrice={showLivePosition ? state.positionEntryPrice : null}
           />
 
-          {(state.phase === 'running' || state.phase === 'crashed') && (
+          {(reconnecting || !connected) && (
+            <div className="absolute inset-0 z-[15] flex items-center justify-center bg-[#141518]/70 backdrop-blur-[2px] pointer-events-none">
+              <div className="text-center px-4">
+                <div className="text-sm font-extrabold text-amber-300 uppercase tracking-wider">
+                  Reconnecting to Crash…
+                </div>
+                <div className="text-[11px] text-white/45 mt-1">Syncing latest round state</div>
+              </div>
+            </div>
+          )}
+
+          {(state.phase === 'running' ||
+            (state.phase === 'crashed' && state.currentRound.crashPoint == null)) && (
             <div
               className="pointer-events-none absolute inset-x-0 top-[12%] sm:top-[10%] flex justify-center z-[5]"
               aria-hidden
@@ -179,14 +265,19 @@ export function CrashView() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="absolute inset-0 flex items-center justify-center bg-[#141518]/60 backdrop-blur-sm z-10"
+                className="absolute inset-0 flex items-center justify-center bg-[#141518]/75 backdrop-blur-sm z-10"
               >
-                <div className="flex flex-col items-center gap-2 sm:gap-3 font-arcade">
-                  <div className="text-sm font-extrabold text-white/60">Next round in</div>
-                  <div className="text-5xl sm:text-6xl font-extrabold text-white tabular-nums" style={{ textShadow: '0 4px 20px rgba(0,0,0,0.5)' }}>
+                <div className="flex flex-col items-center justify-center gap-2 sm:gap-6 font-arcade px-4 py-6 sm:px-6 sm:py-14 rounded-2xl sm:rounded-3xl border border-white/10 bg-[#141518]/90 shadow-2xl min-w-[min(88vw,420px)]">
+                  <div className="text-sm sm:text-lg font-extrabold text-white/70 uppercase tracking-wide">
+                    Place your entry
+                  </div>
+                  <div className="text-5xl sm:text-8xl md:text-9xl font-extrabold text-white tabular-nums leading-none" style={{ textShadow: '0 4px 28px rgba(0,0,0,0.55)' }}>
                     {state.waitLeft.toFixed(1)}s
                   </div>
-                  <div className="text-xs text-white/45">Seed committed · provably fair</div>
+                  <div className="text-xs sm:text-base text-emerald-300/90 font-bold text-center max-w-[280px]">
+                    BUY or SELL @ 1.00x
+                  </div>
+                  <div className="text-xs text-white/40">Seed committed · provably fair</div>
                 </div>
               </motion.div>
             )}
@@ -216,7 +307,9 @@ export function CrashView() {
                     className="text-2xl sm:text-3xl font-extrabold text-white mt-3 sm:mt-4 tabular-nums"
                     style={{ textShadow: '0 4px 16px rgba(0,0,0,0.45)' }}
                   >
-                    {state.peakMult.toFixed(2)}x
+                    {state.currentRound.crashPoint != null
+                      ? `${state.currentRound.crashPoint.toFixed(2)}x`
+                      : `${state.peakMult.toFixed(2)}x`}
                   </motion.div>
                   <motion.div
                     initial={{ y: 20, opacity: 0 }}
@@ -226,6 +319,16 @@ export function CrashView() {
                   >
                     {state.players} degens rekt
                   </motion.div>
+                  {(state.currentRound.crashPoint ?? 0) >= 1.85 &&
+                    (state.currentRound.crashPoint ?? 0) <= 1.97 && (
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="text-xs text-amber-300 mt-2 font-extrabold"
+                      >
+                        SO CLOSE — near-miss rug 😭
+                      </motion.div>
+                    )}
                 </motion.div>
                 {RUG_PARTICLES.map((p, i) => (
                   <motion.div
@@ -245,19 +348,25 @@ export function CrashView() {
             )}
           </AnimatePresence>
         </div>
-
-        <HoldBonusBar active={holdBonuses.active} compact className="sm:hidden" />
+        </div>
 
         <CrashControls
           phase={state.phase}
           mult={state.mult}
-          balance={walletConnected ? state.balance : wallet.blackballsBalance}
-          hasPosition={state.hasPosition}
+          balance={playableBalance}
+          sessionReady={sessionReady}
+          hasPosition={showPosition}
+          hasLivePosition={state.hasLivePosition}
+          entryPending={state.entryPending}
           positionSide={state.positionSide}
           positionAmount={state.positionAmount}
           positionLeverage={state.positionLeverage}
           positionEntryPrice={state.positionEntryPrice}
           waitLeft={state.waitLeft}
+          gameId={state.gameId}
+          roundEpoch={roundEpoch}
+          streamConnected={connected}
+          streamEpoch={streamEpoch}
           autoSell={state.autoSell}
           lastResult={state.lastResult}
           holdBonuses={holdBonuses}
@@ -267,23 +376,37 @@ export function CrashView() {
           onConnect={connect}
           onTryDemo={vaultEnabled ? tryDemo : undefined}
           onTrade={trade}
+          onCancelEntry={cancelActivePosition}
+          onCashOut={cashOut}
           onSetAutoSell={setAutoSell}
         />
+
+        {holdBonuses.active.length > 0 && (
+          <HoldBonusBar active={holdBonuses.active} compact className="sm:hidden" />
+        )}
+
+        {state.phase === 'crashed' && (
+          <VerifyRoundButton round={state.currentRound} />
+        )}
       </div>
 
       <div className="w-full lg:w-[280px] shrink-0 flex flex-col gap-2 sm:gap-3">
+        <LoginStreakBanner />
         <HoldBonusBar active={holdBonuses.active} className="hidden sm:block" />
         {compState.crashWinStreak >= 2 && (
           <div className="hidden sm:block cp-panel px-3 py-2 text-xs text-emerald-400 font-bold">
             📈 Crash win streak: <span className="font-extrabold">{compState.crashWinStreak}</span> — keep the momentum
           </div>
         )}
-        <LastHundred history={state.history} />
+        <CrashStatsPanel history={state.history} />
+        <HallOfFameToday />
+        <LastHundred history={state.history.slice(0, 100)} />
         <div className="cp-panel min-h-[140px] sm:min-h-[180px] sm:flex-1 overflow-hidden">
           <LiveActivityFeed fallbackFeed={state.feed} />
         </div>
         <MarketListings />
       </div>
     </div>
+    </>
   );
 }

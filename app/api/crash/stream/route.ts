@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
       const send = (data: unknown) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
-      send(manager.getFullState(address));
+      send(manager.snapshotForStream(address));
       const unsub = manager.subscribe(address, s => {
         send(s);
       });

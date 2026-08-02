@@ -184,7 +184,7 @@ export function LeaderboardView() {
               <th className="text-right px-3 py-2.5 hidden sm:table-cell">Arena W</th>
               <th className="text-right px-3 py-2.5 hidden sm:table-cell">Arena L</th>
               <th className="text-right px-3 py-2.5">Best</th>
-              <th className="text-right px-3 py-2.5">$BlackBalls</th>
+              <th className="text-right px-3 py-2.5">BlackBalls</th>
             </tr>
           </thead>
           <tbody>

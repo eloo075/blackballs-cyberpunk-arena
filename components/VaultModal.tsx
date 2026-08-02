@@ -84,12 +84,12 @@ export function VaultModal({ open, onClose }: VaultModalProps) {
               {vault.vaultConfigured && vault.isConnected && (
                 <>
                   <div className="grid grid-cols-2 gap-2">
-                    <BalanceCard label="WALLET $BlackBalls" value={vault.walletBalance} accent="cyan" />
+                    <BalanceCard label="WALLET BlackBalls" value={vault.walletBalance} accent="cyan" />
                     <BalanceCard label="ESCROW SESSION" value={vault.sessionBalance} accent="yellow" />
                   </div>
 
                   <div className="text-[9px] text-white/35 truncate">
-                    {vault.address} · Allowance {vault.allowance.toFixed(2)} $BlackBalls
+                    {vault.address} · Allowance {vault.allowance.toFixed(2)} BlackBalls
                   </div>
 
                   <div className="space-y-2">
@@ -143,7 +143,7 @@ export function VaultModal({ open, onClose }: VaultModalProps) {
                     disabled={busy || vault.sessionBalance <= 0}
                     className="cp-btn w-full py-2.5 text-[11px] font-bold border border-cp-magenta/40 text-cp-magenta disabled:opacity-40"
                   >
-                    {vault.isWithdrawing ? 'WITHDRAWING...' : `WITHDRAW ${vault.sessionBalance.toFixed(2)} $BlackBalls`}
+                    {vault.isWithdrawing ? 'WITHDRAWING...' : `WITHDRAW ${vault.sessionBalance.toFixed(2)} BlackBalls`}
                   </button>
 
                   {vault.txHash && (

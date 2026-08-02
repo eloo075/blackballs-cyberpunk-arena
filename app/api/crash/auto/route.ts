@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getManager } from '@/lib/crash-manager';
+import { assertGameNotCampaignLocked } from '@/lib/launch-campaign-guard';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
+  const blocked = assertGameNotCampaignLocked();
+  if (blocked) return blocked;
+
   const manager = getManager();
   const body = await req.json().catch(() => ({}));
   const address = typeof body.address === 'string' ? body.address : null;

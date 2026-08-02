@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { isLaunchCampaignActive } from '@/lib/launch-campaign';
 
 const LOGO_SRC = '/blackballs-logo-transparent.png';
 const DURATION_MS = 6000;
@@ -23,6 +24,8 @@ export function LoadingScreen() {
   const [exiting, setExiting] = useState(false);
 
   useEffect(() => {
+    if (isLaunchCampaignActive()) return;
+
     try {
       if (sessionStorage.getItem(SESSION_KEY)) return;
     } catch {

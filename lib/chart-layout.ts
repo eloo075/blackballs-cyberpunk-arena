@@ -66,15 +66,10 @@ export function computeChartLayout(
   _elapsed: number,
   shiftOffset: number,
 ): ChartLayoutFrame {
-  const aspect = cssW / Math.max(cssH, 1);
-  const isSquare = cssW < 768 && aspect > 0.82 && aspect < 1.18;
-  const isNarrow = cssW < 420 || isSquare;
-  const isDesktop = cssW >= 768 && !isSquare;
-
-  const padLeft = isDesktop ? 12 : 6;
-  const padRight = isNarrow ? 44 : isDesktop ? 58 : 52;
-  const padTop = isSquare ? 8 : cssH < 360 && !isSquare ? 12 : 24;
-  const padBottom = isSquare ? 12 : cssH < 360 && !isSquare ? 14 : 22;
+  const padLeft = 12;
+  const padRight = 58;
+  const padTop = 24;
+  const padBottom = 22;
   const chartW = cssW - padLeft - padRight;
   const chartH = cssH - padTop - padBottom;
 
@@ -89,7 +84,7 @@ export function computeChartLayout(
   maxPrice = minPrice + range * 1.12;
   minPrice = Math.max(0, minPrice - range * 0.04);
 
-  const visibleCount = isSquare ? 28 : isNarrow ? 36 : MAX_VISIBLE;
+  const visibleCount = MAX_VISIBLE;
   const startIdx = Math.max(0, candles.length - visibleCount);
   const slice = candles.slice(startIdx);
   const slotW = chartW / visibleCount;

@@ -17,16 +17,21 @@ import {
   walletHoldings,
   type WalletState,
 } from '@/lib/wallet-types';
+import { DEMO_REFILL_BB, DEMO_MIN_BALANCE } from '@/lib/demo-credits';
+import { syncGameSessionBalances, bootGameSessionsForWallet, clearGameSessionBoot } from '@/lib/sync-game-sessions';
+import { resolveClientSyncBalance } from '@/lib/session-balance';
 
 interface WalletContextValue {
   wallet: WalletState;
   holdBonuses: HoldBonuses;
+  hydrated: boolean;
   connect: () => void;
   connectRealWallet: (address: string) => void;
   disconnect: () => void;
   displayAddress: string | null;
   setBlackballsBalance: (balance: number) => void;
   adjustBlackballsBalance: (delta: number) => void;
+  refillDemoCredits: () => number;
   addArenaXp: (amount: number) => void;
   recordArenaResult: (won: boolean) => void;
   refreshHoldings: () => Promise<void>;
@@ -38,11 +43,9 @@ function makeDemoWallet(): WalletState {
   const solBalance = parseFloat((Math.random() * 50 + 5).toFixed(2));
   const gotAirdrop = Math.random() < 0.05;
   const airdropRank = gotAirdrop ? Math.floor(Math.random() * 500) + 1 : null;
-  const blackballsBalance = parseFloat((Math.random() * 1200 + 180).toFixed(1));
-  const ansemBalance =
-    Math.random() < 0.6 ? parseFloat((Math.random() * 5000 + 50).toFixed(0)) : 0;
-  const cashcatBalance =
-    Math.random() < 0.55 ? parseFloat((Math.random() * 8000 + 25).toFixed(0)) : 0;
+  const blackballsBalance = DEMO_REFILL_BB;
+  const ansemBalance = 100;
+  const cashcatBalance = 50;
 
   const xp = Math.floor(Math.random() * 30000 + 5000);
 
@@ -80,20 +83,26 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (saved) {
       try {
         const w = JSON.parse(saved) as Partial<WalletState>;
+        const connected = w.connected ?? false;
+        const isRealWallet = w.isRealWallet ?? false;
+        let blackballsBalance =
+          w.blackballsBalance ?? parseFloat((Math.random() * 1200 + 180).toFixed(1));
+        if (connected && !isRealWallet && blackballsBalance < DEMO_MIN_BALANCE) {
+          blackballsBalance = DEMO_REFILL_BB;
+        }
         setWallet({
           ...DEFAULT_WALLET,
           ...w,
-          connected: w.connected ?? false,
+          connected,
           solBalance: w.solBalance ?? parseFloat((Math.random() * 50 + 5).toFixed(2)),
-          blackballsBalance:
-            w.blackballsBalance ?? parseFloat((Math.random() * 1200 + 180).toFixed(1)),
+          blackballsBalance,
           ansemBalance: w.ansemBalance ?? 0,
           cashcatBalance: w.cashcatBalance ?? 0,
           arenaWins: w.arenaWins ?? 0,
           arenaLosses: w.arenaLosses ?? 0,
           xp: w.xp ?? 0,
           rank: rankTitleFromXp(w.xp ?? 0),
-          isRealWallet: w.isRealWallet ?? false,
+          isRealWallet,
         });
       } catch {
         /* ignore corrupt storage */
@@ -140,11 +149,46 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [wallet.connected, wallet.address, wallet.isRealWallet, wallet.blackballsBalance, wallet.ansemBalance, wallet.cashcatBalance, updateWallet]);
 
+  const refillDemoCredits = useCallback((): number => {
+    let newBalance = DEMO_REFILL_BB;
+    updateWallet(prev => {
+      if (!prev.connected || prev.isRealWallet) return prev;
+      newBalance = DEMO_REFILL_BB;
+      return { ...prev, blackballsBalance: newBalance };
+    });
+    return newBalance;
+  }, [updateWallet]);
+
   useEffect(() => {
     if (hydrated && wallet.connected) {
       void refreshHoldings();
     }
   }, [hydrated, wallet.connected, wallet.address]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Boot Crash + Flip server sessions once when wallet connects (not on every balance tick).
+  useEffect(() => {
+    if (!hydrated || !wallet.connected || !wallet.address) return;
+    const bonuses = computeHoldBonuses(walletHoldings(wallet));
+    const holdsBb = bonuses.active.some(b => b.token === 'BLACKBALLS');
+    const balance = resolveClientSyncBalance(wallet);
+    void bootGameSessionsForWallet(
+      wallet.address,
+      balance,
+      bonuses.stimmy,
+      bonuses.frenzy,
+      holdsBb,
+      wallet.isRealWallet,
+    ).catch(err => console.warn('[wallet] game session boot failed', err));
+  }, [hydrated, wallet.connected, wallet.address, wallet.isRealWallet]);
+
+  useEffect(() => {
+    if (!hydrated || !wallet.connected || wallet.isRealWallet || !wallet.address) return;
+    if (wallet.blackballsBalance >= 1) return;
+    const balance = refillDemoCredits();
+    const bonuses = computeHoldBonuses(walletHoldings({ ...wallet, blackballsBalance: balance }));
+    const holdsBb = bonuses.active.some(b => b.token === 'BLACKBALLS');
+    void syncGameSessionBalances(wallet.address, balance, bonuses.stimmy, bonuses.frenzy, holdsBb, wallet.isRealWallet);
+  }, [hydrated, wallet.connected, wallet.isRealWallet, wallet.address, wallet.blackballsBalance, refillDemoCredits, wallet]);
 
   const connect = useCallback(() => {
     const next = makeDemoWallet();
@@ -173,9 +217,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const disconnect = useCallback(() => {
+    if (wallet.address) clearGameSessionBoot(wallet.address);
     setWallet(DEFAULT_WALLET);
     localStorage.removeItem(WALLET_STORAGE_KEY);
-  }, []);
+  }, [wallet.address]);
 
   const setBlackballsBalance = useCallback(
     (balance: number) => {
@@ -235,12 +280,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     () => ({
       wallet: resolvedWallet,
       holdBonuses,
+      hydrated,
       connect,
       connectRealWallet,
       disconnect,
       displayAddress: hydrated ? displayAddress : null,
       setBlackballsBalance,
       adjustBlackballsBalance,
+      refillDemoCredits,
       addArenaXp,
       recordArenaResult,
       refreshHoldings,
@@ -248,6 +295,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     [
       resolvedWallet,
       holdBonuses,
+      hydrated,
       connect,
       connectRealWallet,
       disconnect,
@@ -255,6 +303,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       hydrated,
       setBlackballsBalance,
       adjustBlackballsBalance,
+      refillDemoCredits,
       addArenaXp,
       recordArenaResult,
       refreshHoldings,

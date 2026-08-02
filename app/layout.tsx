@@ -1,17 +1,27 @@
 import type { Metadata } from "next";
-import { Fredoka, JetBrains_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import { AppProviders } from "@/components/app-providers";
 import "./globals.css";
 
-const fredoka = Fredoka({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+/** Self-hosted — avoids Google Fonts CDN (fixes fallback when fonts.googleapis.com is blocked). */
+const fredoka = localFont({
+  src: [
+    { path: "./fonts/fredoka-latin-400-normal.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/fredoka-latin-500-normal.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/fredoka-latin-600-normal.woff2", weight: "600", style: "normal" },
+    { path: "./fonts/fredoka-latin-700-normal.woff2", weight: "700", style: "normal" },
+  ],
   variable: "--font-fredoka",
+  display: "swap",
 });
-const jetbrains = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "700"],
+const jetbrains = localFont({
+  src: [
+    { path: "./fonts/jetbrains-mono-latin-400-normal.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/jetbrains-mono-latin-500-normal.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/jetbrains-mono-latin-700-normal.woff2", weight: "700", style: "normal" },
+  ],
   variable: "--font-jetbrains",
+  display: "swap",
 });
 
 const SITE_URL = 'https://game.blackballs.site';
@@ -61,7 +71,7 @@ export const viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${fredoka.variable} ${jetbrains.variable}`} suppressHydrationWarning>
-      <body suppressHydrationWarning>
+      <body className={`${fredoka.className} font-sans font-arcade antialiased`} suppressHydrationWarning>
         <AppProviders>{children}</AppProviders>
       </body>
     </html>

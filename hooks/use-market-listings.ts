@@ -8,7 +8,7 @@ export function useMarketListings() {
   const [lastOk, setLastOk] = useState<boolean | null>(null);
   const [lastUpdate, setLastUpdate] = useState<number | null>(null);
 
-  const poll = useCallback(async () => {
+  const poll = useCallback(async (initial = false) => {
     try {
       const res = await fetch('/api/market-listings', { cache: 'no-store' });
       if (!res.ok) throw new Error(`status ${res.status}`);
@@ -17,15 +17,16 @@ export function useMarketListings() {
       setLastOk(true);
       setLastUpdate(Date.now());
     } catch {
-      setLastOk(false);
+      // Keep last good listings visible — background retry only.
+      setLastOk(prev => (prev === null ? false : prev));
     } finally {
-      setLoading(false);
+      if (initial) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    poll();
-    const id = setInterval(poll, 12000);
+    poll(true);
+    const id = setInterval(() => poll(false), 12000);
     return () => clearInterval(id);
   }, [poll]);
 

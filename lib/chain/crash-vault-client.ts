@@ -49,6 +49,15 @@ export function isVaultEnabled(): boolean {
   );
 }
 
+/** Demo / off-chain wallets — never send on-chain settlement for these. */
+export function isOnChainPlayer(address: string): boolean {
+  return address.startsWith('0x') && address.length === 42;
+}
+
+function shouldSettleOnChain(playerAddress: string): boolean {
+  return isVaultEnabled() && isOnChainPlayer(playerAddress);
+}
+
 function getPublicClient(): PublicClient {
   if (!publicClient) {
     const chain = getRobinhoodChain();
@@ -206,7 +215,7 @@ export async function verifyEscrowForWager(
   playerAddress: string,
   wagerAmount: number,
 ): Promise<{ ok: boolean; error?: string; sessionBalance?: number }> {
-  if (!isVaultEnabled()) {
+  if (!shouldSettleOnChain(playerAddress)) {
     return { ok: true };
   }
 
@@ -255,6 +264,10 @@ export async function executeLoss(
 
 /** Dispatch a game-level settlement action. */
 export async function processSettlement(action: SettlementAction): Promise<SettlementResult> {
+  if (!shouldSettleOnChain(action.player)) {
+    return { ok: true, skipped: true };
+  }
+
   const wei = toTokenWei(action.amount);
   if (action.type === 'payout') {
     return executePayout(action.player, wei);
@@ -264,9 +277,18 @@ export async function processSettlement(action: SettlementAction): Promise<Settl
 
 /** Fire-and-forget settlement for tick-loop events (rug / liquidation). */
 export function dispatchSettlement(action: SettlementAction): void {
-  void processSettlement(action).then(result => {
-    if (!result.ok && !result.skipped) {
-      console.error('[CrashVault] async settlement failed', action, result.error);
-    }
-  });
+  if (!shouldSettleOnChain(action.player)) {
+    return;
+  }
+
+  void processSettlement(action)
+    .then(result => {
+      if (!result.ok && !result.skipped) {
+        console.error('[CrashVault] async settlement failed', action, result.error);
+      }
+    })
+    .catch(err => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[CrashVault] async settlement error', action, message);
+    });
 }

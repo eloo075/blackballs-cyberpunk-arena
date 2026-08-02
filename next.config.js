@@ -9,6 +9,11 @@ const nextConfig = {
   images: { unoptimized: true },
   // Fix wrong workspace root when another lockfile exists in a parent folder.
   outputFileTracingRoot: path.join(__dirname),
+  turbopack: {
+    resolveAlias: {
+      '@react-native-async-storage/async-storage': './lib/empty-module.js',
+    },
+  },
   webpack: (config) => {
     config.externals.push('pino-pretty', 'lokijs', 'encoding');
     config.resolve.alias = {
