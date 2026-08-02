@@ -243,7 +243,11 @@ export async function handleEnter(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ...result, chain });
+  return NextResponse.json({
+    ...result,
+    chain,
+    view: manager.clientPlayerView(address),
+  });
 }
 
 export async function handleCancel(req: NextRequest) {
@@ -341,7 +345,7 @@ export async function handleCashout(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ...result, chain });
+  return NextResponse.json({ ...result, chain, view: manager.clientPlayerView(address) });
 }
 
 export async function handleAuto(req: NextRequest) {

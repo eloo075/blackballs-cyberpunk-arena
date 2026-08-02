@@ -408,19 +408,22 @@ export function useCrashStream() {
       if (wager <= 0) return { ok: false, error: 'invalid amount' };
 
       const live = stateRef.current;
-      if (!live || live.phase !== 'waiting' || live.waitLeft <= COUNTDOWN_ENTRY_BUFFER_SEC) {
+      if (
+        live &&
+        (live.phase !== 'waiting' || live.waitLeft <= COUNTDOWN_ENTRY_BUFFER_SEC)
+      ) {
         return {
           ok: false,
           error: 'Wait for the next round — entries open during countdown (not in the last second).',
         };
       }
-      if (live.hasPosition && live.entryPending && live.positionSide === side) {
+      if (live?.hasPosition && live.entryPending && live.positionSide === side) {
         return {
           ok: true,
           error: undefined,
         };
       }
-      if (live.hasPosition && live.entryPending && live.positionSide !== side) {
+      if (live?.hasPosition && live.entryPending && live.positionSide !== side) {
         return {
           ok: false,
           error: 'Use cancel via the opposite button — do not open a new position on top of a pending entry',
@@ -530,6 +533,9 @@ export function useCrashStream() {
           return { ok: false, error: typeof data.error === 'string' ? data.error : 'Cash-out rejected' };
         }
         if (typeof data.balance === 'number') setBlackballsBalance(data.balance);
+        if (data.view) {
+          setState(prev => mergeCrashClientView(prev, data.view as CrashClientView));
+        }
         setState(prev => {
           if (!prev) return prev;
           const bal = typeof data.balance === 'number' ? data.balance : prev.balance;

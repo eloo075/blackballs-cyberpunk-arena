@@ -65,6 +65,30 @@ export async function syncGameSessionBalances(
 const bootedAddresses = new Set<string>();
 const inflightBoot = new Map<string, Promise<boolean>>();
 
+function sessionBootKey(address: string): string {
+  return `bb-game-boot:${address}`;
+}
+
+function hasSessionBooted(address: string): boolean {
+  if (bootedAddresses.has(address)) return true;
+  if (typeof sessionStorage === 'undefined') return false;
+  try {
+    return sessionStorage.getItem(sessionBootKey(address)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function markSessionBooted(address: string): void {
+  bootedAddresses.add(address);
+  if (typeof sessionStorage === 'undefined') return;
+  try {
+    sessionStorage.setItem(sessionBootKey(address), '1');
+  } catch {
+    /* private mode / quota */
+  }
+}
+
 /** Boot both game servers once per wallet address (survives tab switches). */
 export async function bootGameSessionsForWallet(
   address: string,
@@ -78,7 +102,7 @@ export async function bootGameSessionsForWallet(
   if (existing) return existing;
 
   const job = (async () => {
-    if (bootedAddresses.has(address)) {
+    if (hasSessionBooted(address)) {
       return syncGameSessionBalances(
         address,
         balance,
@@ -100,7 +124,7 @@ export async function bootGameSessionsForWallet(
       true,
       true,
     );
-    if (ok) bootedAddresses.add(address);
+    if (ok) markSessionBooted(address);
     return ok;
   })();
 
@@ -127,5 +151,12 @@ export async function mirrorAuthoritativeBalance(
 export function clearGameSessionBoot(address: string) {
   bootedAddresses.delete(address);
   inflightBoot.delete(address);
+  if (typeof sessionStorage !== 'undefined') {
+    try {
+      sessionStorage.removeItem(sessionBootKey(address));
+    } catch {
+      /* ignore */
+    }
+  }
   clearSessionSyncDebounce(address);
 }

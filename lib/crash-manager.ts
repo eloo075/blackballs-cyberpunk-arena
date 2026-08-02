@@ -366,8 +366,17 @@ class CrashManager {
     const isDemo = !address.startsWith('0x');
 
     if (options?.boot) {
-      this.clearAllBettingState(player, true);
-      player.balance = clientBalance;
+      const inCurrentRound =
+        (player.hasPosition && player.positionRoundId === this.round.id) ||
+        (player.pendingEntry?.roundId === this.round.id);
+      if (!inCurrentRound) {
+        this.clearAllBettingState(player, true);
+      }
+      if (!player.hasPosition && !player.pendingEntry) {
+        player.balance = clientBalance;
+      } else if (isDemo && clientBalance >= DEMO_MIN_BALANCE && player.balance < DEMO_MIN_BALANCE) {
+        player.balance = clientBalance;
+      }
     } else if (!player.hasPosition && !player.pendingEntry) {
       if (clientBalance <= player.balance + 0.001) {
         player.balance = clientBalance;

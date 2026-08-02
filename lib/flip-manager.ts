@@ -117,9 +117,18 @@ class FlipManager {
     const locked = this.lockedWagerForPlayer(address);
 
     if (options?.boot && isDemo) {
-      p.active1v1Id = null;
-      p.activeDogpileSide = null;
-      p.balance = clientBalance;
+      const inActiveFlip =
+        !!p.active1v1Id &&
+        (this.pending1v1.has(p.active1v1Id) ||
+          this.active1v1?.id === p.active1v1Id ||
+          this.open1v1.some(m => m.id === p.active1v1Id));
+      if (!inActiveFlip) {
+        p.active1v1Id = null;
+        p.activeDogpileSide = null;
+      }
+      if (locked <= 0) {
+        p.balance = clientBalance;
+      }
       p.holdsBlackballs = holdsBlackballs;
       this.emit();
       return p.balance;

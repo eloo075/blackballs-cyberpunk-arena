@@ -84,9 +84,9 @@ export function FlipView() {
       holdBonuses.frenzy,
       holdsBb,
       wallet.isRealWallet,
-      true,
-      true,
-    ).catch(err => console.warn('[flip-view] session boot failed', err));
+      false,
+      false,
+    ).catch(err => console.warn('[flip-view] session sync failed', err));
   }, [wallet.connected, wallet.address, wallet.isRealWallet]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const tryDemo = () => {
