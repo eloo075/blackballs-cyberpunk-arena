@@ -49,6 +49,11 @@ export function generateServerSeed(): string {
   return randomBytes(32).toString('hex');
 }
 
+/** Deterministic seed so every serverless instance shares the same live round. */
+export function deriveServerSeedForGameId(gameId: number, clientSeed = DEFAULT_CLIENT_SEED): string {
+  return createHash('sha256').update(`bb-history-v6:${clientSeed}:${gameId}`).digest('hex');
+}
+
 export function hashServerSeed(seed: string): string {
   return hashServerSeedNormalized(seed);
 }

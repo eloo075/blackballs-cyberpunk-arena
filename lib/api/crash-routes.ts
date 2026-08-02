@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getManager } from '@/lib/crash-manager';
 import {
+  ensureCrashStateSynced,
+  maybePersistEngineSnapshot,
+  persistPlayerSnapshot,
+  type CrashClientViewPayload,
+} from '@/lib/supabase/crash-state-store';
+import {
   fromTokenWei,
   getSessionBalance,
   isOnChainPlayer,
@@ -25,6 +31,7 @@ export async function handleStream(req: NextRequest) {
       send(manager.snapshotForStream(address));
       const unsub = manager.subscribe(address, s => {
         send(s);
+        maybePersistEngineSnapshot(manager);
       });
       const ka = setInterval(() => {
         try {
@@ -58,6 +65,7 @@ export async function handleStream(req: NextRequest) {
 export async function handleState(req: NextRequest) {
   const address = req.nextUrl.searchParams.get('address');
   const manager = getManager();
+  await ensureCrashStateSynced(manager, address);
   return NextResponse.json(manager.snapshotForStream(address));
 }
 
@@ -91,6 +99,8 @@ export async function handleSession(req: NextRequest) {
   }
 
   const manager = getManager();
+  await ensureCrashStateSynced(manager, address);
+
   const finalBalance = manager.syncPlayer(
     address,
     syncedBalance,
@@ -101,6 +111,8 @@ export async function handleSession(req: NextRequest) {
     { boot },
   );
 
+  void persistPlayerSnapshot(manager, address);
+
   return NextResponse.json({
     ok: true,
     balance: finalBalance,
@@ -109,11 +121,17 @@ export async function handleSession(req: NextRequest) {
   });
 }
 
+function parseClientView(body: Record<string, unknown>): CrashClientViewPayload | null {
+  const raw = body.clientView;
+  if (!raw || typeof raw !== 'object') return null;
+  const v = raw as CrashClientViewPayload;
+  return v;
+}
+
 export async function handleEnter(req: NextRequest) {
   const blocked = assertGameNotCampaignLocked();
   if (blocked) return blocked;
 
-  const manager = getManager();
   const body = await req.json().catch(() => ({}));
   const address = typeof body.address === 'string' ? body.address : null;
   const side = body.side === 'sell' ? 'sell' : 'buy';
@@ -125,6 +143,10 @@ export async function handleEnter(req: NextRequest) {
   if (!address) {
     return NextResponse.json({ ok: false, error: 'wallet not connected' }, { status: 401 });
   }
+
+  const manager = getManager();
+  const clientView = parseClientView(body);
+  await ensureCrashStateSynced(manager, address, clientView);
 
   const debugBefore = manager.getPositionDebug(address);
 
@@ -243,6 +265,8 @@ export async function handleEnter(req: NextRequest) {
     }
   }
 
+  void persistPlayerSnapshot(manager, address);
+
   return NextResponse.json({
     ...result,
     chain,
@@ -270,7 +294,15 @@ export async function handleCancel(req: NextRequest) {
   }
 
   const manager = getManager();
-  const result = manager.cancelCountdownEntry(address);
+  const clientView = parseClientView(body);
+  await ensureCrashStateSynced(manager, address, clientView);
+
+  let result = manager.cancelCountdownEntry(address);
+
+  if (!result.ok && clientView && !address.startsWith('0x')) {
+    manager.reconcilePlayerFromClient(address, clientView);
+    result = manager.cancelCountdownEntry(address);
+  }
 
   if (!result.ok) {
     const view = manager.clientPlayerView(address);
@@ -295,6 +327,8 @@ export async function handleCancel(req: NextRequest) {
     );
   }
 
+  void persistPlayerSnapshot(manager, address);
+
   return NextResponse.json({
     ok: true,
     balance: result.balance,
@@ -309,7 +343,6 @@ export async function handleCashout(req: NextRequest) {
   const blocked = assertGameNotCampaignLocked();
   if (blocked) return blocked;
 
-  const manager = getManager();
   const body = await req.json().catch(() => ({}));
   const address = typeof body.address === 'string' ? body.address : null;
   const percent = parseFloat(body.percent ?? '1');
@@ -321,8 +354,17 @@ export async function handleCashout(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'invalid percent' }, { status: 400 });
   }
 
+  const manager = getManager();
+  const clientView = parseClientView(body);
+  await ensureCrashStateSynced(manager, address, clientView);
+
   const before = manager.getPositionDebug(address);
-  const result = manager.cashOut(address, percent);
+  let result = manager.cashOut(address, percent);
+
+  if (!result.ok && clientView && !address.startsWith('0x')) {
+    manager.reconcilePlayerFromClient(address, clientView);
+    result = manager.cashOut(address, percent);
+  }
 
   if (!result.ok) {
     console.warn('[crash/cashout] rejected', {
@@ -344,6 +386,8 @@ export async function handleCashout(req: NextRequest) {
       );
     }
   }
+
+  void persistPlayerSnapshot(manager, address);
 
   return NextResponse.json({ ...result, chain, view: manager.clientPlayerView(address) });
 }

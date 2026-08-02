@@ -3,9 +3,9 @@ import { calcPositionPnl, isLiquidated, MAX_LEVERAGE, MIN_LEVERAGE } from './cra
 import {
   computeCrashPoint,
   DEFAULT_CLIENT_SEED,
+  deriveServerSeedForGameId,
   generateRoundPath,
   generateSeedHistory,
-  generateServerSeed,
   hashServerSeed,
 } from './crash-engine';
 import type { Candle, FeedEvent, FullState, Phase, RoundSummary, TradeTag } from './crash-types';
@@ -100,7 +100,7 @@ function holdBonusesFor(player: PlayerState) {
   };
 }
 
-class CrashManager {
+export class CrashManager {
   private phase: Phase = 'waiting';
   private gameId = 1;
   private round!: RoundState;
@@ -139,7 +139,7 @@ class CrashManager {
   }
 
   private newRound(): RoundState {
-    const seed = generateServerSeed();
+    const seed = deriveServerSeedForGameId(this.gameId);
     const clientSeed = DEFAULT_CLIENT_SEED;
     const nonce = this.gameId;
     const crashPoint = computeCrashPoint(seed, clientSeed, nonce);
@@ -1228,6 +1228,194 @@ class CrashManager {
 
   getFullState(address: string | null = null): FullState {
     return this.snapshot(address);
+  }
+
+  exportEngineSnapshot() {
+    return {
+      gameId: this.gameId,
+      phase: this.phase,
+      waitLeft: this.waitLeft,
+      elapsed: this.elapsed,
+      mult: this.mult,
+      peakMult: this.peakMult,
+      lastSettledRoundId: this.lastSettledRoundId,
+    };
+  }
+
+  applyEngineSnapshot(snap: {
+    gameId: number;
+    phase: Phase;
+    waitLeft: number;
+    elapsed: number;
+    mult: number;
+    peakMult: number;
+    lastSettledRoundId: number;
+  }) {
+    if (snap.gameId < this.gameId - 2) return;
+
+    while (this.gameId < snap.gameId) {
+      this.lastSettledRoundId = this.gameId;
+      this.gameId++;
+      this.round = this.newRound();
+    }
+
+    if (this.gameId > snap.gameId) {
+      this.gameId = snap.gameId;
+      this.round = this.newRound();
+    }
+
+    this.phase = snap.phase;
+    this.waitLeft = snap.waitLeft;
+    this.elapsed = snap.elapsed;
+    this.mult = snap.mult;
+    this.peakMult = snap.peakMult;
+    this.lastSettledRoundId = snap.lastSettledRoundId;
+    this.tickIdx = Math.max(0, Math.floor((this.elapsed * 1000) / TICK_MS));
+
+    if (this.phase === 'running' && this.round.path.length > 0) {
+      const pathTick = this.round.path[Math.min(this.tickIdx, this.round.path.length - 1)];
+      const baseMult = pathTick?.price ?? this.mult;
+      this.mult = Math.max(1.0, Math.min(Math.max(1.01, this.round.crashPoint - 0.01), baseMult));
+      this.peakMult = Math.max(this.peakMult, this.mult);
+    }
+  }
+
+  exportPlayerSnapshot(address: string) {
+    const player = this.players.get(address);
+    if (!player) return null;
+    const pending =
+      player.pendingEntry?.roundId === this.round.id ? player.pendingEntry : null;
+    const showPending = pending != null && this.phase === 'waiting';
+    return {
+      balance: player.balance,
+      hasPosition: player.hasPosition,
+      entryPending: showPending,
+      positionSide: player.hasPosition ? player.positionSide : pending?.side ?? player.positionSide,
+      positionAmount: player.hasPosition ? player.positionAmount : pending?.amount ?? 0,
+      positionLeverage: player.hasPosition ? player.positionLeverage : pending?.leverage ?? 1,
+      positionEntryPrice: player.hasPosition ? player.positionEntryPrice : 1.0,
+      positionRoundId: player.positionRoundId,
+      pendingSide: pending?.side ?? null,
+      pendingAmount: pending?.amount ?? null,
+      pendingLeverage: pending?.leverage ?? null,
+      pendingRoundId: pending?.roundId ?? null,
+      autoSell: player.autoSell,
+      stimmy: player.stimmy,
+      frenzy: player.frenzy,
+    };
+  }
+
+  importPlayerSnapshot(
+    address: string,
+    row: {
+      balance: number;
+      hasPosition: boolean;
+      entryPending: boolean;
+      positionSide: 'buy' | 'sell';
+      positionAmount: number;
+      positionLeverage: number;
+      positionEntryPrice: number;
+      positionRoundId: number | null;
+      pendingSide: 'buy' | 'sell' | null;
+      pendingAmount: number | null;
+      pendingLeverage: number | null;
+      pendingRoundId: number | null;
+      autoSell: number | null;
+      stimmy: number;
+      frenzy: number;
+    },
+  ) {
+    const player = this.getPlayer(address);
+    const localActive =
+      player.hasPosition ||
+      (player.pendingEntry != null && player.pendingEntry.roundId === this.round.id);
+    if (localActive) return;
+
+    player.balance = row.balance;
+    player.stimmy = row.stimmy;
+    player.frenzy = row.frenzy;
+    player.autoSell = row.autoSell;
+
+    if (row.entryPending && row.pendingRoundId === this.round.id && this.phase === 'waiting') {
+      player.pendingEntry = {
+        side: row.pendingSide ?? row.positionSide,
+        amount: row.pendingAmount ?? row.positionAmount,
+        leverage: row.pendingLeverage ?? row.positionLeverage,
+        roundId: row.pendingRoundId,
+      };
+      return;
+    }
+
+    if (row.hasPosition && row.positionRoundId === this.round.id) {
+      player.hasPosition = true;
+      player.positionSide = row.positionSide;
+      player.positionAmount = row.positionAmount;
+      player.positionLeverage = row.positionLeverage;
+      player.positionEntryPrice = row.positionEntryPrice;
+      player.positionRoundId = row.positionRoundId;
+      player.pendingEntry = null;
+    }
+  }
+
+  reconcilePlayerFromClient(
+    address: string,
+    view: {
+      phase?: Phase;
+      gameId?: number;
+      hasPosition?: boolean;
+      hasLivePosition?: boolean;
+      entryPending?: boolean;
+      positionSide?: 'buy' | 'sell';
+      positionAmount?: number;
+      positionLeverage?: number;
+      positionEntryPrice?: number;
+      balance?: number;
+    },
+  ): boolean {
+    if (view.gameId != null && view.gameId !== this.gameId) return false;
+
+    const player = this.getPlayer(address);
+    const localActive =
+      player.hasPosition ||
+      (player.pendingEntry != null && player.pendingEntry.roundId === this.round.id);
+    if (localActive) return true;
+
+    if (typeof view.balance === 'number') {
+      player.balance = view.balance;
+    }
+
+    if (view.entryPending && this.phase === 'waiting') {
+      player.pendingEntry = {
+        side: view.positionSide ?? 'buy',
+        amount: view.positionAmount ?? 0,
+        leverage: view.positionLeverage ?? 1,
+        roundId: this.round.id,
+      };
+      return Boolean(player.pendingEntry.amount > 0);
+    }
+
+    if ((view.hasLivePosition || view.hasPosition) && this.phase === 'running') {
+      player.hasPosition = true;
+      player.positionSide = view.positionSide ?? 'buy';
+      player.positionAmount = view.positionAmount ?? 0;
+      player.positionLeverage = view.positionLeverage ?? 1;
+      player.positionEntryPrice = view.positionEntryPrice ?? 1.0;
+      player.positionRoundId = this.round.id;
+      player.pendingEntry = null;
+      return player.positionAmount > 0;
+    }
+
+    if ((view.hasLivePosition || view.hasPosition) && this.phase === 'waiting') {
+      player.pendingEntry = {
+        side: view.positionSide ?? 'buy',
+        amount: view.positionAmount ?? 0,
+        leverage: view.positionLeverage ?? 1,
+        roundId: this.round.id,
+      };
+      return player.pendingEntry.amount > 0;
+    }
+
+    return false;
   }
 }
 

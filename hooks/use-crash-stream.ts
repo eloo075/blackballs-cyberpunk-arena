@@ -74,6 +74,29 @@ function mergeCrashClientView(prev: FullState | null, view?: CrashClientView | n
   };
 }
 
+const POSITION_MISS_RE =
+  /no open position|no position|no pending entry|enter during the countdown|cancel failed/i;
+
+function clientViewFromState(state: FullState | null): CrashClientView | undefined {
+  if (!state) return undefined;
+  return {
+    phase: state.phase,
+    gameId: state.gameId,
+    hasPosition: state.hasPosition,
+    hasLivePosition: state.hasLivePosition,
+    entryPending: state.entryPending,
+    positionSide: state.positionSide,
+    positionAmount: state.positionAmount,
+    positionLeverage: state.positionLeverage,
+    positionEntryPrice: state.positionEntryPrice,
+    balance: state.balance,
+  };
+}
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export function useCrashStream() {
   const { wallet, holdBonuses, hydrated, setBlackballsBalance } = useWallet();
   const address = wallet.connected && hydrated ? wallet.address : null;
@@ -389,58 +412,79 @@ export function useCrashStream() {
         });
       };
 
-      try {
-        const res = await fetchJsonWithTimeout('/api/crash/cancel', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ address }),
-        });
-        const data = await res.json().catch(() => ({}));
+      let lastErr = 'Cancel failed';
 
-        if (typeof data.balance === 'number') {
-          setBlackballsBalance(data.balance);
-          walletBalanceRef.current = data.balance;
-        }
-        if (data.view) {
-          applyView(data.view as CrashClientView);
+      for (let attempt = 0; attempt < 4; attempt++) {
+        if (attempt > 0) {
+          await syncBalance(false, true);
+          await refreshGameState();
+          await sleep(120 * attempt);
         }
 
-        const view = data.view as CrashClientView | undefined;
-        const cleared = view && !view.hasPosition && !view.entryPending;
-        if ((res.ok && (data.ok === true || data.action === 'close')) || cleared) {
-          if (!data.view) {
-            setState(prev => {
-              if (!prev) return prev;
-              const bal = typeof data.balance === 'number' ? data.balance : prev.balance;
-              const next = {
-                ...prev,
-                hasPosition: false,
-                hasLivePosition: false,
-                entryPending: false,
-                positionAmount: 0,
-                positionLeverage: 1,
-                balance: bal,
-              };
-              stateRef.current = next;
-              return next;
-            });
+        const clientView = clientViewFromState(stateRef.current);
+
+        try {
+          const res = await fetchJsonWithTimeout('/api/crash/cancel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ address, clientView }),
+          });
+          const data = await res.json().catch(() => ({}));
+
+          if (typeof data.balance === 'number') {
+            setBlackballsBalance(data.balance);
+            walletBalanceRef.current = data.balance;
           }
-          return { ok: true };
-        }
+          if (data.view) {
+            applyView(data.view as CrashClientView);
+          }
 
-        const err =
-          typeof data.message === 'string'
-            ? data.message
-            : typeof data.error === 'string'
-              ? data.error
-              : 'Cancel failed';
-        return { ok: false, error: err };
-      } catch (err) {
-        void refreshGameState();
-        return { ok: false, error: actionErrorMessage(err, 'Network error — try again') };
+          const view = data.view as CrashClientView | undefined;
+          const cleared = view && !view.hasPosition && !view.entryPending;
+          if ((res.ok && (data.ok === true || data.action === 'close')) || cleared) {
+            if (!data.view) {
+              setState(prev => {
+                if (!prev) return prev;
+                const bal = typeof data.balance === 'number' ? data.balance : prev.balance;
+                const next = {
+                  ...prev,
+                  hasPosition: false,
+                  hasLivePosition: false,
+                  entryPending: false,
+                  positionAmount: 0,
+                  positionLeverage: 1,
+                  balance: bal,
+                };
+                stateRef.current = next;
+                return next;
+              });
+            }
+            return { ok: true };
+          }
+
+          lastErr =
+            typeof data.message === 'string'
+              ? data.message
+              : typeof data.error === 'string'
+                ? data.error
+                : 'Cancel failed';
+
+          if (!POSITION_MISS_RE.test(lastErr)) {
+            return { ok: false, error: lastErr };
+          }
+        } catch (err) {
+          lastErr = actionErrorMessage(err, 'Network error — try again');
+          if (attempt === 3) {
+            void refreshGameState();
+            return { ok: false, error: lastErr };
+          }
+        }
       }
+
+      void refreshGameState();
+      return { ok: false, error: lastErr };
     },
-    [address, setBlackballsBalance, refreshGameState],
+    [address, setBlackballsBalance, refreshGameState, syncBalance],
   );
 
   const trade = useCallback(
@@ -566,52 +610,74 @@ export function useCrashStream() {
     async (percent = 1): Promise<{ ok: boolean; error?: string; exitPrice?: number }> => {
       if (!address) return { ok: false, error: 'Connect wallet first' };
       const pct = Math.min(1, Math.max(0.25, percent));
-      try {
-        const res = await fetchJsonWithTimeout('/api/crash/cashout', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ address, percent: pct }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          void refreshGameState();
-          return { ok: false, error: typeof data.error === 'string' ? data.error : 'Cash-out rejected' };
+      let lastErr = 'Cash-out rejected';
+
+      for (let attempt = 0; attempt < 4; attempt++) {
+        if (attempt > 0) {
+          await syncBalance(false, true);
+          await refreshGameState();
+          await sleep(120 * attempt);
         }
-        if (typeof data.balance === 'number') setBlackballsBalance(data.balance);
-        if (data.view) {
-          setState(prev => mergeCrashClientView(prev, data.view as CrashClientView));
-        }
-        setState(prev => {
-          if (!prev) return prev;
-          const bal = typeof data.balance === 'number' ? data.balance : prev.balance;
-          const fullClose = data.action === 'close' || (typeof data.cashedPct === 'number' && data.cashedPct >= 0.999);
-          if (fullClose) {
+
+        const clientView = clientViewFromState(stateRef.current);
+
+        try {
+          const res = await fetchJsonWithTimeout('/api/crash/cashout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ address, percent: pct, clientView }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            lastErr = typeof data.error === 'string' ? data.error : 'Cash-out rejected';
+            if (data.view) {
+              setState(prev => mergeCrashClientView(prev, data.view as CrashClientView));
+            }
+            if (!POSITION_MISS_RE.test(lastErr)) {
+              void refreshGameState();
+              return { ok: false, error: lastErr };
+            }
+            continue;
+          }
+          if (typeof data.balance === 'number') setBlackballsBalance(data.balance);
+          if (data.view) {
+            setState(prev => mergeCrashClientView(prev, data.view as CrashClientView));
+          }
+          setState(prev => {
+            if (!prev) return prev;
+            const bal = typeof data.balance === 'number' ? data.balance : prev.balance;
+            const fullClose = data.action === 'close' || (typeof data.cashedPct === 'number' && data.cashedPct >= 0.999);
+            if (fullClose) {
+              return {
+                ...prev,
+                hasPosition: false,
+                hasLivePosition: false,
+                entryPending: false,
+                positionAmount: 0,
+                positionLeverage: 1,
+                balance: bal,
+              };
+            }
+            const remaining = parseFloat((prev.positionAmount * (1 - (data.cashedPct as number))).toFixed(3));
             return {
               ...prev,
-              hasPosition: false,
-              hasLivePosition: false,
+              hasLivePosition: true,
               entryPending: false,
-              positionAmount: 0,
-              positionLeverage: 1,
+              positionAmount: remaining,
               balance: bal,
             };
-          }
-          const remaining = parseFloat((prev.positionAmount * (1 - (data.cashedPct as number))).toFixed(3));
-          return {
-            ...prev,
-            hasLivePosition: true,
-            entryPending: false,
-            positionAmount: remaining,
-            balance: bal,
-          };
-        });
-        return { ok: true, exitPrice: typeof data.exitPrice === 'number' ? data.exitPrice : undefined };
-      } catch (err) {
-        void refreshGameState();
-        return { ok: false, error: actionErrorMessage(err, 'Network error — try again') };
+          });
+          return { ok: true, exitPrice: typeof data.exitPrice === 'number' ? data.exitPrice : undefined };
+        } catch (err) {
+          lastErr = actionErrorMessage(err, 'Network error — try again');
+          if (attempt === 3) break;
+        }
       }
+
+      void refreshGameState();
+      return { ok: false, error: lastErr };
     },
-    [address, setBlackballsBalance, refreshGameState],
+    [address, setBlackballsBalance, refreshGameState, syncBalance],
   );
 
   return { state, connected, reconnecting, sessionReady, roundEpoch, streamEpoch, trade, cancelActivePosition, cashOut, setAutoSell, walletConnected: !!address };
