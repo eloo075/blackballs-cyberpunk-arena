@@ -1222,8 +1222,14 @@ class CrashManager {
   }
 }
 
-let manager: CrashManager | null = null;
+declare global {
+  // eslint-disable-next-line no-var
+  var __blackballsCrashManager: CrashManager | undefined;
+}
+
 export function getManager(): CrashManager {
-  if (!manager) manager = new CrashManager();
-  return manager;
+  if (!globalThis.__blackballsCrashManager) {
+    globalThis.__blackballsCrashManager = new CrashManager();
+  }
+  return globalThis.__blackballsCrashManager;
 }

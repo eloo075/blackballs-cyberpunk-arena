@@ -685,14 +685,9 @@ declare global {
   var __blackballsFlipManager: FlipManager | undefined;
 }
 
-let flipManager: FlipManager | null = null;
 export function getFlipManager(): FlipManager {
-  if (process.env.NODE_ENV !== 'production') {
-    if (!globalThis.__blackballsFlipManager) {
-      globalThis.__blackballsFlipManager = new FlipManager();
-    }
-    return globalThis.__blackballsFlipManager;
+  if (!globalThis.__blackballsFlipManager) {
+    globalThis.__blackballsFlipManager = new FlipManager();
   }
-  if (!flipManager) flipManager = new FlipManager();
-  return flipManager;
+  return globalThis.__blackballsFlipManager;
 }

@@ -2,11 +2,11 @@
   "buildCommand": "npm run build",
   "framework": "nextjs",
   "functions": {
-    "app/api/crash/stream/route.ts": {
+    "app/api/crash/[[...path]]/route.ts": {
       "maxDuration": 300
     },
-    "app/api/crash/auto/route.ts": {
-      "maxDuration": 60
+    "app/api/flip/[[...path]]/route.ts": {
+      "maxDuration": 300
     }
   }
 }
