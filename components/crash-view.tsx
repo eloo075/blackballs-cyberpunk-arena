@@ -18,23 +18,38 @@ import { ResultFeedback } from '@/components/result-feedback';
 import { useResultFeedback } from '@/hooks/use-result-feedback';
 import { recordHallOfFame } from '@/lib/player-retention';
 import { isVaultConfigured } from '@/lib/chain/public-config';
-import { resolvePlayableBalance } from '@/lib/session-balance';
+import { resolvePlayableBalance, resolveClientSyncBalance } from '@/lib/session-balance';
 import { CrashMobileHeader } from '@/components/crash-mobile-header';
 import { syncGameSessionBalances } from '@/lib/sync-game-sessions';
+import { useGameTabFocus } from '@/lib/use-game-tab-focus';
 
 const RUG_PARTICLES = Array.from({ length: 20 }, (_, i) => ({
   x: 50 + (((i * 17) % 100) - 50),
   y: 50 + (((i * 23) % 100) - 50),
 }));
 
-export function CrashView() {
-  const { state, connected, reconnecting, sessionReady, roundEpoch, streamEpoch, trade, cancelActivePosition, cashOut, setAutoSell, walletConnected } = useCrashStream();
+export function CrashView({ visible = true }: { visible?: boolean }) {
+  const { state, connected, reconnecting, sessionReady, roundEpoch, streamEpoch, trade, cancelActivePosition, cashOut, setAutoSell, refreshGameState, walletConnected } = useCrashStream();
   const { wallet, connect, disconnect, holdBonuses, displayAddress, refillDemoCredits } = useWallet();
   const { state: compState, recordCrashResult } = useCompetitive();
   const { event: resultEvent, trigger: triggerResult, dismiss: dismissResult } = useResultFeedback();
   const [mobileFull, setMobileFull] = useState(false);
   const processedResultRef = useRef<string | null>(null);
   const vaultEnabled = isVaultConfigured();
+
+  useGameTabFocus(
+    visible,
+    {
+      address: wallet.connected ? wallet.address : null,
+      connected: wallet.connected,
+      balance: resolveClientSyncBalance(wallet),
+      stimmy: holdBonuses.stimmy,
+      frenzy: holdBonuses.frenzy,
+      holdsBlackballs: holdBonuses.active.some(b => b.token === 'BLACKBALLS'),
+      isRealWallet: wallet.isRealWallet,
+    },
+    refreshGameState,
+  );
 
   const tryDemo = () => {
     disconnect();

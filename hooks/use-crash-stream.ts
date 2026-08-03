@@ -616,7 +616,7 @@ export function useCrashStream() {
             return { ...prev, balance: bal };
           });
 
-          void refreshGameState();
+          window.setTimeout(() => void refreshGameState(), 800);
           return { ok: true };
         }
 
@@ -715,5 +715,5 @@ export function useCrashStream() {
     [address, setBlackballsBalance, refreshGameState, syncBalance],
   );
 
-  return { state, connected, reconnecting, sessionReady, roundEpoch, streamEpoch, trade, cancelActivePosition, cashOut, setAutoSell, walletConnected: !!address };
+  return { state, connected, reconnecting, sessionReady, roundEpoch, streamEpoch, trade, cancelActivePosition, cashOut, setAutoSell, refreshGameState, walletConnected: !!address };
 }

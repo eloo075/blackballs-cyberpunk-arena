@@ -465,6 +465,7 @@ export function useFlipStream() {
     revenge,
     cancelWaiting,
     setBalanceHold,
+    refreshFlipState,
     walletConnected: !!address,
     holdsBlackballs,
   };

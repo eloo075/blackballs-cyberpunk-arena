@@ -14,7 +14,7 @@ import {
 } from '@/lib/game-sfx';
 import { CURRENCY_LABEL } from '@/lib/format-currency';
 import { resolvePlayableBalance, resolveClientSyncBalance } from '@/lib/session-balance';
-import { syncGameSessionBalances } from '@/lib/sync-game-sessions';
+import { useGameTabFocus } from '@/lib/use-game-tab-focus';
 import type { FlipSide } from '@/lib/flip-engine';
 import type { FlipHistoryEntry } from '@/lib/flip-types';
 import type { FlipFullState } from '@/lib/flip-types';
@@ -58,8 +58,8 @@ function FlipHistory({ history }: { history: FlipHistoryEntry[] }) {
   );
 }
 
-export function FlipView() {
-  const { state, connected, sessionReady, flip, revenge, cancelWaiting, setBalanceHold, walletConnected, holdsBlackballs } =
+export function FlipView({ visible = true }: { visible?: boolean }) {
+  const { state, connected, sessionReady, flip, revenge, cancelWaiting, setBalanceHold, refreshFlipState, walletConnected, holdsBlackballs } =
     useFlipStream();
   const { wallet, connect, disconnect, holdBonuses } = useWallet();
   const { event: resultEvent, trigger: triggerResult, dismiss: dismissResult } = useResultFeedback();
@@ -72,22 +72,19 @@ export function FlipView() {
   const landHandledRef = useRef<string | null>(null);
   const vaultEnabled = isVaultConfigured();
 
-  // Ensure Flip server balance matches wallet when opening the tab (Crash may have changed it).
-  useEffect(() => {
-    if (!wallet.connected || !wallet.address) return;
-    const holdsBb = holdBonuses.active.some(b => b.token === 'BLACKBALLS');
-    const balance = resolveClientSyncBalance(wallet);
-    void syncGameSessionBalances(
-      wallet.address,
-      balance,
-      holdBonuses.stimmy,
-      holdBonuses.frenzy,
-      holdsBb,
-      wallet.isRealWallet,
-      false,
-      false,
-    ).catch(err => console.warn('[flip-view] session sync failed', err));
-  }, [wallet.connected, wallet.address, wallet.isRealWallet]); // eslint-disable-line react-hooks/exhaustive-deps
+  useGameTabFocus(
+    visible,
+    {
+      address: wallet.connected ? wallet.address : null,
+      connected: wallet.connected,
+      balance: resolveClientSyncBalance(wallet),
+      stimmy: holdBonuses.stimmy,
+      frenzy: holdBonuses.frenzy,
+      holdsBlackballs: holdBonuses.active.some(b => b.token === 'BLACKBALLS'),
+      isRealWallet: wallet.isRealWallet,
+    },
+    refreshFlipState,
+  );
 
   const tryDemo = () => {
     disconnect();

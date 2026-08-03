@@ -1,0 +1,32 @@
+# Fly.io — keep exactly ONE machine so Crash/Flip share in-memory game state.
+app = 'blackballs-game-luka'
+primary_region = 'cdg'
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  # One machine only — Crash/Flip need shared in-memory state (no HA second VM).
+  strategy = "immediate"
+
+[env]
+  NODE_ENV = 'production'
+  PORT = '3000'
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ['app']
+
+  [http_service.concurrency]
+    type = 'connections'
+    hard_limit = 250
+    soft_limit = 200
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1

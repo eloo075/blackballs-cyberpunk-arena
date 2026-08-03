@@ -88,6 +88,15 @@ const ARCADE_BTN_CANCEL_LONG =
 const TRADE_BTN =
   'touch-manipulation min-h-[52px] sm:min-h-[56px] py-2.5 sm:py-3 px-3 sm:px-4 text-sm sm:text-base font-black uppercase tracking-wider';
 
+function TradeSpinner() {
+  return (
+    <span
+      aria-hidden
+      className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0"
+    />
+  );
+}
+
 export function CrashControls({
   phase,
   mult,
@@ -123,7 +132,8 @@ export function CrashControls({
   const [cashOutPct, setCashOutPct] = useState(1);
   const [leverage, setLeverage] = useState(1);
   const [autoVal, setAutoVal] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'buy' | 'sell' | 'cancel' | 'cashout' | null>(null);
+  const busy = pendingAction !== null;
   const [tradeError, setTradeError] = useState<string | null>(null);
   const [cashOutError, setCashOutError] = useState<string | null>(null);
   const [entryCooldown, setEntryCooldown] = useState(false);
@@ -152,7 +162,7 @@ export function CrashControls({
 
   /** Wipe local UI locks when a new countdown round begins (crashed → waiting / new gameId). */
   useEffect(() => {
-    setBusy(false);
+    setPendingAction(null);
     setEntryCooldown(false);
     setTradeError(null);
     setCashOutError(null);
@@ -191,23 +201,47 @@ export function CrashControls({
 
   const livePosition = hasLivePosition || (hasPosition && phase === 'running' && !entryPending);
 
+  /** Clear pending spinner once server state catches up (avoids BUY → gray → CANCEL flicker). */
+  useEffect(() => {
+    if (!pendingAction) return;
+    if (pendingAction === 'cancel' && !hasPosition) {
+      setPendingAction(null);
+      return;
+    }
+    if ((pendingAction === 'buy' || pendingAction === 'sell') && hasPosition) {
+      setPendingAction(null);
+      return;
+    }
+    if (pendingAction === 'cashout' && !livePosition) {
+      setPendingAction(null);
+    }
+  }, [pendingAction, hasPosition, livePosition]);
+
+  useEffect(() => {
+    if (!pendingAction) return;
+    const timer = setTimeout(() => setPendingAction(null), 5000);
+    return () => clearTimeout(timer);
+  }, [pendingAction]);
+
   const canCashOut =
     walletConnected && phase === 'running' && livePosition && !busy && !!onCashOut;
 
   const handleCashOut = async () => {
     if (!canCashOut || !onCashOut) return;
-    setBusy(true);
+    setPendingAction('cashout');
     setCashOutError(null);
     setTradeError(null);
+    let ok = false;
     try {
       const result = await onCashOut(cashOutPct);
+      ok = result.ok;
       if (!result.ok) {
         const msg = result.error ?? 'Cash-out failed';
         setCashOutError(msg);
         setTradeError(msg);
       }
     } finally {
-      setBusy(false);
+      if (!ok) setPendingAction(null);
     }
   };
 
@@ -230,7 +264,7 @@ export function CrashControls({
     if (phase === 'waiting' && waitLeft <= COUNTDOWN_ENTRY_BUFFER_SEC && !hasPosition) {
       return 'Round starting — wait for the next countdown.';
     }
-    if (busy && !entryPending) return 'Processing trade…';
+    if (pendingAction) return null;
     if (!hasPosition && balance <= 0 && vaultEnabled && !isDemoWallet) {
       return 'Vault balance is 0 — deposit BlackBalls via VAULT (top bar) to trade for real.';
     }
@@ -286,10 +320,12 @@ export function CrashControls({
   const handleCancel = async () => {
     if (!walletConnected || !sessionReady || busy) return;
     if (!entryPending || !hasPosition) return;
-    setBusy(true);
+    setPendingAction('cancel');
     setTradeError(null);
+    let ok = false;
     try {
       const result = await onCancelEntry();
+      ok = result.ok;
       if (result.ok) {
         showCancelSuccess(
           positionSide === 'sell' ? 'Short position cancelled.' : 'Long position cancelled.',
@@ -303,7 +339,7 @@ export function CrashControls({
         setTradeError(result.error ?? 'Failed to cancel');
       }
     } finally {
-      setBusy(false);
+      if (!ok) setPendingAction(null);
     }
   };
 
@@ -347,18 +383,20 @@ export function CrashControls({
       return;
     }
 
-    setBusy(true);
+    setPendingAction(side);
     setTradeError(null);
+    let ok = false;
     try {
       const wager = closing ? positionAmount : effectiveWager;
       const result = await onTrade(side, wager, closing ? positionLeverage : leverage);
+      ok = result.ok;
       if (!result.ok) {
         const msg = result.error ?? 'Trade failed — check balance or try again.';
         setTradeError(msg === 'invalid amount' ? `Insufficient balance (${balance.toFixed(3)} available).` : msg);
       }
-      if (!closing) setPercent(0);
+      if (ok && !closing) setPercent(0);
     } finally {
-      setBusy(false);
+      if (!ok) setPendingAction(null);
     }
   };
 
@@ -368,6 +406,8 @@ export function CrashControls({
     const oppositePending = isBuy ? pendingShort : pendingLong;
     const cancelClass = isBuy ? ARCADE_BTN_CANCEL_LONG : ARCADE_BTN_CANCEL_SHORT;
     const cancelLabel = isBuy ? 'CANCEL LONG' : 'CANCEL SHORT';
+    const isPendingThis = pendingAction === side;
+    const isClosingThis = isPendingThis && hasPosition && positionSide !== side;
 
     if (showCancel && phase === 'waiting') {
       return (
@@ -378,8 +418,30 @@ export function CrashControls({
           className={`${TRADE_BTN} ${cancelClass} ${!canCancel ? 'opacity-40 cursor-not-allowed' : ''}`}
         >
           <span className="flex items-center justify-center gap-2">
-            <span aria-hidden className="text-lg leading-none">✕</span>
-            {busy ? 'CANCELLING…' : cancelLabel}
+            {pendingAction === 'cancel' ? <TradeSpinner /> : <span aria-hidden className="text-lg leading-none">✕</span>}
+            {pendingAction === 'cancel' ? 'CANCELLING…' : cancelLabel}
+          </span>
+        </button>
+      );
+    }
+
+    if (isPendingThis) {
+      const pendingLabel = isClosingThis
+        ? isBuy
+          ? 'CLOSING SHORT…'
+          : 'CLOSING LONG…'
+        : isBuy
+          ? 'ENTERING LONG…'
+          : 'ENTERING SHORT…';
+      return (
+        <button
+          type="button"
+          disabled
+          className={`${TRADE_BTN} ${isBuy ? ARCADE_BTN_BUY : ARCADE_BTN_SELL}`}
+        >
+          <span className="flex items-center justify-center gap-2">
+            <TradeSpinner />
+            {pendingLabel}
           </span>
         </button>
       );
@@ -588,13 +650,14 @@ export function CrashControls({
         </div>
 
         {/* open position panel */}
-        <AnimatePresence>
+        <AnimatePresence initial={false}>
           {hasPosition && (
             <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="px-3 py-2 border-b border-white/5 bg-[#25262c] overflow-hidden"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="px-3 py-2 border-b border-white/5 bg-[#25262c]"
             >
               <div className="flex items-center justify-between text-xs gap-2">
                 <span className={positionSide === 'buy' ? 'text-emerald-400 font-extrabold' : 'text-rose-400 font-extrabold'}>
@@ -677,18 +740,19 @@ export function CrashControls({
                   : 'bg-[#2a2c33] text-white/40 border-white/10 cursor-not-allowed'
               }`}
             >
-              {cashOutPct >= 1 ? 'CASH OUT 100%' : `PARTIAL CASH OUT ${cashOutPct * 100}%`}
+              {pendingAction === 'cashout' ? 'CASHING OUT…' : cashOutPct >= 1 ? 'CASH OUT 100%' : `PARTIAL CASH OUT ${cashOutPct * 100}%`}
             </button>
           </div>
         )}
 
         {/* BUY / SELL */}
+        <div className="min-h-0">
         {cancelNotice && walletConnected && (
           <div className="mx-3 mt-2 px-3 py-2 text-xs leading-relaxed rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-200 font-bold">
             {cancelNotice}
           </div>
         )}
-        {(tradeBlockReason || tradeError) && walletConnected && (
+        {(tradeBlockReason || tradeError) && walletConnected && !pendingAction && (
           <div className="mx-3 mt-2 px-3 py-2 text-xs leading-relaxed rounded-xl bg-amber-400/10 border border-amber-400/25 text-amber-200 font-bold">
             {tradeError ?? tradeBlockReason}
             {tradeBlockReason?.includes('Vault balance is 0') && onTryDemo && (
@@ -702,6 +766,7 @@ export function CrashControls({
             )}
           </div>
         )}
+        </div>
         {walletConnected && isDemoWallet && (
           <div className="hidden sm:block mx-3 mt-2 px-3 py-1.5 text-[11px] text-center text-emerald-300 border border-emerald-500/20 bg-emerald-500/10 rounded-xl font-bold">
             DEMO MODE · off-chain credits · no real tokens at risk

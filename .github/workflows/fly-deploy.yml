@@ -1,0 +1,22 @@
+# Deploy from GitHub when local fly deploy can't reach api.machines.dev
+name: Deploy to Fly.io
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy to Fly
+        run: |
+          flyctl deploy --remote-only --ha=false \
+            --build-arg NEXT_PUBLIC_SUPABASE_URL="${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}" \
+            --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}" \
+            --build-arg NEXT_PUBLIC_LAUNCH_CAMPAIGN=false
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

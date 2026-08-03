@@ -28,10 +28,10 @@ function GameHome() {
       <main className="flex-1">
         {/* Keep Crash + Flip mounted so SSE/session stay warm across tab switches */}
         <div className={tab === 'crash' ? '' : 'hidden'} aria-hidden={tab !== 'crash'}>
-          <CrashView />
+          <CrashView visible={tab === 'crash'} />
         </div>
         <div className={tab === 'flip' ? '' : 'hidden'} aria-hidden={tab !== 'flip'}>
-          <FlipView />
+          <FlipView visible={tab === 'flip'} />
         </div>
         <AnimatePresence mode="wait">
           {tab === 'arena' && (
