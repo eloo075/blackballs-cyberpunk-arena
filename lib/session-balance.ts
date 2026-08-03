@@ -162,6 +162,36 @@ export function guardLivePositionOnStream(prev: FullState | null, next: FullStat
   };
 }
 
+/**
+ * After a successful cancel, ignore stale SSE from another serverless instance
+ * that still thinks the countdown entry exists.
+ */
+export function guardCancelledPositionOnStream(
+  prev: FullState | null,
+  next: FullState,
+  suppressUntilMs: number,
+): FullState {
+  if (Date.now() > suppressUntilMs) return next;
+  if (!prev) return next;
+  if (isNewRoundTransition(prev, next)) return next;
+
+  const active = next.hasPosition || next.entryPending;
+  if (!active) return next;
+
+  const refund = next.balance - prev.balance;
+  if (refund >= (prev.positionAmount || 0) * 0.85) return next;
+
+  return {
+    ...next,
+    hasPosition: false,
+    hasLivePosition: false,
+    entryPending: false,
+    positionAmount: 0,
+    positionLeverage: 1,
+    positionEntryPrice: 1.0,
+  };
+}
+
 /** Ensure flip SSE player view always has a numeric balance. */
 export function normalizeFlipStreamState(
   raw: FlipFullState,

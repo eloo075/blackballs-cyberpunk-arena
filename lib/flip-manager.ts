@@ -41,7 +41,7 @@ function opposite(side: FlipSide): FlipSide {
   return side === 'heads' ? 'tails' : 'heads';
 }
 
-class FlipManager {
+export class FlipManager {
   private players = new Map<string, PlayerState>();
   private open1v1: Flip1v1Match[] = [];
   private active1v1: Flip1v1Match | null = null;
@@ -686,6 +686,73 @@ class FlipManager {
 
   getFullState(address: string | null = null): FlipFullState {
     return this.snapshot(address);
+  }
+
+  exportEngineSnapshot() {
+    return {
+      matchId: this.matchId,
+      open1v1: this.open1v1.map(m => ({ ...m, creator: { ...m.creator }, opponent: m.opponent ? { ...m.opponent } : undefined })),
+      active1v1: this.active1v1 ? { ...this.active1v1, creator: { ...this.active1v1.creator }, opponent: this.active1v1.opponent ? { ...this.active1v1.opponent } : undefined } : null,
+    };
+  }
+
+  applyEngineSnapshot(snap: {
+    matchId: number;
+    open1v1: Flip1v1Match[];
+    active1v1: Flip1v1Match | null;
+  }) {
+    this.matchId = Math.max(this.matchId, snap.matchId);
+    this.open1v1 = snap.open1v1.filter(m => m.status === 'waiting');
+    for (const m of snap.open1v1) {
+      if (m.status === 'flipping' || m.status === 'done') {
+        this.pending1v1.set(m.id, m);
+      }
+    }
+    if (snap.active1v1) {
+      this.active1v1 = snap.active1v1;
+      this.pending1v1.set(snap.active1v1.id, snap.active1v1);
+    }
+  }
+
+  exportPlayerSnapshot(address: string) {
+    const p = this.players.get(address);
+    if (!p) return null;
+    return {
+      balance: p.balance,
+      holdsBlackballs: p.holdsBlackballs,
+      active1v1Id: p.active1v1Id,
+      activeDogpileSide: p.activeDogpileSide,
+      winStreak: p.winStreak,
+      lossStreak: p.lossStreak,
+      lastOpponent: p.lastOpponent,
+    };
+  }
+
+  importPlayerSnapshot(
+    address: string,
+    row: {
+      balance: number;
+      holdsBlackballs: boolean;
+      active1v1Id: string | null;
+      activeDogpileSide: FlipSide | null;
+      winStreak: number;
+      lossStreak: number;
+      lastOpponent: string | null;
+    },
+  ) {
+    const p = this.getPlayer(address);
+    const locked = this.lockedWagerForPlayer(address);
+    if (locked <= 0) {
+      p.balance = row.balance;
+    }
+    p.holdsBlackballs = row.holdsBlackballs;
+    if (!p.active1v1Id && row.active1v1Id) {
+      p.active1v1Id = row.active1v1Id;
+    }
+    p.winStreak = row.winStreak;
+    p.lossStreak = row.lossStreak;
+    p.lastOpponent = row.lastOpponent;
+    p.activeDogpileSide = row.activeDogpileSide;
   }
 }
 

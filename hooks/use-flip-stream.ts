@@ -36,6 +36,13 @@ async function syncFlipSession(
 const STALE_FEED_MS =
   typeof process !== 'undefined' && process.env.NODE_ENV === 'development' ? 15000 : 8000;
 
+const FLIP_JOIN_TIMEOUT_MS = 15000;
+const FLIP_RETRY_RE = /already in a match|insufficient balance|no open match|match not available/i;
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export function useFlipStream() {
   const { wallet, holdBonuses, hydrated, setBlackballsBalance } = useWallet();
   const address = wallet.connected && hydrated ? wallet.address : null;
@@ -49,6 +56,11 @@ export function useFlipStream() {
   const holdsBbRef = useRef(holdsBlackballs);
   const balanceHoldRef = useRef(false);
   const pendingBalanceRef = useRef<number | null>(null);
+  const stateRef = useRef(state);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   const applyBalanceFromServer = useCallback(
     (balance: number, force = false) => {
@@ -89,6 +101,22 @@ export function useFlipStream() {
     return syncFlipSession(addr, balance, holdsBbRef.current, walletRef.current.isRealWallet, boot, force);
   }, []);
 
+  const refreshFlipState = useCallback(async () => {
+    const addr = walletRef.current.connected && walletRef.current.address;
+    const url = addr
+      ? `/api/flip/state?address=${encodeURIComponent(addr)}`
+      : '/api/flip/state';
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) return;
+      const parsed = (await res.json()) as FlipFullState;
+      const walletBal = resolveClientSyncBalance(walletRef.current);
+      setState(prev => normalizeFlipStreamState(parsed, prev, walletBal));
+    } catch (err) {
+      console.warn('[flip/state] refresh failed', err);
+    }
+  }, []);
+
   // Live SSE — spectators and players.
   useEffect(() => {
     if (!hydrated) {
@@ -118,6 +146,7 @@ export function useFlipStream() {
         setConnected(true);
         retry = 0;
         lastMsgAt = Date.now();
+        void refreshFlipState();
       };
       es.onmessage = e => {
         lastMsgAt = Date.now();
@@ -178,7 +207,12 @@ export function useFlipStream() {
       if (staleTimer) clearInterval(staleTimer);
       es?.close();
     };
-  }, [hydrated, address, applyBalanceFromServer]);
+  }, [hydrated, address, applyBalanceFromServer, refreshFlipState]);
+
+  useEffect(() => {
+    if (!hydrated || state != null || !connected) return;
+    void refreshFlipState();
+  }, [hydrated, connected, state, refreshFlipState]);
 
   // Session sync — wallet-context boots once; merge view in background without blocking UI.
   useEffect(() => {
@@ -234,76 +268,31 @@ export function useFlipStream() {
       const w = walletRef.current;
       const clientBalance = resolveClientSyncBalance(w);
 
-      const runJoin = async () => {
-        const res = await fetch('/api/flip/join', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            address,
-            ...params,
-            amount,
-            balance: clientBalance,
-            holdsBlackballs: holdsBbRef.current,
-            isRealWallet: w.isRealWallet,
-          }),
-        });
-        const data = await res.json().catch(() => ({}));
-        return { res, data };
-      };
-
-      try {
-        // Boot-sync before join — fixes stale zero balance / orphan lobbies after Crash tab play.
-        const synced = await syncFlipSession(
-          address,
-          clientBalance,
-          holdsBbRef.current,
-          w.isRealWallet,
-          true,
-          true,
-        );
-        if (synced != null) applyBalanceFromServer(synced, true);
-
-        let { res, data } = await runJoin();
-
-        if (
-          !res.ok &&
-          typeof data.error === 'string' &&
-          (data.error.includes('already in a match') ||
-            data.error.includes('insufficient balance') ||
-            data.error.includes('no open match'))
-        ) {
-          await fetch('/api/flip/cancel', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ address }),
-          }).catch(() => {});
-          await syncFlipSession(
-            address,
-            clientBalance,
-            holdsBbRef.current,
-            w.isRealWallet,
-            true,
-            true,
-          );
-          ({ res, data } = await runJoin());
-        }
-
-        if (!res.ok) {
-          console.warn('[flip/join] rejected', res.status, data.error ?? data);
-          return { ok: false, error: typeof data.error === 'string' ? data.error : 'Flip rejected' };
-        }
+      const applyJoinSuccess = (data: Record<string, unknown>) => {
         if (typeof data.balance === 'number') {
           applyBalanceFromServer(data.balance, true);
         }
         if (data.matchId) {
           setState(prev => {
-            if (!prev?.player) return prev;
+            if (!prev) return prev;
             const waitingMatch = data.waitingMatch as Flip1v1Match | null | undefined;
             const activeMatch = data.activeMatch as Flip1v1Match | null | undefined;
             let open1v1 = prev.open1v1;
             if (waitingMatch && !open1v1.some(m => m.id === waitingMatch.id)) {
               open1v1 = [...open1v1, waitingMatch];
             }
+            const player = prev.player ?? {
+              balance: typeof data.balance === 'number' ? data.balance : 0,
+              holdsBlackballs: holdsBbRef.current,
+              rakeRate: 0,
+              maxBet: 0,
+              winStreak: 0,
+              lossStreak: 0,
+              lastOpponent: null,
+              active1v1Id: null,
+              activeDogpileSide: null,
+              lastResult: null,
+            };
             return {
               ...prev,
               open1v1,
@@ -312,19 +301,112 @@ export function useFlipStream() {
                   ? activeMatch
                   : prev.active1v1,
               player: {
-                ...prev.player,
+                ...player,
                 active1v1Id: data.matchId as string,
-                balance: typeof data.balance === 'number' ? data.balance : prev.player.balance,
+                balance: typeof data.balance === 'number' ? data.balance : player.balance,
               },
             };
           });
         }
-        return { ok: true, matchId: data.matchId as string | undefined };
-      } catch {
+      };
+
+      const runJoin = async () => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), FLIP_JOIN_TIMEOUT_MS);
+        try {
+          const res = await fetch('/api/flip/join', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              address,
+              ...params,
+              amount,
+              balance: clientBalance,
+              holdsBlackballs: holdsBbRef.current,
+              isRealWallet: w.isRealWallet,
+            }),
+            signal: controller.signal,
+          });
+          const data = await res.json().catch(() => ({}));
+          return { res, data };
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+
+      try {
+        let lastErr = 'Flip rejected';
+
+        for (let attempt = 0; attempt < 4; attempt++) {
+          if (attempt > 0) {
+            await syncFlipSession(
+              address,
+              clientBalance,
+              holdsBbRef.current,
+              w.isRealWallet,
+              true,
+              true,
+            );
+            await refreshFlipState();
+            await sleep(120 * attempt);
+          } else {
+            const synced = await syncFlipSession(
+              address,
+              clientBalance,
+              holdsBbRef.current,
+              w.isRealWallet,
+              true,
+              true,
+            );
+            if (synced != null) applyBalanceFromServer(synced, true);
+          }
+
+          let { res, data } = await runJoin();
+
+          if (
+            !res.ok &&
+            typeof data.error === 'string' &&
+            FLIP_RETRY_RE.test(data.error)
+          ) {
+            await fetch('/api/flip/cancel', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ address }),
+            }).catch(() => {});
+            await syncFlipSession(
+              address,
+              clientBalance,
+              holdsBbRef.current,
+              w.isRealWallet,
+              true,
+              true,
+            );
+            ({ res, data } = await runJoin());
+          }
+
+          if (res.ok && data.ok !== false) {
+            applyJoinSuccess(data);
+            void refreshFlipState();
+            return { ok: true, matchId: data.matchId as string | undefined };
+          }
+
+          lastErr = typeof data.error === 'string' ? data.error : 'Flip rejected';
+          if (!FLIP_RETRY_RE.test(lastErr)) {
+            return { ok: false, error: lastErr };
+          }
+        }
+
+        void refreshFlipState();
+        return { ok: false, error: lastErr };
+      } catch (err) {
+        void refreshFlipState();
+        if (err instanceof Error && err.name === 'AbortError') {
+          return { ok: false, error: 'Flip timed out — try again' };
+        }
         return { ok: false, error: 'Network error' };
       }
     },
-    [address, ensureSession, applyBalanceFromServer],
+    [address, ensureSession, applyBalanceFromServer, refreshFlipState],
   );
 
   const revenge = useCallback(
@@ -361,8 +443,19 @@ export function useFlipStream() {
     if (typeof data.balance === 'number') {
       applyBalanceFromServer(data.balance, true);
     }
+    if (res.ok) {
+      setState(prev => {
+        if (!prev?.player) return prev;
+        return {
+          ...prev,
+          open1v1: prev.open1v1.filter(m => m.creator.address !== address),
+          player: { ...prev.player, active1v1Id: null, balance: typeof data.balance === 'number' ? data.balance : prev.player.balance },
+        };
+      });
+      void refreshFlipState();
+    }
     return { ok: res.ok };
-  }, [address, applyBalanceFromServer]);
+  }, [address, applyBalanceFromServer, refreshFlipState]);
 
   return {
     state,

@@ -11,10 +11,14 @@ async function actionFrom(ctx: RouteCtx): Promise<string> {
 }
 
 export async function GET(req: NextRequest, ctx: RouteCtx) {
-  if ((await actionFrom(ctx)) === 'stream') {
-    return flip.handleStream(req);
+  switch (await actionFrom(ctx)) {
+    case 'stream':
+      return flip.handleStream(req);
+    case 'state':
+      return flip.handleState(req);
+    default:
+      return NextResponse.json({ error: 'not found' }, { status: 404 });
   }
-  return NextResponse.json({ error: 'not found' }, { status: 404 });
 }
 
 export async function POST(req: NextRequest, ctx: RouteCtx) {

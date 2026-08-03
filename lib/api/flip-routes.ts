@@ -9,6 +9,19 @@ import {
 } from '@/lib/chain/crash-vault-client';
 import { normalizeDemoSessionBalance } from '@/lib/session-balance';
 import { assertGameNotCampaignLocked } from '@/lib/launch-campaign-guard';
+import {
+  ensureFlipStateSynced,
+  maybePersistFlipEngineSnapshot,
+  persistFlipEngineSnapshot,
+  persistFlipPlayerSnapshot,
+} from '@/lib/supabase/flip-state-store';
+
+export async function handleState(req: NextRequest) {
+  const address = req.nextUrl.searchParams.get('address');
+  const manager = getFlipManager();
+  await ensureFlipStateSynced(manager, address);
+  return NextResponse.json(manager.getFullState(address));
+}
 
 export async function handleStream(req: NextRequest) {
   const manager = getFlipManager();
@@ -21,7 +34,10 @@ export async function handleStream(req: NextRequest) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
       send(manager.getFullState(address));
-      const unsub = manager.subscribe(address, s => send(s));
+      const unsub = manager.subscribe(address, s => {
+        send(s);
+        maybePersistFlipEngineSnapshot(manager);
+      });
       const ka = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(`: keepalive\n\n`));
@@ -79,7 +95,12 @@ export async function handleSession(req: NextRequest) {
     syncedBalance = normalizeDemoSessionBalance(address, syncedBalance, isRealWallet);
   }
 
-  const finalBalance = getFlipManager().syncPlayer(address, syncedBalance, holdsBlackballs, { boot });
+  const manager = getFlipManager();
+  await ensureFlipStateSynced(manager, address);
+
+  const finalBalance = manager.syncPlayer(address, syncedBalance, holdsBlackballs, { boot });
+
+  void persistFlipPlayerSnapshot(manager, address);
 
   return NextResponse.json({ ok: true, balance: finalBalance, vaultSynced: isVaultEnabled() });
 }
@@ -107,6 +128,8 @@ export async function handleJoin(req: NextRequest) {
   }
 
   const manager = getFlipManager();
+  await ensureFlipStateSynced(manager, address);
+
   const normalizedBalance =
     !isNaN(clientBalance) && clientBalance >= 0
       ? normalizeDemoSessionBalance(address, clientBalance, isRealWallet)
@@ -122,6 +145,8 @@ export async function handleJoin(req: NextRequest) {
     const result = manager.joinDogpile(address, side as FlipSide, amount, message);
     if (!result.ok) return NextResponse.json(result, { status: 400 });
     const state = manager.getFullState(address);
+    void persistFlipPlayerSnapshot(manager, address);
+    void persistFlipEngineSnapshot(manager);
     return NextResponse.json({ ok: true, balance: state.player?.balance });
   }
 
@@ -129,6 +154,8 @@ export async function handleJoin(req: NextRequest) {
     const result = manager.join1v1(address, matchId, message);
     if (!result.ok) return NextResponse.json(result, { status: 400 });
     const state = manager.getFullState(address);
+    void persistFlipPlayerSnapshot(manager, address);
+    void persistFlipEngineSnapshot(manager);
     const activeMatch = state.active1v1?.id === result.matchId ? state.active1v1 : null;
     return NextResponse.json({
       ...result,
@@ -141,6 +168,8 @@ export async function handleJoin(req: NextRequest) {
   const result = manager.createOrJoin1v1(address, side as FlipSide, amount, message);
   if (!result.ok) return NextResponse.json(result, { status: 400 });
   const state = manager.getFullState(address);
+  void persistFlipPlayerSnapshot(manager, address);
+  void persistFlipEngineSnapshot(manager);
   const activeMatch = state.active1v1?.id === result.matchId ? state.active1v1 : null;
   return NextResponse.json({
     ...result,
@@ -161,9 +190,14 @@ export async function handleCancel(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'wallet not connected' }, { status: 401 });
   }
 
-  const result = getFlipManager().cancel1v1(address);
+  const manager = getFlipManager();
+  await ensureFlipStateSynced(manager, address);
+
+  const result = manager.cancel1v1(address);
   if (!result.ok) return NextResponse.json(result, { status: 400 });
-  const state = getFlipManager().getFullState(address);
+  const state = manager.getFullState(address);
+  void persistFlipPlayerSnapshot(manager, address);
+  void persistFlipEngineSnapshot(manager);
   return NextResponse.json({ ok: true, balance: state.player?.balance });
 }
 

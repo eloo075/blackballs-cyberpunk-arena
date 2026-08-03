@@ -87,15 +87,18 @@ export function FlipControls({
     }
     setBusy(true);
     setError(null);
-    const result = await onFlip({
-      mode,
-      side,
-      amount: safeAmount,
-      message: message.trim() || undefined,
-      matchId,
-    });
-    setBusy(false);
-    if (!result.ok) setError(result.error ?? 'Flip failed');
+    try {
+      const result = await onFlip({
+        mode,
+        side,
+        amount: safeAmount,
+        message: message.trim() || undefined,
+        matchId,
+      });
+      if (!result.ok) setError(result.error ?? 'Flip failed');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const waitingOwn =
@@ -208,9 +211,11 @@ export function FlipControls({
             onClick={() => void handleFlip()}
             className="w-full touch-manipulation min-h-[52px] py-3 text-base font-black bg-orange-500 hover:bg-orange-400 text-black rounded-xl border-b-4 border-orange-700 active:border-b-0 disabled:opacity-40"
           >
-            {mode === '1v1'
-              ? `FLIP ${side.toUpperCase()} · ${formatBetTokens(safeAmount)} ${CURRENCY_LABEL} (${formatBetUsd(tokensToUsd(safeAmount, usdPerToken))})`
-              : `JOIN DOGPILE · ${side.toUpperCase()}`}
+            {busy
+              ? 'FLIPPING…'
+              : mode === '1v1'
+                ? `FLIP ${side.toUpperCase()} · ${formatBetTokens(safeAmount)} ${CURRENCY_LABEL} (${formatBetUsd(tokensToUsd(safeAmount, usdPerToken))})`
+                : `JOIN DOGPILE · ${side.toUpperCase()}`}
           </button>
         )}
 

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import type { FullState } from '@/lib/crash-types';
 import { useWallet } from '@/lib/wallet-context';
-import { resolveClientSyncBalance, shouldApplyServerBalance, normalizeCrashStreamState, guardPendingEntryOnStream, guardLivePositionOnStream, resetPlayerViewForNewRound, isNewRoundTransition } from '@/lib/session-balance';
+import { resolveClientSyncBalance, shouldApplyServerBalance, normalizeCrashStreamState, guardPendingEntryOnStream, guardLivePositionOnStream, guardCancelledPositionOnStream, resetPlayerViewForNewRound, isNewRoundTransition } from '@/lib/session-balance';
 import { shouldSkipSessionSync, markSessionSynced } from '@/lib/sync-session-debounce';
 import { teardownEventSource } from '@/lib/crash-event-source';
 import { fetchJsonWithTimeout, actionErrorMessage } from '@/lib/action-timeout';
@@ -113,6 +113,7 @@ export function useCrashStream() {
   const walletRef = useRef(wallet);
   const holdRef = useRef(holdBonuses);
   const stateRef = useRef(state);
+  const cancelSuppressUntilRef = useRef(0);
 
   useEffect(() => {
     stateRef.current = state;
@@ -153,6 +154,7 @@ export function useCrashStream() {
         }
         next = guardPendingEntryOnStream(prev, next);
         next = guardLivePositionOnStream(prev, next);
+        next = guardCancelledPositionOnStream(prev, next, cancelSuppressUntilRef.current);
         stateRef.current = next;
         if (
           sessionReadyRef.current &&
@@ -435,31 +437,37 @@ export function useCrashStream() {
             setBlackballsBalance(data.balance);
             walletBalanceRef.current = data.balance;
           }
-          if (data.view) {
-            applyView(data.view as CrashClientView);
-          }
 
           const view = data.view as CrashClientView | undefined;
-          const cleared = view && !view.hasPosition && !view.entryPending;
-          if ((res.ok && (data.ok === true || data.action === 'close')) || cleared) {
-            if (!data.view) {
-              setState(prev => {
-                if (!prev) return prev;
-                const bal = typeof data.balance === 'number' ? data.balance : prev.balance;
-                const next = {
-                  ...prev,
-                  hasPosition: false,
-                  hasLivePosition: false,
-                  entryPending: false,
-                  positionAmount: 0,
-                  positionLeverage: 1,
-                  balance: bal,
-                };
-                stateRef.current = next;
-                return next;
-              });
-            }
+          const serverCleared = view && !view.hasPosition && !view.entryPending;
+          const success =
+            (res.ok && (data.ok === true || data.action === 'close')) || serverCleared;
+
+          if (success) {
+            cancelSuppressUntilRef.current = Date.now() + 5000;
+            const bal =
+              typeof data.balance === 'number'
+                ? data.balance
+                : (stateRef.current?.balance ?? walletBalanceRef.current);
+            setState(prev => {
+              if (!prev) return prev;
+              const next = {
+                ...prev,
+                hasPosition: false,
+                hasLivePosition: false,
+                entryPending: false,
+                positionAmount: 0,
+                positionLeverage: 1,
+                balance: bal,
+              };
+              stateRef.current = next;
+              return next;
+            });
             return { ok: true };
+          }
+
+          if (data.view) {
+            applyView(data.view as CrashClientView);
           }
 
           lastErr =
