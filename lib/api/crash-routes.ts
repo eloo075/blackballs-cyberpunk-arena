@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getManager } from '@/lib/crash-manager';
 import {
   ensureCrashStateSynced,
+  loadAndApplyEngineSnapshot,
+  loadAndApplyPlayerSnapshot,
   maybePersistEngineSnapshot,
   persistPlayerSnapshot,
   type CrashClientViewPayload,
@@ -28,11 +30,25 @@ export async function handleStream(req: NextRequest) {
       const send = (data: unknown) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
-      send(manager.snapshotForStream(address));
+      let hydrateTimer: ReturnType<typeof setInterval> | null = null;
+
+      void (async () => {
+        await loadAndApplyEngineSnapshot(manager);
+        if (address) await loadAndApplyPlayerSnapshot(manager, address);
+        send(manager.snapshotForStream(address));
+      })();
+
       const unsub = manager.subscribe(address, s => {
         send(s);
         maybePersistEngineSnapshot(manager);
       });
+
+      if (address) {
+        hydrateTimer = setInterval(() => {
+          void loadAndApplyPlayerSnapshot(manager, address);
+        }, 1000);
+      }
+
       const ka = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(`: keepalive\n\n`));
@@ -42,6 +58,7 @@ export async function handleStream(req: NextRequest) {
       }, 15000);
       req.signal.addEventListener('abort', () => {
         clearInterval(ka);
+        if (hydrateTimer) clearInterval(hydrateTimer);
         unsub();
         try {
           controller.close();

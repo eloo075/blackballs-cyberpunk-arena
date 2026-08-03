@@ -251,12 +251,15 @@ export function CrashControls({
 
   useEffect(() => {
     if (hasPosition || balance <= 0) return;
-    if (percent > 0) return;
+    if (percent > 0) {
+      if (safeAmount <= 0) setPercent(0);
+      return;
+    }
     setAmount(prev => {
       if (prev > 0 && prev <= balance) return prev;
       return affordableBetAmount(usdPerToken, balance);
     });
-  }, [hasPosition, balance, usdPerToken, percent, gameId, roundEpoch]);
+  }, [hasPosition, balance, usdPerToken, percent, safeAmount, gameId, roundEpoch]);
 
   const prevHasPositionRef = useRef(false);
   useEffect(() => {

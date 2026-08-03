@@ -11,6 +11,8 @@ import { normalizeDemoSessionBalance } from '@/lib/session-balance';
 import { assertGameNotCampaignLocked } from '@/lib/launch-campaign-guard';
 import {
   ensureFlipStateSynced,
+  loadAndApplyFlipEngineSnapshot,
+  loadAndApplyFlipPlayerSnapshot,
   maybePersistFlipEngineSnapshot,
   persistFlipEngineSnapshot,
   persistFlipPlayerSnapshot,
@@ -33,11 +35,26 @@ export async function handleStream(req: NextRequest) {
       const send = (data: unknown) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
-      send(manager.getFullState(address));
+
+      let hydrateTimer: ReturnType<typeof setInterval> | null = null;
+
+      void (async () => {
+        await loadAndApplyFlipEngineSnapshot(manager);
+        if (address) await loadAndApplyFlipPlayerSnapshot(manager, address);
+        send(manager.getFullState(address));
+      })();
+
       const unsub = manager.subscribe(address, s => {
         send(s);
         maybePersistFlipEngineSnapshot(manager);
       });
+
+      if (address) {
+        hydrateTimer = setInterval(() => {
+          void loadAndApplyFlipPlayerSnapshot(manager, address);
+        }, 1000);
+      }
+
       const ka = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(`: keepalive\n\n`));
@@ -47,6 +64,7 @@ export async function handleStream(req: NextRequest) {
       }, 15000);
       req.signal.addEventListener('abort', () => {
         clearInterval(ka);
+        if (hydrateTimer) clearInterval(hydrateTimer);
         unsub();
         try {
           controller.close();

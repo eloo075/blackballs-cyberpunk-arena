@@ -192,6 +192,36 @@ export function guardCancelledPositionOnStream(
   };
 }
 
+/**
+ * After a successful countdown entry, ignore stale SSE that drops the pending bet
+ * before the round starts (multi-instance race).
+ */
+export function guardRecentEntryOnStream(
+  prev: FullState | null,
+  next: FullState,
+  suppressUntilMs: number,
+): FullState {
+  if (Date.now() > suppressUntilMs) return next;
+  if (!prev) return next;
+  if (isNewRoundTransition(prev, next)) return next;
+  if (!prev.hasPosition || !prev.entryPending) return next;
+  if (next.hasPosition && next.entryPending) return next;
+
+  const refund = next.balance - prev.balance;
+  if (refund >= prev.positionAmount * 0.85) return next;
+
+  return {
+    ...next,
+    hasPosition: true,
+    hasLivePosition: next.phase === 'running',
+    entryPending: next.phase === 'waiting',
+    positionSide: prev.positionSide,
+    positionAmount: prev.positionAmount,
+    positionLeverage: prev.positionLeverage,
+    positionEntryPrice: prev.positionEntryPrice,
+  };
+}
+
 /** Ensure flip SSE player view always has a numeric balance. */
 export function normalizeFlipStreamState(
   raw: FlipFullState,

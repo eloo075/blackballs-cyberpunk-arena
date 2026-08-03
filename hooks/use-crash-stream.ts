@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import type { FullState } from '@/lib/crash-types';
 import { useWallet } from '@/lib/wallet-context';
-import { resolveClientSyncBalance, shouldApplyServerBalance, normalizeCrashStreamState, guardPendingEntryOnStream, guardLivePositionOnStream, guardCancelledPositionOnStream, resetPlayerViewForNewRound, isNewRoundTransition } from '@/lib/session-balance';
+import { resolveClientSyncBalance, shouldApplyServerBalance, normalizeCrashStreamState, guardPendingEntryOnStream, guardLivePositionOnStream, guardCancelledPositionOnStream, guardRecentEntryOnStream, resetPlayerViewForNewRound, isNewRoundTransition } from '@/lib/session-balance';
 import { shouldSkipSessionSync, markSessionSynced } from '@/lib/sync-session-debounce';
 import { teardownEventSource } from '@/lib/crash-event-source';
 import { fetchJsonWithTimeout, actionErrorMessage } from '@/lib/action-timeout';
@@ -77,6 +77,9 @@ function mergeCrashClientView(prev: FullState | null, view?: CrashClientView | n
 const POSITION_MISS_RE =
   /no open position|no position|no pending entry|enter during the countdown|cancel failed/i;
 
+const ENTER_REJECT_RE =
+  /wait for the next round|invalid amount|insufficient balance|trade rejected/i;
+
 function clientViewFromState(state: FullState | null): CrashClientView | undefined {
   if (!state) return undefined;
   return {
@@ -114,6 +117,7 @@ export function useCrashStream() {
   const holdRef = useRef(holdBonuses);
   const stateRef = useRef(state);
   const cancelSuppressUntilRef = useRef(0);
+  const entrySuppressUntilRef = useRef(0);
 
   useEffect(() => {
     stateRef.current = state;
@@ -155,6 +159,7 @@ export function useCrashStream() {
         next = guardPendingEntryOnStream(prev, next);
         next = guardLivePositionOnStream(prev, next);
         next = guardCancelledPositionOnStream(prev, next, cancelSuppressUntilRef.current);
+        next = guardRecentEntryOnStream(prev, next, entrySuppressUntilRef.current);
         stateRef.current = next;
         if (
           sessionReadyRef.current &&
@@ -529,77 +534,99 @@ export function useCrashStream() {
       try {
         const w = walletRef.current;
         const clientBalance = resolveClientSyncBalance(w);
+        let lastErr = 'Trade rejected';
 
-        const res = await fetchJsonWithTimeout('/api/crash/enter', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            address,
-            side,
-            amount: wager,
-            leverage,
-            balance: clientBalance,
-            isRealWallet: w.isRealWallet,
-          }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const errMsg = typeof data.error === 'string' ? data.error : 'Trade rejected';
-          console.warn('[crash/enter] rejected', res.status, data.error ?? data);
+        for (let attempt = 0; attempt < 4; attempt++) {
+          if (attempt > 0) {
+            await syncBalance(false, true);
+            await refreshGameState();
+            await sleep(120 * attempt);
+          }
+
+          const clientView = clientViewFromState(stateRef.current);
+
+          const res = await fetchJsonWithTimeout('/api/crash/enter', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              address,
+              side,
+              amount: wager,
+              leverage,
+              balance: clientBalance,
+              isRealWallet: w.isRealWallet,
+              clientView,
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+
+          if (!res.ok) {
+            lastErr = typeof data.error === 'string' ? data.error : 'Trade rejected';
+            console.warn('[crash/enter] rejected', res.status, data.error ?? data);
+            if (data.view) {
+              setState(prev => mergeCrashClientView(prev, data.view as CrashClientView));
+            }
+            if (!ENTER_REJECT_RE.test(lastErr) || attempt === 3) {
+              return { ok: false, error: lastErr };
+            }
+            continue;
+          }
+
+          if (typeof data.balance === 'number') {
+            setBlackballsBalance(data.balance);
+            walletBalanceRef.current = data.balance;
+          }
           if (data.view) {
             setState(prev => mergeCrashClientView(prev, data.view as CrashClientView));
           }
-          return { ok: false, error: errMsg };
-        }
-        if (typeof data.balance === 'number') {
-          setBlackballsBalance(data.balance);
-          walletBalanceRef.current = data.balance;
-        }
-        if (data.view) {
-          setState(prev => mergeCrashClientView(prev, data.view as CrashClientView));
-        }
-        if (data.ok !== true) {
-          return { ok: false, error: typeof data.error === 'string' ? data.error : 'Trade failed' };
+          if (data.ok !== true) {
+            lastErr = typeof data.error === 'string' ? data.error : 'Trade failed';
+            return { ok: false, error: lastErr };
+          }
+
+          entrySuppressUntilRef.current = Date.now() + 8000;
+
+          setState(prev => {
+            if (!prev) return prev;
+            const bal = typeof data.balance === 'number' ? data.balance : prev.balance;
+            if (data.action === 'close') {
+              return {
+                ...prev,
+                hasPosition: false,
+                hasLivePosition: false,
+                entryPending: false,
+                positionAmount: 0,
+                positionLeverage: 1,
+                balance: bal,
+              };
+            }
+            if (data.action === 'open' && prev.phase === 'waiting') {
+              return {
+                ...prev,
+                hasPosition: true,
+                hasLivePosition: false,
+                entryPending: true,
+                positionSide: side,
+                positionAmount: wager,
+                positionLeverage: leverage,
+                positionEntryPrice: 1.0,
+                balance: bal,
+              };
+            }
+            return { ...prev, balance: bal };
+          });
+
+          void refreshGameState();
+          return { ok: true };
         }
 
-        // Instant UI feedback — don't wait for the next SSE tick.
-        setState(prev => {
-          if (!prev) return prev;
-          const bal = typeof data.balance === 'number' ? data.balance : prev.balance;
-          if (data.action === 'close') {
-            return {
-              ...prev,
-              hasPosition: false,
-              hasLivePosition: false,
-              entryPending: false,
-              positionAmount: 0,
-              positionLeverage: 1,
-              balance: bal,
-            };
-          }
-          if (data.action === 'open' && prev.phase === 'waiting') {
-            return {
-              ...prev,
-              hasPosition: true,
-              hasLivePosition: false,
-              entryPending: true,
-              positionSide: side,
-              positionAmount: wager,
-              positionLeverage: leverage,
-              positionEntryPrice: 1.0,
-              balance: bal,
-            };
-          }
-          return { ...prev, balance: bal };
-        });
-
-        return { ok: true };
+        return { ok: false, error: lastErr };
       } catch (err) {
         void refreshGameState();
         return { ok: false, error: actionErrorMessage(err, 'Network error — try again') };
       }
     },
-    [address, ensureSession, setBlackballsBalance, refreshGameState],
+    [address, ensureSession, setBlackballsBalance, refreshGameState, syncBalance],
   );
 
   const setAutoSell = useCallback(
