@@ -8,6 +8,7 @@ import { shouldSkipSessionSync, markSessionSynced } from '@/lib/sync-session-deb
 import { teardownEventSource } from '@/lib/crash-event-source';
 import { fetchJsonWithTimeout, actionErrorMessage } from '@/lib/action-timeout';
 import { notifyDemoRefresh, subscribeDemoTabMessages } from '@/lib/demo-tab-coordinator';
+import { splitPartialCashout } from '@/lib/crash-position-math';
 
 async function syncCrashSession(
   address: string,
@@ -369,7 +370,9 @@ export function useCrashStream() {
       (state.hasPosition && state.phase === 'running' && !state.entryPending);
 
     if (state.phase === 'running' && hadLivePositionRef.current && !liveNow) {
-      void refreshGameState();
+      if (Date.now() >= cashoutSuppressUntilRef.current) {
+        void refreshGameState();
+      }
     }
     hadLivePositionRef.current = liveNow;
   }, [
@@ -390,6 +393,7 @@ export function useCrashStream() {
     if (!liveNow) return;
 
     const timer = setInterval(() => {
+      if (Date.now() < cashoutSuppressUntilRef.current) return;
       void refreshGameState();
     }, 2000);
     return () => clearInterval(timer);
@@ -749,18 +753,40 @@ export function useCrashStream() {
   const cashOut = useCallback(
     async (percent = 1): Promise<{ ok: boolean; error?: string; exitPrice?: number }> => {
       if (!address) return { ok: false, error: 'Connect wallet first' };
-      if (actionLockRef.current) return { ok: false, error: 'Cash-out already in progress' };
+      if (actionLockRef.current === 'cashout') return { ok: false };
       actionLockRef.current = 'cashout';
 
-      try {
       const pct = Math.min(1, Math.max(0.25, percent));
+      const snap = stateRef.current;
+      const isPartial = pct < 0.999 && snap?.hasPosition && snap.phase === 'running';
+      let optimisticRemaining: number | null = null;
+
+      if (isPartial && snap) {
+        const split = splitPartialCashout(snap.positionAmount, pct);
+        if (!split.fullClose && split.remaining > 0) {
+          optimisticRemaining = split.remaining;
+          cashoutSuppressUntilRef.current = Date.now() + 10_000;
+          setState(prev => {
+            if (!prev || prev.phase !== 'running') return prev;
+            const next = {
+              ...prev,
+              hasPosition: true,
+              hasLivePosition: true,
+              entryPending: false,
+              positionAmount: split.remaining,
+            };
+            stateRef.current = next;
+            return next;
+          });
+        }
+      }
+
+      try {
       let lastErr = 'Cash-out rejected';
 
-      for (let attempt = 0; attempt < 4; attempt++) {
+      for (let attempt = 0; attempt < 3; attempt++) {
         if (attempt > 0) {
-          await syncBalance(false, true);
-          await refreshGameState();
-          await sleep(50 * attempt);
+          await sleep(40 * attempt);
         }
 
         const clientView = clientViewFromState(stateRef.current);
@@ -780,16 +806,29 @@ export function useCrashStream() {
             lastErr = typeof data.error === 'string' ? data.error : 'Cash-out rejected';
             if (data.view) {
               setState(prev => mergeCrashClientView(prev, data.view as CrashClientView));
+            } else if (optimisticRemaining != null && snap) {
+              setState(prev => {
+                if (!prev) return prev;
+                const next = { ...prev, positionAmount: snap.positionAmount, hasLivePosition: true, hasPosition: true };
+                stateRef.current = next;
+                return next;
+              });
             }
             if (!POSITION_MISS_RE.test(lastErr)) {
-              void refreshGameState();
+              cashoutSuppressUntilRef.current = 0;
               return { ok: false, error: lastErr };
             }
             continue;
           }
           if (typeof data.balance === 'number') setBlackballsBalance(data.balance);
-          cashoutSuppressUntilRef.current = Date.now() + 5000;
+
+          const fullClose =
+            data.action === 'close' ||
+            (typeof data.cashedPct === 'number' && data.cashedPct >= 0.999);
+
+          cashoutSuppressUntilRef.current = Date.now() + (fullClose ? 5000 : 10_000);
           notifyDemoRefresh(address, 'crash');
+
           if (data.view) {
             setState(prev => {
               const next = mergeCrashClientView(prev, data.view as CrashClientView);
@@ -800,9 +839,6 @@ export function useCrashStream() {
             setState(prev => {
               if (!prev) return prev;
               const bal = typeof data.balance === 'number' ? data.balance : prev.balance;
-              const fullClose =
-                data.action === 'close' ||
-                (typeof data.cashedPct === 'number' && data.cashedPct >= 0.999);
               if (fullClose) {
                 const next = {
                   ...prev,
@@ -816,9 +852,10 @@ export function useCrashStream() {
                 stateRef.current = next;
                 return next;
               }
-              const remaining = parseFloat(
-                (prev.positionAmount * (1 - (data.cashedPct as number))).toFixed(3),
-              );
+              const remaining =
+                typeof data.remainingAmount === 'number'
+                  ? data.remainingAmount
+                  : parseFloat((prev.positionAmount * (1 - (data.cashedPct as number))).toFixed(3));
               const next = {
                 ...prev,
                 hasPosition: true,
@@ -831,20 +868,29 @@ export function useCrashStream() {
               return next;
             });
           }
+          actionLockRef.current = null;
           return { ok: true, exitPrice: typeof data.exitPrice === 'number' ? data.exitPrice : undefined };
         } catch (err) {
           lastErr = actionErrorMessage(err, 'Network error — try again');
-          if (attempt === 3) break;
+          if (attempt === 2) break;
         }
       }
 
-      void refreshGameState();
+      cashoutSuppressUntilRef.current = 0;
+      if (optimisticRemaining != null && snap) {
+        setState(prev => {
+          if (!prev) return prev;
+          const next = { ...prev, positionAmount: snap.positionAmount, hasLivePosition: true, hasPosition: true };
+          stateRef.current = next;
+          return next;
+        });
+      }
       return { ok: false, error: lastErr };
       } finally {
         if (actionLockRef.current === 'cashout') actionLockRef.current = null;
       }
     },
-    [address, setBlackballsBalance, refreshGameState, syncBalance],
+    [address, setBlackballsBalance, syncBalance],
   );
 
   return { state, connected, reconnecting, sessionReady, roundEpoch, streamEpoch, trade, cancelActivePosition, cashOut, setAutoSell, refreshGameState, walletConnected: !!address };

@@ -1,5 +1,6 @@
 import { applyCrashPayout } from './hold-bonuses';
 import { calcPositionPnl, isLiquidated, MAX_LEVERAGE, MIN_LEVERAGE } from './crash-pnl';
+import { splitPartialCashout } from './crash-position-math';
 import {
   computeCrashPoint,
   DEFAULT_CLIENT_SEED,
@@ -1015,6 +1016,7 @@ export class CrashManager {
     action?: 'close' | 'partial';
     cashedPct?: number;
     exitPrice?: number;
+    remainingAmount?: number;
   } {
     const player = this.getPlayer(address);
     const pct = Math.min(1, Math.max(0.01, percent));
@@ -1052,7 +1054,8 @@ export class CrashManager {
     }
 
     const margin = player.positionAmount;
-    const closeMargin = parseFloat((margin * pct).toFixed(3));
+    const split = splitPartialCashout(margin, pct);
+    const closeMargin = split.closeMargin;
     if (closeMargin <= 0) return { ok: false, error: 'invalid amount' };
 
     const leverage = player.positionLeverage;
@@ -1075,8 +1078,8 @@ export class CrashManager {
     const closeSide = player.positionSide === 'buy' ? 'sell' : 'buy';
     this.applyOrderFlow(closeSide, closeMargin * leverage);
 
-    const remaining = parseFloat((margin - closeMargin).toFixed(3));
-    const fullClose = pct >= 0.999 || remaining < 0.001;
+    const remaining = split.remaining;
+    const fullClose = split.fullClose;
 
     if (fullClose) {
       player.lastResult = {
@@ -1088,7 +1091,7 @@ export class CrashManager {
       };
       this.clearPlayerPosition(player);
     } else {
-      player.positionAmount = remaining;
+      player.positionAmount = parseFloat(remaining.toFixed(3));
       player.lastResult = {
         won: pnl > 0.0001,
         amount: pnl,
@@ -1117,6 +1120,7 @@ export class CrashManager {
       action: fullClose ? 'close' : 'partial',
       cashedPct: pct,
       exitPrice: exit,
+      remainingAmount: fullClose ? 0 : remaining,
     };
   }
 

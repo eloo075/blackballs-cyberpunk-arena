@@ -245,6 +245,7 @@ export function guardCashoutOnStream(
       hasLivePosition: true,
       entryPending: false,
       positionAmount: sizeDown ? Math.min(prev.positionAmount, next.positionAmount) : next.positionAmount,
+      balance: Math.max(next.balance, prev.balance),
     };
   }
 
@@ -262,11 +263,26 @@ export function guardCashoutOnStream(
       positionSide: prev.positionSide,
       positionLeverage: prev.positionLeverage,
       positionEntryPrice: prev.positionEntryPrice,
+      balance: Math.max(next.balance, prev.balance),
     };
   }
 
-  // Server acknowledged full close
-  if (!next.hasPosition && !next.entryPending) return next;
+  // Stale SSE clearing position during suppress window (partial still open on client)
+  if (!next.hasPosition && !next.entryPending) {
+    const refund = next.balance - prev.balance;
+    if (refund >= prev.positionAmount * 0.85) return next;
+    return {
+      ...next,
+      hasPosition: true,
+      hasLivePosition: true,
+      entryPending: false,
+      positionSide: prev.positionSide,
+      positionAmount: prev.positionAmount,
+      positionLeverage: prev.positionLeverage,
+      positionEntryPrice: prev.positionEntryPrice,
+      balance: Math.max(next.balance, prev.balance),
+    };
+  }
 
   const refund = next.balance - prev.balance;
   if (refund >= prev.positionAmount * 0.05) return next;

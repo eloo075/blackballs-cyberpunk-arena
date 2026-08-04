@@ -204,6 +204,8 @@ export function CrashControls({
     holdBonuses.stimmy > 0 ? `+${Math.round(holdBonuses.stimmy * 100)}% stimmy` : null;
 
   const livePosition = hasLivePosition || (hasPosition && phase === 'running' && !entryPending);
+  const showCashoutPanel =
+    phase === 'running' && walletConnected && (livePosition || (hasPosition && pendingAction === 'cashout'));
 
   /** Clear pending spinner once server state catches up (avoids BUY → gray → CANCEL flicker). */
   useEffect(() => {
@@ -216,10 +218,7 @@ export function CrashControls({
       setPendingAction(null);
       return;
     }
-    if (pendingAction === 'cashout' && !livePosition) {
-      setPendingAction(null);
-    }
-  }, [pendingAction, hasPosition, livePosition]);
+  }, [pendingAction, hasPosition]);
 
   const canCashOut =
     walletConnected && phase === 'running' && livePosition && !cashoutBusy && !!onCashOut;
@@ -227,17 +226,13 @@ export function CrashControls({
   const handleCashOut = async () => {
     if (!canCashOut || !onCashOut) return;
     setTradeError(null);
-    setPendingAction('cashout');
     setCashOutError(null);
-    try {
-      const result = await onCashOut(cashOutPct);
-      if (!result.ok) {
-        const msg = result.error ?? 'Cash-out failed';
-        setCashOutError(msg);
-        setTradeError(msg);
-      }
-    } finally {
-      setPendingAction(null);
+    setPendingAction('cashout');
+    const result = await onCashOut(cashOutPct);
+    setPendingAction(null);
+    if (!result.ok && result.error) {
+      setCashOutError(result.error);
+      setTradeError(result.error);
     }
   };
 
@@ -713,7 +708,7 @@ export function CrashControls({
           )}
         </AnimatePresence>
 
-        {livePosition && phase === 'running' && walletConnected && (
+        {showCashoutPanel && (
           <div className="px-3 py-2 border-b border-white/5 bg-emerald-500/10">
             <div className="text-[10px] font-extrabold text-emerald-300 mb-1.5">CASH OUT @ {mult.toFixed(2)}x</div>
             {cashOutError && (

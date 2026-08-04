@@ -4,7 +4,7 @@
 
 export type DemoTabMessage =
   | { type: 'balance'; address: string; balance: number }
-  | { type: 'refresh'; address: string; game: 'crash' | 'flip' | 'both' }
+  | { type: 'refresh'; address: string; game: 'crash' | 'flip' | 'both'; tabId?: string }
   | { type: 'action'; address: string; action: string };
 
 const TAB_ID =
@@ -103,6 +103,7 @@ export function subscribeDemoTabMessages(
 
   const listener = (ev: MessageEvent<DemoTabMessage>) => {
     if (!ev.data || ev.data.address !== address) return;
+    if (ev.data.type === 'refresh' && ev.data.tabId === TAB_ID) return;
     handler(ev.data);
   };
   ch.addEventListener('message', listener);
@@ -117,5 +118,5 @@ export function notifyDemoRefresh(
   address: string,
   game: 'crash' | 'flip' | 'both' = 'both',
 ): void {
-  broadcastDemoTabMessage(address, { type: 'refresh', address, game });
+  broadcastDemoTabMessage(address, { type: 'refresh', address, game, tabId: TAB_ID });
 }
