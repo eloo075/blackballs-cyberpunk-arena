@@ -48,7 +48,7 @@ type PlayerRow = {
 };
 
 let lastEnginePersistAt = 0;
-const ENGINE_PERSIST_MS = 1500;
+const ENGINE_PERSIST_MS = 500;
 
 export function maybePersistEngineSnapshot(manager: CrashManager): void {
   if (!isSupabaseConfigured()) return;
@@ -130,15 +130,32 @@ export async function loadAndApplyEngineSnapshot(manager: CrashManager): Promise
   const ageMs = Date.now() - new Date(row.updated_at).getTime();
   if (ageMs > 120_000) return false;
 
-  manager.applyEngineSnapshot({
-    gameId: row.game_id,
-    phase: row.phase,
-    waitLeft: Number(row.wait_left),
-    elapsed: Number(row.elapsed),
-    mult: Number(row.mult),
-    peakMult: Number(row.peak_mult),
-    lastSettledRoundId: row.last_settled_round_id,
-  });
+  const local = manager.exportEngineSnapshot();
+  const snapGameId = row.game_id;
+  const snapPhase = row.phase;
+  const snapElapsed = Number(row.elapsed);
+  const snapWaitLeft = Number(row.wait_left);
+
+  // Don't rewind an instance that is already ahead of the DB snapshot.
+  if (local.gameId === snapGameId && local.phase === snapPhase) {
+    if (snapPhase === 'running' && local.elapsed > snapElapsed + 0.35) return false;
+    if (snapPhase === 'waiting' && local.waitLeft < snapWaitLeft - 0.35) return false;
+    if (snapPhase === 'crashed' && local.waitLeft < snapWaitLeft - 0.35) return false;
+  }
+
+  const catchUpSec = Math.min(ageMs / 1000, 12);
+  manager.applyEngineSnapshot(
+    {
+      gameId: snapGameId,
+      phase: snapPhase,
+      waitLeft: snapWaitLeft,
+      elapsed: snapElapsed,
+      mult: Number(row.mult),
+      peakMult: Number(row.peak_mult),
+      lastSettledRoundId: row.last_settled_round_id,
+    },
+    catchUpSec,
+  );
   return true;
 }
 

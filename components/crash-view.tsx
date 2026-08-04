@@ -22,6 +22,7 @@ import { resolvePlayableBalance, resolveClientSyncBalance } from '@/lib/session-
 import { CrashMobileHeader } from '@/components/crash-mobile-header';
 import { syncGameSessionBalances } from '@/lib/sync-game-sessions';
 import { useGameTabFocus } from '@/lib/use-game-tab-focus';
+import { useExtrapolatedCrashDisplay } from '@/hooks/use-extrapolated-crash-display';
 
 const RUG_PARTICLES = Array.from({ length: 20 }, (_, i) => ({
   x: 50 + (((i * 17) % 100) - 50),
@@ -33,6 +34,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
   const { wallet, connect, disconnect, holdBonuses, displayAddress, refillDemoCredits } = useWallet();
   const { state: compState, recordCrashResult } = useCompetitive();
   const { event: resultEvent, trigger: triggerResult, dismiss: dismissResult } = useResultFeedback();
+  const display = useExtrapolatedCrashDisplay(state);
   const [mobileFull, setMobileFull] = useState(false);
   const processedResultRef = useRef<string | null>(null);
   const vaultEnabled = isVaultConfigured();
@@ -127,15 +129,15 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
   );
   const showPosition = state.hasPosition && state.phase !== 'crashed';
   const showLivePosition = state.hasLivePosition && state.phase === 'running';
-  const liveMult = showPosition && state.phase === 'waiting' ? 1.0 : state.mult;
+  const liveMult = showPosition && state.phase === 'waiting' ? 1.0 : display.mult;
   const chartMult =
     state.phase === 'crashed' && state.currentRound.crashPoint != null
       ? state.currentRound.crashPoint
-      : state.mult;
+      : display.mult;
   const chartPeak =
     state.phase === 'crashed' && state.currentRound.crashPoint != null
       ? Math.max(state.peakMult, state.currentRound.crashPoint)
-      : state.peakMult;
+      : display.peakMult;
 
   if (mobileFull) {
     return (
@@ -160,7 +162,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
             phase={state.phase}
             mult={chartMult}
             peakMult={chartPeak}
-            elapsed={state.elapsed}
+            elapsed={display.elapsed}
             tradeTags={state.tradeTags}
             entryPrice={showLivePosition ? state.positionEntryPrice : null}
           />
@@ -179,8 +181,8 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
           blackballsBalance={playableBalance}
           solBalance={wallet.solBalance}
           phase={state.phase}
-          mult={state.mult}
-          waitLeft={state.waitLeft}
+          mult={display.mult}
+          waitLeft={display.waitLeft}
           roundId={state.currentRound.id}
           isDemoWallet={wallet.connected && !wallet.isRealWallet}
           onDemoRefill={handleDemoRefill}
@@ -235,7 +237,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
             phase={state.phase}
             mult={chartMult}
             peakMult={chartPeak}
-            elapsed={state.elapsed}
+            elapsed={display.elapsed}
             tradeTags={state.tradeTags}
             entryPrice={showLivePosition ? state.positionEntryPrice : null}
           />
@@ -263,7 +265,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
                 } text-5xl sm:text-6xl`}
                 style={{ textShadow: '0 4px 24px rgba(0,0,0,0.55)' }}
               >
-                {state.mult.toFixed(2)}x
+                {display.mult.toFixed(2)}x
               </div>
             </div>
           )}
@@ -287,7 +289,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
                     Place your entry
                   </div>
                   <div className="text-5xl sm:text-8xl md:text-9xl font-extrabold text-white tabular-nums leading-none" style={{ textShadow: '0 4px 28px rgba(0,0,0,0.55)' }}>
-                    {state.waitLeft.toFixed(1)}s
+                    {display.waitLeft.toFixed(1)}s
                   </div>
                   <div className="text-xs sm:text-base text-emerald-300/90 font-bold text-center max-w-[280px]">
                     BUY or SELL @ 1.00x
@@ -367,7 +369,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
 
         <CrashControls
           phase={state.phase}
-          mult={state.mult}
+          mult={display.mult}
           balance={playableBalance}
           sessionReady={sessionReady}
           hasPosition={showPosition}
@@ -377,7 +379,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
           positionAmount={state.positionAmount}
           positionLeverage={state.positionLeverage}
           positionEntryPrice={state.positionEntryPrice}
-          waitLeft={state.waitLeft}
+          waitLeft={display.waitLeft}
           gameId={state.gameId}
           roundEpoch={roundEpoch}
           streamConnected={connected}

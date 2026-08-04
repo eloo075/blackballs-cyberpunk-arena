@@ -457,10 +457,15 @@ export class CrashManager {
   }
 
   snapshot(address: string | null = null): FullState {
+    const pathMult =
+      this.phase === 'running' && this.round.path.length > 0
+        ? (this.round.path[Math.min(this.tickIdx, this.round.path.length - 1)]?.price ?? this.mult)
+        : this.mult;
     return {
       phase: this.phase,
       gameId: this.round.id,
       mult: this.mult,
+      pathMult,
       peakMult: this.peakMult,
       elapsed: this.elapsed,
       candles: [...this.candles],
@@ -490,6 +495,7 @@ export class CrashManager {
     const full = this.snapshot(address);
     return {
       ...full,
+      serverNow: Date.now(),
       history: full.history.map(h => ({
         id: h.id,
         crashPoint: h.crashPoint,
@@ -1242,15 +1248,18 @@ export class CrashManager {
     };
   }
 
-  applyEngineSnapshot(snap: {
-    gameId: number;
-    phase: Phase;
-    waitLeft: number;
-    elapsed: number;
-    mult: number;
-    peakMult: number;
-    lastSettledRoundId: number;
-  }) {
+  applyEngineSnapshot(
+    snap: {
+      gameId: number;
+      phase: Phase;
+      waitLeft: number;
+      elapsed: number;
+      mult: number;
+      peakMult: number;
+      lastSettledRoundId: number;
+    },
+    catchUpSec = 0,
+  ) {
     if (snap.gameId < this.gameId - 2) return;
 
     while (this.gameId < snap.gameId) {
@@ -1264,19 +1273,32 @@ export class CrashManager {
       this.round = this.newRound();
     }
 
-    this.phase = snap.phase;
-    this.waitLeft = snap.waitLeft;
-    this.elapsed = snap.elapsed;
-    this.mult = snap.mult;
-    this.peakMult = snap.peakMult;
+    let { phase, waitLeft, elapsed, mult, peakMult } = snap;
+    const catchUp = Math.max(0, Math.min(catchUpSec, 15));
+
+    if (catchUp > 0) {
+      if (phase === 'waiting' || phase === 'crashed') {
+        waitLeft = Math.max(0, waitLeft - catchUp);
+      } else if (phase === 'running') {
+        elapsed += catchUp;
+      }
+    }
+
+    this.phase = phase;
+    this.waitLeft = waitLeft;
+    this.elapsed = elapsed;
+    this.peakMult = peakMult;
     this.lastSettledRoundId = snap.lastSettledRoundId;
     this.tickIdx = Math.max(0, Math.floor((this.elapsed * 1000) / TICK_MS));
 
     if (this.phase === 'running' && this.round.path.length > 0) {
       const pathTick = this.round.path[Math.min(this.tickIdx, this.round.path.length - 1)];
-      const baseMult = pathTick?.price ?? this.mult;
+      const baseMult = pathTick?.price ?? mult;
+      this.pressureOffset = 0;
       this.mult = Math.max(1.0, Math.min(Math.max(1.01, this.round.crashPoint - 0.01), baseMult));
       this.peakMult = Math.max(this.peakMult, this.mult);
+    } else {
+      this.mult = mult;
     }
   }
 

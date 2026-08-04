@@ -76,4 +76,8 @@ export interface FullState {
   balance: number;
   lastResult: { won: boolean; amount: number; price: number; bonusAmount?: number; frenzyProc?: boolean } | null;
   autoSell: number | null;
+  /** Server wall-clock ms when this snapshot was emitted (for client countdown/chart sync). */
+  serverNow?: number;
+  /** Path-only multiplier at current tick (no order-flow wiggle) — fair cross-client display. */
+  pathMult?: number;
 }

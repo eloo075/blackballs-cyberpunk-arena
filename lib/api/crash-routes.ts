@@ -43,11 +43,15 @@ export async function handleStream(req: NextRequest) {
         maybePersistEngineSnapshot(manager);
       });
 
-      if (address) {
-        hydrateTimer = setInterval(() => {
-          void loadAndApplyPlayerSnapshot(manager, address);
-        }, 1000);
-      }
+      hydrateTimer = setInterval(() => {
+        void (async () => {
+          const engineSynced = await loadAndApplyEngineSnapshot(manager);
+          if (address) await loadAndApplyPlayerSnapshot(manager, address);
+          if (engineSynced) {
+            send(manager.snapshotForStream(address));
+          }
+        })();
+      }, 1000);
 
       const ka = setInterval(() => {
         try {

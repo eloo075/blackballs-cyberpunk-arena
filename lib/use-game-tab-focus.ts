@@ -13,6 +13,8 @@ type GameTabFocusOpts = {
   isRealWallet: boolean;
 };
 
+const TAB_FOCUS_DEBOUNCE_MS = 450;
+
 /** Re-sync server game state when a tab becomes visible (Crash ↔ Flip balance drift). */
 export function useGameTabFocus(
   visible: boolean,
@@ -22,6 +24,7 @@ export function useGameTabFocus(
   const wasVisibleRef = useRef(false);
   const optsRef = useRef(opts);
   const onFocusedRef = useRef(onFocused);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     optsRef.current = opts;
@@ -33,20 +36,32 @@ export function useGameTabFocus(
     wasVisibleRef.current = visible;
     if (!becameVisible) return;
 
-    const o = optsRef.current;
-    if (!o.connected || !o.address) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    void syncGameSessionBalances(
-      o.address,
-      o.balance,
-      o.stimmy,
-      o.frenzy,
-      o.holdsBlackballs,
-      o.isRealWallet,
-      false,
-      true,
-    ).finally(() => {
-      onFocusedRef.current?.();
-    });
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      const o = optsRef.current;
+      if (!o.connected || !o.address) return;
+
+      void syncGameSessionBalances(
+        o.address,
+        o.balance,
+        o.stimmy,
+        o.frenzy,
+        o.holdsBlackballs,
+        o.isRealWallet,
+        false,
+        true,
+      ).finally(() => {
+        window.setTimeout(() => onFocusedRef.current?.(), 280);
+      });
+    }, TAB_FOCUS_DEBOUNCE_MS);
+
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+    };
   }, [visible, opts.connected, opts.address]);
 }
