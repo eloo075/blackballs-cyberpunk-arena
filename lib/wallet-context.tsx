@@ -18,8 +18,18 @@ import {
   type WalletState,
 } from '@/lib/wallet-types';
 import { DEMO_REFILL_BB, DEMO_MIN_BALANCE } from '@/lib/demo-credits';
-import { syncGameSessionBalances, bootGameSessionsForWallet, clearGameSessionBoot } from '@/lib/sync-game-sessions';
+import {
+  bootGameSessionsForWallet,
+  clearGameSessionBoot,
+  syncGameSessionBalances,
+} from '@/lib/sync-game-sessions';
 import { resolveClientSyncBalance } from '@/lib/session-balance';
+import {
+  heartbeatDemoTabLeader,
+  isDemoTabLeader,
+  notifyDemoBalance,
+  subscribeDemoTabMessages,
+} from '@/lib/demo-tab-coordinator';
 
 interface WalletContextValue {
   wallet: WalletState;
@@ -165,9 +175,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [hydrated, wallet.connected, wallet.address]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Boot Crash + Flip server sessions once when wallet connects (not on every balance tick).
+  // Boot Crash + Flip server sessions once — leader tab only (avoids multi-tab overwrite).
   useEffect(() => {
     if (!hydrated || !wallet.connected || !wallet.address) return;
+    if (!wallet.isRealWallet && !isDemoTabLeader(wallet.address)) return;
+
     const bonuses = computeHoldBonuses(walletHoldings(wallet));
     const holdsBb = bonuses.active.some(b => b.token === 'BLACKBALLS');
     const balance = resolveClientSyncBalance(wallet);
@@ -179,6 +191,25 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       holdsBb,
       wallet.isRealWallet,
     ).catch(err => console.warn('[wallet] game session boot failed', err));
+  }, [hydrated, wallet.connected, wallet.address, wallet.isRealWallet]);
+
+  useEffect(() => {
+    if (!hydrated || !wallet.connected || !wallet.address || wallet.isRealWallet) return;
+    const timer = setInterval(() => heartbeatDemoTabLeader(wallet.address), 2000);
+    return () => clearInterval(timer);
+  }, [hydrated, wallet.connected, wallet.address, wallet.isRealWallet]);
+
+  useEffect(() => {
+    if (!hydrated || !wallet.connected || !wallet.address || wallet.isRealWallet) return;
+    return subscribeDemoTabMessages(wallet.address, msg => {
+      if (msg.type === 'balance' && typeof msg.balance === 'number') {
+        setWallet(prev =>
+          prev.connected && prev.address === msg.address
+            ? { ...prev, blackballsBalance: parseFloat(msg.balance.toFixed(3)) }
+            : prev,
+        );
+      }
+    });
   }, [hydrated, wallet.connected, wallet.address, wallet.isRealWallet]);
 
   useEffect(() => {
@@ -226,7 +257,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     (balance: number) => {
       updateWallet(prev => {
         if (!prev.connected) return prev;
-        return { ...prev, blackballsBalance: parseFloat(balance.toFixed(3)) };
+        const next = { ...prev, blackballsBalance: parseFloat(balance.toFixed(3)) };
+        if (!prev.isRealWallet && prev.address) {
+          notifyDemoBalance(prev.address, next.blackballsBalance);
+        }
+        return next;
       });
     },
     [updateWallet],

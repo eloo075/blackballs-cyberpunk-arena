@@ -6,6 +6,7 @@ import type { FlipSide } from '@/lib/flip-engine';
 import { useWallet } from '@/lib/wallet-context';
 import { resolveClientSyncBalance, shouldApplyServerBalance, normalizeFlipStreamState } from '@/lib/session-balance';
 import { shouldSkipSessionSync, markSessionSynced } from '@/lib/sync-session-debounce';
+import { notifyDemoRefresh, subscribeDemoTabMessages } from '@/lib/demo-tab-coordinator';
 
 async function syncFlipSession(
   address: string,
@@ -57,6 +58,7 @@ export function useFlipStream() {
   const balanceHoldRef = useRef(false);
   const pendingBalanceRef = useRef<number | null>(null);
   const stateRef = useRef(state);
+  const actionLockRef = useRef<string | null>(null);
 
   useEffect(() => {
     stateRef.current = state;
@@ -210,6 +212,15 @@ export function useFlipStream() {
   }, [hydrated, address, applyBalanceFromServer, refreshFlipState]);
 
   useEffect(() => {
+    if (!address) return;
+    return subscribeDemoTabMessages(address, msg => {
+      if (msg.type === 'refresh' && (msg.game === 'flip' || msg.game === 'both')) {
+        void refreshFlipState();
+      }
+    });
+  }, [address, refreshFlipState]);
+
+  useEffect(() => {
     if (!hydrated || state != null || !connected) return;
     void refreshFlipState();
   }, [hydrated, connected, state, refreshFlipState]);
@@ -260,10 +271,15 @@ export function useFlipStream() {
       matchId?: string;
     }) => {
       if (!address) return { ok: false, error: 'Connect wallet first' };
+      if (actionLockRef.current) return { ok: false, error: 'Action in progress — wait a moment' };
+      actionLockRef.current = 'flip';
       await ensureSession();
 
       const amount = Math.floor(params.amount * 1000) / 1000;
-      if (amount <= 0) return { ok: false, error: 'Set a wager above 0' };
+      if (amount <= 0) {
+        actionLockRef.current = null;
+        return { ok: false, error: 'Set a wager above 0' };
+      }
 
       const w = walletRef.current;
       const clientBalance = resolveClientSyncBalance(w);
@@ -348,7 +364,7 @@ export function useFlipStream() {
               true,
             );
             await refreshFlipState();
-            await sleep(120 * attempt);
+            await sleep(50 * attempt);
           } else {
             const synced = await syncFlipSession(
               address,
@@ -386,6 +402,7 @@ export function useFlipStream() {
 
           if (res.ok && data.ok !== false) {
             applyJoinSuccess(data);
+            notifyDemoRefresh(address, 'flip');
             void refreshFlipState();
             return { ok: true, matchId: data.matchId as string | undefined };
           }
@@ -404,6 +421,8 @@ export function useFlipStream() {
           return { ok: false, error: 'Flip timed out — try again' };
         }
         return { ok: false, error: 'Network error' };
+      } finally {
+        if (actionLockRef.current === 'flip') actionLockRef.current = null;
       }
     },
     [address, ensureSession, applyBalanceFromServer, refreshFlipState],
@@ -434,6 +453,9 @@ export function useFlipStream() {
 
   const cancelWaiting = useCallback(async () => {
     if (!address) return { ok: false };
+    if (actionLockRef.current) return { ok: false };
+    actionLockRef.current = 'cancel';
+    try {
     const res = await fetch('/api/flip/cancel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -444,6 +466,7 @@ export function useFlipStream() {
       applyBalanceFromServer(data.balance, true);
     }
     if (res.ok) {
+      notifyDemoRefresh(address, 'flip');
       setState(prev => {
         if (!prev?.player) return prev;
         return {
@@ -455,6 +478,9 @@ export function useFlipStream() {
       void refreshFlipState();
     }
     return { ok: res.ok };
+    } finally {
+      if (actionLockRef.current === 'cancel') actionLockRef.current = null;
+    }
   }, [address, applyBalanceFromServer, refreshFlipState]);
 
   return {

@@ -3,10 +3,11 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import type { FullState } from '@/lib/crash-types';
 import { useWallet } from '@/lib/wallet-context';
-import { resolveClientSyncBalance, shouldApplyServerBalance, normalizeCrashStreamState, guardPendingEntryOnStream, guardLivePositionOnStream, guardCancelledPositionOnStream, guardRecentEntryOnStream, resetPlayerViewForNewRound, isNewRoundTransition } from '@/lib/session-balance';
+import { resolveClientSyncBalance, shouldApplyServerBalance, normalizeCrashStreamState, guardPendingEntryOnStream, guardLivePositionOnStream, guardCancelledPositionOnStream, guardRecentEntryOnStream, guardCashoutOnStream, resetPlayerViewForNewRound, isNewRoundTransition } from '@/lib/session-balance';
 import { shouldSkipSessionSync, markSessionSynced } from '@/lib/sync-session-debounce';
 import { teardownEventSource } from '@/lib/crash-event-source';
 import { fetchJsonWithTimeout, actionErrorMessage } from '@/lib/action-timeout';
+import { notifyDemoRefresh, subscribeDemoTabMessages } from '@/lib/demo-tab-coordinator';
 
 async function syncCrashSession(
   address: string,
@@ -118,6 +119,8 @@ export function useCrashStream() {
   const stateRef = useRef(state);
   const cancelSuppressUntilRef = useRef(0);
   const entrySuppressUntilRef = useRef(0);
+  const cashoutSuppressUntilRef = useRef(0);
+  const actionLockRef = useRef<string | null>(null);
 
   useEffect(() => {
     stateRef.current = state;
@@ -160,6 +163,7 @@ export function useCrashStream() {
         next = guardLivePositionOnStream(prev, next);
         next = guardCancelledPositionOnStream(prev, next, cancelSuppressUntilRef.current);
         next = guardRecentEntryOnStream(prev, next, entrySuppressUntilRef.current);
+        next = guardCashoutOnStream(prev, next, cashoutSuppressUntilRef.current);
         stateRef.current = next;
         if (
           sessionReadyRef.current &&
@@ -320,6 +324,16 @@ export function useCrashStream() {
     void refreshGameState();
   }, [hydrated, connected, state, refreshGameState]);
 
+  // Other tabs (same demo wallet) — refresh when an action completes elsewhere.
+  useEffect(() => {
+    if (!address) return;
+    return subscribeDemoTabMessages(address, msg => {
+      if (msg.type === 'refresh' && (msg.game === 'crash' || msg.game === 'both')) {
+        void refreshGameState();
+      }
+    });
+  }, [address, refreshGameState]);
+
   const hadLivePositionRef = useRef(false);
 
   // Recover when a live position vanishes mid-round (serverless instance desync).
@@ -352,7 +366,7 @@ export function useCrashStream() {
 
     const timer = setInterval(() => {
       void refreshGameState();
-    }, 5000);
+    }, 2000);
     return () => clearInterval(timer);
   }, [
     address,
@@ -409,7 +423,10 @@ export function useCrashStream() {
 
   const cancelActivePosition = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
       if (!address) return { ok: false, error: 'Connect wallet first' };
+      if (actionLockRef.current) return { ok: false, error: 'Action in progress — wait a moment' };
+      actionLockRef.current = 'cancel';
 
+      try {
       const applyView = (view?: CrashClientView | null) => {
         if (!view) return;
         setState(prev => {
@@ -425,7 +442,7 @@ export function useCrashStream() {
         if (attempt > 0) {
           await syncBalance(false, true);
           await refreshGameState();
-          await sleep(120 * attempt);
+          await sleep(50 * attempt);
         }
 
         const clientView = clientViewFromState(stateRef.current);
@@ -450,6 +467,7 @@ export function useCrashStream() {
 
           if (success) {
             cancelSuppressUntilRef.current = Date.now() + 5000;
+            notifyDemoRefresh(address, 'crash');
             const bal =
               typeof data.balance === 'number'
                 ? data.balance
@@ -496,6 +514,9 @@ export function useCrashStream() {
 
       void refreshGameState();
       return { ok: false, error: lastErr };
+      } finally {
+        if (actionLockRef.current === 'cancel') actionLockRef.current = null;
+      }
     },
     [address, setBlackballsBalance, refreshGameState, syncBalance],
   );
@@ -503,6 +524,7 @@ export function useCrashStream() {
   const trade = useCallback(
     async (side: 'buy' | 'sell', amount: number, leverage: number): Promise<{ ok: boolean; error?: string }> => {
       if (!address) return { ok: false, error: 'Connect wallet first' };
+      if (actionLockRef.current) return { ok: false, error: 'Action in progress — wait a moment' };
       await ensureSession();
 
       const wager = Math.floor(amount * 1000) / 1000;
@@ -531,6 +553,7 @@ export function useCrashStream() {
         };
       }
 
+      actionLockRef.current = side;
       try {
         const w = walletRef.current;
         const clientBalance = resolveClientSyncBalance(w);
@@ -540,7 +563,7 @@ export function useCrashStream() {
           if (attempt > 0) {
             await syncBalance(false, true);
             await refreshGameState();
-            await sleep(120 * attempt);
+            await sleep(50 * attempt);
           }
 
           const clientView = clientViewFromState(stateRef.current);
@@ -585,6 +608,7 @@ export function useCrashStream() {
           }
 
           entrySuppressUntilRef.current = Date.now() + 8000;
+          notifyDemoRefresh(address, 'crash');
 
           setState(prev => {
             if (!prev) return prev;
@@ -624,6 +648,8 @@ export function useCrashStream() {
       } catch (err) {
         void refreshGameState();
         return { ok: false, error: actionErrorMessage(err, 'Network error — try again') };
+      } finally {
+        if (actionLockRef.current === side) actionLockRef.current = null;
       }
     },
     [address, ensureSession, setBlackballsBalance, refreshGameState, syncBalance],
@@ -644,6 +670,10 @@ export function useCrashStream() {
   const cashOut = useCallback(
     async (percent = 1): Promise<{ ok: boolean; error?: string; exitPrice?: number }> => {
       if (!address) return { ok: false, error: 'Connect wallet first' };
+      if (actionLockRef.current) return { ok: false, error: 'Action in progress — wait a moment' };
+      actionLockRef.current = 'cashout';
+
+      try {
       const pct = Math.min(1, Math.max(0.25, percent));
       let lastErr = 'Cash-out rejected';
 
@@ -651,7 +681,7 @@ export function useCrashStream() {
         if (attempt > 0) {
           await syncBalance(false, true);
           await refreshGameState();
-          await sleep(120 * attempt);
+          await sleep(50 * attempt);
         }
 
         const clientView = clientViewFromState(stateRef.current);
@@ -678,6 +708,8 @@ export function useCrashStream() {
           if (data.view) {
             setState(prev => mergeCrashClientView(prev, data.view as CrashClientView));
           }
+          cashoutSuppressUntilRef.current = Date.now() + 5000;
+          notifyDemoRefresh(address, 'crash');
           setState(prev => {
             if (!prev) return prev;
             const bal = typeof data.balance === 'number' ? data.balance : prev.balance;
@@ -711,6 +743,9 @@ export function useCrashStream() {
 
       void refreshGameState();
       return { ok: false, error: lastErr };
+      } finally {
+        if (actionLockRef.current === 'cashout') actionLockRef.current = null;
+      }
     },
     [address, setBlackballsBalance, refreshGameState, syncBalance],
   );

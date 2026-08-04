@@ -80,4 +80,8 @@ export interface FullState {
   serverNow?: number;
   /** Path-only multiplier at current tick (no order-flow wiggle) — fair cross-client display. */
   pathMult?: number;
+  /** Server tick index during running phase. */
+  tickIdx?: number;
+  /** Upcoming path-only mults from current tick (fair client extrapolation). */
+  pathAhead?: number[];
 }

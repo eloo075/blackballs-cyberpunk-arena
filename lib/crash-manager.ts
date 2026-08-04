@@ -461,11 +461,13 @@ export class CrashManager {
       this.phase === 'running' && this.round.path.length > 0
         ? (this.round.path[Math.min(this.tickIdx, this.round.path.length - 1)]?.price ?? this.mult)
         : this.mult;
+    const fairMult = this.phase === 'running' ? pathMult : this.mult;
     return {
       phase: this.phase,
       gameId: this.round.id,
-      mult: this.mult,
+      mult: fairMult,
       pathMult,
+      tickIdx: this.tickIdx,
       peakMult: this.peakMult,
       elapsed: this.elapsed,
       candles: [...this.candles],
@@ -493,9 +495,16 @@ export class CrashManager {
   /** Lightweight snapshot for SSE — omits heavy seed fields from history. */
   snapshotForStream(address: string | null = null): FullState {
     const full = this.snapshot(address);
+    const pathAhead =
+      this.phase === 'running' && this.round.path.length > 0
+        ? this.round.path
+            .slice(this.tickIdx, Math.min(this.tickIdx + 48, this.round.path.length))
+            .map(p => p.price)
+        : undefined;
     return {
       ...full,
       serverNow: Date.now(),
+      pathAhead,
       history: full.history.map(h => ({
         id: h.id,
         crashPoint: h.crashPoint,

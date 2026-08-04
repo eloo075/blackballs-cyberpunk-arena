@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FullState, Phase } from '@/lib/crash-types';
 
-const MAX_EXTRAP_SEC = 0.5;
+const TICK_MS = 250;
+const TICK_SEC = TICK_MS / 1000;
 
 export type ExtrapolatedCrashDisplay = {
   phase: Phase;
@@ -13,13 +14,21 @@ export type ExtrapolatedCrashDisplay = {
   waitLeft: number;
 };
 
+function resolveSyncedMult(s: FullState, driftSec: number): number {
+  const base = s.pathMult ?? s.mult;
+  if (s.phase !== 'running' || !s.pathAhead?.length) return base;
+  const extraTicks = Math.max(0, Math.floor(driftSec / TICK_SEC));
+  const idx = Math.min(extraTicks, s.pathAhead.length - 1);
+  return s.pathAhead[idx] ?? base;
+}
+
 /**
- * Smooth chart/countdown display aligned to server wall clock.
- * Uses pathMult (no wiggle) + serverNow so all browsers stay in sync.
+ * Chart/countdown aligned to server wall clock (not local device clock).
+ * Multiplier extrapolates along the server path between SSE ticks.
  */
 export function useExtrapolatedCrashDisplay(state: FullState | null): ExtrapolatedCrashDisplay {
   const anchorRef = useRef<FullState | null>(null);
-  const velRef = useRef(0);
+  const clockOffsetRef = useRef(0);
   const [display, setDisplay] = useState<ExtrapolatedCrashDisplay>({
     phase: 'waiting',
     mult: 1,
@@ -30,19 +39,14 @@ export function useExtrapolatedCrashDisplay(state: FullState | null): Extrapolat
 
   useEffect(() => {
     if (!state) return;
-    const prev = anchorRef.current;
-    if (prev && prev.gameId === state.gameId && prev.phase === state.phase) {
-      const dt = state.elapsed - prev.elapsed;
-      if (dt > 0.01) {
-        velRef.current = (state.mult - prev.mult) / dt;
-      }
-    } else {
-      velRef.current = 0;
+    if (typeof state.serverNow === 'number') {
+      clockOffsetRef.current = state.serverNow - Date.now();
     }
     anchorRef.current = state;
+    const fairMult = resolveSyncedMult(state, 0);
     setDisplay({
       phase: state.phase,
-      mult: state.pathMult ?? state.mult,
+      mult: fairMult,
       peakMult: state.peakMult,
       elapsed: state.elapsed,
       waitLeft: state.waitLeft,
@@ -58,31 +62,30 @@ export function useExtrapolatedCrashDisplay(state: FullState | null): Extrapolat
         return;
       }
 
-      const drift = Math.max(0, (Date.now() - s.serverNow) / 1000);
-      const d = Math.min(drift, MAX_EXTRAP_SEC);
-      const baseMult = s.pathMult ?? s.mult;
+      const serverNowEst = Date.now() + clockOffsetRef.current;
+      const drift = Math.max(0, (serverNowEst - s.serverNow) / 1000);
+      const fairMult = resolveSyncedMult(s, drift);
 
       if (s.phase === 'running') {
-        const extrapMult = Math.max(baseMult, baseMult + velRef.current * d);
         setDisplay({
           phase: s.phase,
-          mult: extrapMult,
-          peakMult: Math.max(s.peakMult, extrapMult),
-          elapsed: s.elapsed + d,
+          mult: fairMult,
+          peakMult: Math.max(s.peakMult, fairMult),
+          elapsed: s.elapsed + drift,
           waitLeft: s.waitLeft,
         });
       } else if (s.phase === 'waiting' || s.phase === 'crashed') {
         setDisplay({
           phase: s.phase,
-          mult: baseMult,
+          mult: fairMult,
           peakMult: s.peakMult,
           elapsed: s.elapsed,
-          waitLeft: Math.max(0, s.waitLeft - d),
+          waitLeft: Math.max(0, s.waitLeft - drift),
         });
       } else {
         setDisplay({
           phase: s.phase,
-          mult: baseMult,
+          mult: fairMult,
           peakMult: s.peakMult,
           elapsed: s.elapsed,
           waitLeft: s.waitLeft,

@@ -222,6 +222,35 @@ export function guardRecentEntryOnStream(
   };
 }
 
+/** After cashout succeeds, ignore stale SSE that restores a closed position briefly. */
+export function guardCashoutOnStream(
+  prev: FullState | null,
+  next: FullState,
+  suppressUntilMs: number,
+): FullState {
+  if (Date.now() > suppressUntilMs) return next;
+  if (!prev) return next;
+  if (isNewRoundTransition(prev, next)) return next;
+
+  const hadLive = prev.hasLivePosition || (prev.hasPosition && !prev.entryPending);
+  if (!hadLive) return next;
+  if (!next.hasPosition && !next.entryPending) return next;
+
+  const refund = next.balance - prev.balance;
+  if (refund >= prev.positionAmount * 0.05) return next;
+
+  return {
+    ...next,
+    hasPosition: false,
+    hasLivePosition: false,
+    entryPending: false,
+    positionAmount: 0,
+    positionLeverage: 1,
+    positionEntryPrice: 1.0,
+    balance: Math.max(next.balance, prev.balance),
+  };
+}
+
 /** Ensure flip SSE player view always has a numeric balance. */
 export function normalizeFlipStreamState(
   raw: FlipFullState,

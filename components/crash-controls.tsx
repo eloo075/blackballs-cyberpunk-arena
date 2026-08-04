@@ -133,7 +133,8 @@ export function CrashControls({
   const [leverage, setLeverage] = useState(1);
   const [autoVal, setAutoVal] = useState('');
   const [pendingAction, setPendingAction] = useState<'buy' | 'sell' | 'cancel' | 'cashout' | null>(null);
-  const busy = pendingAction !== null;
+  const tradeBusy = pendingAction === 'buy' || pendingAction === 'sell' || pendingAction === 'cancel';
+  const cashoutBusy = pendingAction === 'cashout';
   const [tradeError, setTradeError] = useState<string | null>(null);
   const [cashOutError, setCashOutError] = useState<string | null>(null);
   const [entryCooldown, setEntryCooldown] = useState(false);
@@ -184,7 +185,7 @@ export function CrashControls({
     walletConnected &&
     sessionReady &&
     entriesOpen &&
-    !busy &&
+    !tradeBusy &&
     !entryCooldown &&
     !hasPosition &&
     effectiveWager > 0 &&
@@ -192,9 +193,9 @@ export function CrashControls({
   const canOpenSell = canOpenBuy;
 
   const canCloseBuy =
-    walletConnected && sessionReady && entriesOpen && !busy && hasPosition && positionSide === 'sell' && !entryPending;
+    walletConnected && sessionReady && entriesOpen && !tradeBusy && hasPosition && positionSide === 'sell' && !entryPending;
   const canCloseSell =
-    walletConnected && sessionReady && entriesOpen && !busy && hasPosition && positionSide === 'buy' && !entryPending;
+    walletConnected && sessionReady && entriesOpen && !tradeBusy && hasPosition && positionSide === 'buy' && !entryPending;
 
   const stimmyLabel =
     holdBonuses.stimmy > 0 ? `+${Math.round(holdBonuses.stimmy * 100)}% stimmy` : null;
@@ -224,7 +225,7 @@ export function CrashControls({
   }, [pendingAction]);
 
   const canCashOut =
-    walletConnected && phase === 'running' && livePosition && !busy && !!onCashOut;
+    walletConnected && phase === 'running' && livePosition && !cashoutBusy && !!onCashOut;
 
   const handleCashOut = async () => {
     if (!canCashOut || !onCashOut) return;
@@ -315,10 +316,10 @@ export function CrashControls({
   const pendingLong = hasPosition && entryPending && positionSide === 'buy';
 
   const canCancel =
-    walletConnected && sessionReady && !busy && entryPending && hasPosition && phase === 'waiting';
+    walletConnected && sessionReady && !tradeBusy && entryPending && hasPosition && phase === 'waiting';
 
   const handleCancel = async () => {
-    if (!walletConnected || !sessionReady || busy) return;
+    if (!walletConnected || !sessionReady || tradeBusy) return;
     if (!entryPending || !hasPosition) return;
     setPendingAction('cancel');
     setTradeError(null);
@@ -345,7 +346,7 @@ export function CrashControls({
 
   const handleTrade = async (side: 'buy' | 'sell') => {
     if (!walletConnected) return;
-    if (busy) return;
+    if (tradeBusy) return;
     if (!sessionReady) {
       setTradeError('Syncing session — try again in a moment.');
       return;
@@ -448,7 +449,7 @@ export function CrashControls({
     }
 
     const locked = entriesClosed || oppositePending;
-    const disabled = locked || busy;
+    const disabled = locked || tradeBusy;
 
     return (
       <button
@@ -719,7 +720,7 @@ export function CrashControls({
                   key={p}
                   type="button"
                   onClick={() => setCashOutPct(p)}
-                  disabled={busy}
+                  disabled={cashoutBusy}
                   className={`flex-1 min-h-[32px] rounded-lg text-[10px] font-extrabold touch-manipulation ${
                     cashOutPct === p
                       ? 'bg-emerald-500 text-white border-b-2 border-emerald-700'
