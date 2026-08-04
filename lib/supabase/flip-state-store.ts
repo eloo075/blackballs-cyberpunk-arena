@@ -129,6 +129,7 @@ export async function loadAndApplyFlipPlayerSnapshot(
 }
 
 export async function ensureFlipStateSynced(manager: FlipManager, address: string | null): Promise<void> {
+  if (process.env.SINGLE_INSTANCE_GAME === 'true') return;
   await loadAndApplyFlipEngineSnapshot(manager);
   if (address) {
     await loadAndApplyFlipPlayerSnapshot(manager, address);

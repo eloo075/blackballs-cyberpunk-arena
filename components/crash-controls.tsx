@@ -139,6 +139,7 @@ export function CrashControls({
   const [cashOutError, setCashOutError] = useState<string | null>(null);
   const [entryCooldown, setEntryCooldown] = useState(false);
   const [cancelNotice, setCancelNotice] = useState<string | null>(null);
+  const [entryNotice, setEntryNotice] = useState<string | null>(null);
   const cancelToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const entryCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -168,6 +169,7 @@ export function CrashControls({
     setTradeError(null);
     setCashOutError(null);
     setCancelNotice(null);
+    setEntryNotice(null);
     if (entryCooldownTimerRef.current) {
       clearTimeout(entryCooldownTimerRef.current);
       entryCooldownTimerRef.current = null;
@@ -217,12 +219,6 @@ export function CrashControls({
       setPendingAction(null);
     }
   }, [pendingAction, hasPosition, livePosition]);
-
-  useEffect(() => {
-    if (!pendingAction) return;
-    const timer = setTimeout(() => setPendingAction(null), 5000);
-    return () => clearTimeout(timer);
-  }, [pendingAction]);
 
   const canCashOut =
     walletConnected && phase === 'running' && livePosition && !cashoutBusy && !!onCashOut;
@@ -304,6 +300,17 @@ export function CrashControls({
     }
     prevHasPositionRef.current = hasPosition;
   }, [hasPosition, balance, usdPerToken]);
+
+  const showEntrySuccess = (side: 'buy' | 'sell', wager: number) => {
+    setEntryNotice(
+      side === 'buy'
+        ? `Long entered — ${wager.toFixed(3)} ${CURRENCY_LABEL} locked for this round @ 1.00x`
+        : `Short entered — ${wager.toFixed(3)} ${CURRENCY_LABEL} locked for this round @ 1.00x`,
+    );
+    setTradeError(null);
+    if (cancelToastTimerRef.current) clearTimeout(cancelToastTimerRef.current);
+    cancelToastTimerRef.current = setTimeout(() => setEntryNotice(null), 4000);
+  };
 
   const showCancelSuccess = (message: string) => {
     setCancelNotice(message);
@@ -391,13 +398,18 @@ export function CrashControls({
       const wager = closing ? positionAmount : effectiveWager;
       const result = await onTrade(side, wager, closing ? positionLeverage : leverage);
       ok = result.ok;
-      if (!result.ok) {
+      if (result.ok) {
+        showEntrySuccess(side, closing ? positionAmount : effectiveWager);
+        setPendingAction(null);
+      } else {
         const msg = result.error ?? 'Trade failed — check balance or try again.';
         setTradeError(msg === 'invalid amount' ? `Insufficient balance (${balance.toFixed(3)} available).` : msg);
+        setPendingAction(null);
       }
       if (ok && !closing) setPercent(0);
-    } finally {
-      if (!ok) setPendingAction(null);
+    } catch {
+      setPendingAction(null);
+      setTradeError('Network error — try again.');
     }
   };
 
@@ -748,6 +760,11 @@ export function CrashControls({
 
         {/* BUY / SELL */}
         <div className="min-h-0">
+        {entryNotice && walletConnected && (
+          <div className="mx-3 mt-2 px-3 py-2 text-xs leading-relaxed rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-200 font-bold">
+            {entryNotice}
+          </div>
+        )}
         {cancelNotice && walletConnected && (
           <div className="mx-3 mt-2 px-3 py-2 text-xs leading-relaxed rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-200 font-bold">
             {cancelNotice}

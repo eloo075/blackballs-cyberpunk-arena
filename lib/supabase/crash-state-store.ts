@@ -202,6 +202,14 @@ export async function ensureCrashStateSynced(
   address: string | null,
   clientView?: CrashClientViewPayload | null,
 ): Promise<void> {
+  // Fly / single-process hosts keep authoritative in-memory state — skip DB hydrate per action.
+  if (process.env.SINGLE_INSTANCE_GAME === 'true') {
+    if (address && clientView && !address.startsWith('0x')) {
+      manager.reconcilePlayerFromClient(address, clientView);
+    }
+    return;
+  }
+
   await loadAndApplyEngineSnapshot(manager);
   if (address) {
     await loadAndApplyPlayerSnapshot(manager, address);

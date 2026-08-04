@@ -12,6 +12,7 @@ primary_region = 'cdg'
 [env]
   NODE_ENV = 'production'
   PORT = '3000'
+  SINGLE_INSTANCE_GAME = 'true'
 
 [http_service]
   internal_port = 3000

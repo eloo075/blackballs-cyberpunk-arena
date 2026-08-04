@@ -554,6 +554,28 @@ export function useCrashStream() {
       }
 
       actionLockRef.current = side;
+      const closing =
+        Boolean(live?.hasPosition && live.positionSide !== side && !live.entryPending);
+
+      // Instant UI: show countdown entry while the API runs (reverted on failure).
+      if (!closing) {
+        setState(prev => {
+          if (!prev || prev.phase !== 'waiting' || prev.hasPosition) return prev;
+          const next = {
+            ...prev,
+            hasPosition: true,
+            hasLivePosition: false,
+            entryPending: true,
+            positionSide: side,
+            positionAmount: wager,
+            positionLeverage: leverage,
+            positionEntryPrice: 1.0,
+          };
+          stateRef.current = next;
+          return next;
+        });
+      }
+
       try {
         const w = walletRef.current;
         const clientBalance = resolveClientSyncBalance(w);
@@ -568,19 +590,23 @@ export function useCrashStream() {
 
           const clientView = clientViewFromState(stateRef.current);
 
-          const res = await fetchJsonWithTimeout('/api/crash/enter', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              address,
-              side,
-              amount: wager,
-              leverage,
-              balance: clientBalance,
-              isRealWallet: w.isRealWallet,
-              clientView,
-            }),
-          });
+          const res = await fetchJsonWithTimeout(
+            '/api/crash/enter',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                address,
+                side,
+                amount: wager,
+                leverage,
+                balance: clientBalance,
+                isRealWallet: w.isRealWallet,
+                clientView,
+              }),
+            },
+            8000,
+          );
           const data = await res.json().catch(() => ({}));
 
           if (!res.ok) {
@@ -588,6 +614,20 @@ export function useCrashStream() {
             console.warn('[crash/enter] rejected', res.status, data.error ?? data);
             if (data.view) {
               setState(prev => mergeCrashClientView(prev, data.view as CrashClientView));
+            } else if (!closing) {
+              setState(prev => {
+                if (!prev) return prev;
+                const next = {
+                  ...prev,
+                  hasPosition: false,
+                  hasLivePosition: false,
+                  entryPending: false,
+                  positionAmount: 0,
+                  positionLeverage: 1,
+                };
+                stateRef.current = next;
+                return next;
+              });
             }
             if (!ENTER_REJECT_RE.test(lastErr) || attempt === 3) {
               return { ok: false, error: lastErr };
@@ -604,6 +644,9 @@ export function useCrashStream() {
           }
           if (data.ok !== true) {
             lastErr = typeof data.error === 'string' ? data.error : 'Trade failed';
+            if (!closing) {
+              void refreshGameState();
+            }
             return { ok: false, error: lastErr };
           }
 
@@ -640,13 +683,13 @@ export function useCrashStream() {
             return { ...prev, balance: bal };
           });
 
-          window.setTimeout(() => void refreshGameState(), 800);
           return { ok: true };
         }
 
+        if (!closing) void refreshGameState();
         return { ok: false, error: lastErr };
       } catch (err) {
-        void refreshGameState();
+        if (!closing) void refreshGameState();
         return { ok: false, error: actionErrorMessage(err, 'Network error — try again') };
       } finally {
         if (actionLockRef.current === side) actionLockRef.current = null;
