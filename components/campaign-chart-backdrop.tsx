@@ -28,7 +28,7 @@ export function CampaignChartBackdrop() {
     <div className="absolute inset-0 overflow-hidden bg-[#141518]">
       <div className="absolute inset-0 scale-105 sm:scale-110 origin-center">
         <ChartCanvas
-          key={`campaign-backdrop-${state.gameId}-${streamEpoch}`}
+          key={`campaign-backdrop-${state.gameId}`}
           candles={state.candles}
           phase={state.phase}
           mult={chartMult}

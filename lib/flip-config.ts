@@ -16,7 +16,7 @@ export const FLIP_CONFIG = {
   /** Coin flip animation duration (ms). */
   FLIP_ANIM_MS: 3200,
   /** 1v1 wait before instant bot fill (demo / low traffic). */
-  BOT_MATCH_MS: 6000,
+  BOT_MATCH_MS: 400,
   /** History entries kept. */
   MAX_HISTORY: 100,
   /** Hall of fame threshold (profit BB). */

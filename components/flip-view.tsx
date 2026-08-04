@@ -217,7 +217,7 @@ export function FlipView({ visible = true }: { visible?: boolean }) {
 
           {waitingForOpponent && (
             <div className="text-xs text-amber-300 font-bold animate-pulse mt-2">
-              Match queued — bot opponent joins in ~6s…
+              Match queued — opponent joining…
             </div>
           )}
           {activeFlip?.status === 'waiting' && (

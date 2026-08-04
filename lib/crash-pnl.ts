@@ -64,3 +64,22 @@ export function calcPositionPct(
   if (side === 'buy') return leverage * (current / entry - 1) * 100;
   return leverage * (1 - current / entry) * 100;
 }
+
+/** Live PnL display — avoid noisy -0.001 on tiny wagers. */
+export function formatLivePnl(pnl: number, positionPct: number): { text: string; pct: string } {
+  const abs = Math.abs(pnl);
+  if (abs < 0.005) {
+    return { text: '±0.00', pct: '0.0' };
+  }
+  if (abs < 0.01) {
+    const rounded = 0.01;
+    return {
+      text: pnl >= 0 ? `+${rounded.toFixed(2)}` : `-${rounded.toFixed(2)}`,
+      pct: pnl >= 0 ? '+0.0' : '-0.0',
+    };
+  }
+  return {
+    text: `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`,
+    pct: `${positionPct >= 0 ? '+' : ''}${positionPct.toFixed(1)}`,
+  };
+}

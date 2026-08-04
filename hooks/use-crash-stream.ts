@@ -38,7 +38,9 @@ async function syncCrashSession(
 }
 
 const STALE_FEED_MS =
-  typeof process !== 'undefined' && process.env.NODE_ENV === 'development' ? 15000 : 8000;
+  typeof process !== 'undefined' && process.env.NODE_ENV === 'development' ? 15000 : 12000;
+
+const RECONNECT_OVERLAY_MS = 2800;
 
 /** Seconds before round start when new entries are blocked (avoids countdown-end race). */
 const COUNTDOWN_ENTRY_BUFFER_SEC = 1.0;
@@ -121,6 +123,7 @@ export function useCrashStream() {
   const entrySuppressUntilRef = useRef(0);
   const cashoutSuppressUntilRef = useRef(0);
   const actionLockRef = useRef<string | null>(null);
+  const reconnectOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     stateRef.current = state;
@@ -222,6 +225,34 @@ export function useCrashStream() {
     let lastMsgAt = Date.now();
     let hasOpened = false;
 
+    const clearReconnectOverlayTimer = () => {
+      if (reconnectOverlayTimerRef.current) {
+        clearTimeout(reconnectOverlayTimerRef.current);
+        reconnectOverlayTimerRef.current = null;
+      }
+    };
+
+    const scheduleReconnectOverlay = () => {
+      clearReconnectOverlayTimer();
+      reconnectOverlayTimerRef.current = setTimeout(() => {
+        if (!cancelled && stateRef.current != null) {
+          setReconnecting(true);
+        }
+      }, RECONNECT_OVERLAY_MS);
+    };
+
+    const markStreamHealthy = () => {
+      lastMsgAt = Date.now();
+      clearReconnectOverlayTimer();
+      setConnected(true);
+      setReconnecting(false);
+    };
+
+    const markStreamUnhealthy = () => {
+      setConnected(false);
+      scheduleReconnectOverlay();
+    };
+
     const streamUrl = address
       ? `/api/crash/stream?address=${encodeURIComponent(address)}`
       : '/api/crash/stream';
@@ -247,11 +278,8 @@ export function useCrashStream() {
 
       nextEs.onopen = () => {
         if (cancelled || es !== nextEs) return;
-        setConnected(true);
-        setReconnecting(false);
+        markStreamHealthy();
         retry = 0;
-        lastMsgAt = Date.now();
-        setStreamEpoch(n => n + 1);
         if (hasOpened) {
           void refreshGameState();
         }
@@ -260,7 +288,7 @@ export function useCrashStream() {
 
       nextEs.onmessage = e => {
         if (cancelled || es !== nextEs) return;
-        lastMsgAt = Date.now();
+        markStreamHealthy();
         try {
           const parsed = JSON.parse(e.data) as FullState;
           applyStreamPayload(parsed);
@@ -268,16 +296,14 @@ export function useCrashStream() {
           console.warn('[crash/stream] parse failed — reconnecting', err);
           teardownEventSource(nextEs);
           if (es === nextEs) es = null;
-          setConnected(false);
-          setReconnecting(stateRef.current != null);
+          markStreamUnhealthy();
           scheduleReconnect(500);
         }
       };
 
       nextEs.onerror = () => {
         if (cancelled || es !== nextEs) return;
-        setConnected(false);
-        setReconnecting(stateRef.current != null);
+        markStreamUnhealthy();
         teardownEventSource(nextEs);
         if (es === nextEs) es = null;
         retry++;
@@ -288,11 +314,9 @@ export function useCrashStream() {
     connectStream();
     staleTimer = setInterval(() => {
       if (cancelled || !es) return;
-      if (typeof document !== 'undefined' && document.hidden) return;
       if (Date.now() - lastMsgAt > STALE_FEED_MS) {
         console.warn('[crash/stream] stale feed — reconnecting');
-        setConnected(false);
-        setReconnecting(stateRef.current != null);
+        markStreamUnhealthy();
         teardownEventSource(es);
         es = null;
         scheduleReconnect(250);
@@ -301,6 +325,7 @@ export function useCrashStream() {
 
     return () => {
       cancelled = true;
+      clearReconnectOverlayTimer();
       if (retryTimer) clearTimeout(retryTimer);
       if (staleTimer) clearInterval(staleTimer);
       teardownEventSource(es);
@@ -524,7 +549,18 @@ export function useCrashStream() {
   const trade = useCallback(
     async (side: 'buy' | 'sell', amount: number, leverage: number): Promise<{ ok: boolean; error?: string }> => {
       if (!address) return { ok: false, error: 'Connect wallet first' };
-      if (actionLockRef.current) return { ok: false, error: 'Action in progress — wait a moment' };
+      if (actionLockRef.current) {
+        const snap = stateRef.current;
+        if (
+          actionLockRef.current === side &&
+          snap?.hasPosition &&
+          snap.entryPending &&
+          snap.positionSide === side
+        ) {
+          return { ok: true };
+        }
+        return { ok: false };
+      }
       await ensureSession();
 
       const wager = Math.floor(amount * 1000) / 1000;
@@ -713,7 +749,7 @@ export function useCrashStream() {
   const cashOut = useCallback(
     async (percent = 1): Promise<{ ok: boolean; error?: string; exitPrice?: number }> => {
       if (!address) return { ok: false, error: 'Connect wallet first' };
-      if (actionLockRef.current) return { ok: false, error: 'Action in progress — wait a moment' };
+      if (actionLockRef.current) return { ok: false, error: 'Cash-out already in progress' };
       actionLockRef.current = 'cashout';
 
       try {
@@ -730,11 +766,15 @@ export function useCrashStream() {
         const clientView = clientViewFromState(stateRef.current);
 
         try {
-          const res = await fetchJsonWithTimeout('/api/crash/cashout', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ address, percent: pct, clientView }),
-          });
+          const res = await fetchJsonWithTimeout(
+            '/api/crash/cashout',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ address, percent: pct, clientView }),
+            },
+            8000,
+          );
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
             lastErr = typeof data.error === 'string' ? data.error : 'Cash-out rejected';
@@ -748,35 +788,49 @@ export function useCrashStream() {
             continue;
           }
           if (typeof data.balance === 'number') setBlackballsBalance(data.balance);
-          if (data.view) {
-            setState(prev => mergeCrashClientView(prev, data.view as CrashClientView));
-          }
           cashoutSuppressUntilRef.current = Date.now() + 5000;
           notifyDemoRefresh(address, 'crash');
-          setState(prev => {
-            if (!prev) return prev;
-            const bal = typeof data.balance === 'number' ? data.balance : prev.balance;
-            const fullClose = data.action === 'close' || (typeof data.cashedPct === 'number' && data.cashedPct >= 0.999);
-            if (fullClose) {
-              return {
+          if (data.view) {
+            setState(prev => {
+              const next = mergeCrashClientView(prev, data.view as CrashClientView);
+              stateRef.current = next;
+              return next;
+            });
+          } else {
+            setState(prev => {
+              if (!prev) return prev;
+              const bal = typeof data.balance === 'number' ? data.balance : prev.balance;
+              const fullClose =
+                data.action === 'close' ||
+                (typeof data.cashedPct === 'number' && data.cashedPct >= 0.999);
+              if (fullClose) {
+                const next = {
+                  ...prev,
+                  hasPosition: false,
+                  hasLivePosition: false,
+                  entryPending: false,
+                  positionAmount: 0,
+                  positionLeverage: 1,
+                  balance: bal,
+                };
+                stateRef.current = next;
+                return next;
+              }
+              const remaining = parseFloat(
+                (prev.positionAmount * (1 - (data.cashedPct as number))).toFixed(3),
+              );
+              const next = {
                 ...prev,
-                hasPosition: false,
-                hasLivePosition: false,
+                hasPosition: true,
+                hasLivePosition: true,
                 entryPending: false,
-                positionAmount: 0,
-                positionLeverage: 1,
+                positionAmount: remaining,
                 balance: bal,
               };
-            }
-            const remaining = parseFloat((prev.positionAmount * (1 - (data.cashedPct as number))).toFixed(3));
-            return {
-              ...prev,
-              hasLivePosition: true,
-              entryPending: false,
-              positionAmount: remaining,
-              balance: bal,
-            };
-          });
+              stateRef.current = next;
+              return next;
+            });
+          }
           return { ok: true, exitPrice: typeof data.exitPrice === 'number' ? data.exitPrice : undefined };
         } catch (err) {
           lastErr = actionErrorMessage(err, 'Network error — try again');

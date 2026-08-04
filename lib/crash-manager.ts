@@ -763,7 +763,7 @@ export class CrashManager {
         });
       }
       player.lastResult = {
-        won: pnl > 0,
+        won: pnl > 0.0001,
         amount: pnl,
         price: exitMult,
       };
@@ -1080,7 +1080,7 @@ export class CrashManager {
 
     if (fullClose) {
       player.lastResult = {
-        won: pnl > 0,
+        won: pnl > 0.0001,
         amount: pnl,
         price: exit,
         bonusAmount: bonusAmount && bonusAmount > 0 ? bonusAmount : undefined,
@@ -1090,7 +1090,7 @@ export class CrashManager {
     } else {
       player.positionAmount = remaining;
       player.lastResult = {
-        won: pnl > 0,
+        won: pnl > 0.0001,
         amount: pnl,
         price: exit,
         bonusAmount: bonusAmount && bonusAmount > 0 ? bonusAmount : undefined,

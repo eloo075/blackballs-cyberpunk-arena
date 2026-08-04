@@ -234,11 +234,44 @@ export function guardCashoutOnStream(
 
   const hadLive = prev.hasLivePosition || (prev.hasPosition && !prev.entryPending);
   if (!hadLive) return next;
+
+  const balanceUp = next.balance > prev.balance + 0.0005;
+  const sizeDown = next.positionAmount < prev.positionAmount - 0.0005;
+
+  // Partial cash-out — position stays open with smaller (or same) size
+  if (next.hasPosition && !next.entryPending && (balanceUp || sizeDown)) {
+    return {
+      ...next,
+      hasLivePosition: true,
+      entryPending: false,
+      positionAmount: sizeDown ? Math.min(prev.positionAmount, next.positionAmount) : next.positionAmount,
+    };
+  }
+
+  // Stale SSE with full size after client already reduced — keep smaller amount
+  if (
+    next.hasPosition &&
+    !next.entryPending &&
+    next.positionAmount > prev.positionAmount + 0.001
+  ) {
+    return {
+      ...next,
+      hasLivePosition: true,
+      entryPending: false,
+      positionAmount: prev.positionAmount,
+      positionSide: prev.positionSide,
+      positionLeverage: prev.positionLeverage,
+      positionEntryPrice: prev.positionEntryPrice,
+    };
+  }
+
+  // Server acknowledged full close
   if (!next.hasPosition && !next.entryPending) return next;
 
   const refund = next.balance - prev.balance;
   if (refund >= prev.positionAmount * 0.05) return next;
 
+  // Stale SSE restoring a position that was fully cashed out
   return {
     ...next,
     hasPosition: false,

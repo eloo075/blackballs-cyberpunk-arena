@@ -7,7 +7,7 @@ import { affordableBetAmount, clampBetToBalance, formatBetTokens, formatBetUsd, 
 import { useTokenUsd } from '@/hooks/use-token-usd';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { HoldBonuses } from '@/lib/hold-bonuses';
-import { calcPositionPct, calcPositionPnl } from '@/lib/crash-pnl';
+import { calcPositionPct, calcPositionPnl, formatLivePnl } from '@/lib/crash-pnl';
 
 interface CrashControlsProps {
   phase: 'waiting' | 'running' | 'crashed';
@@ -161,6 +161,7 @@ export function CrashControls({
   const positionPnl = hasPosition
     ? calcPositionPnl(positionSide, positionAmount, positionLeverage, positionEntryPrice, liveMult)
     : 0;
+  const pnlDisplay = hasPosition ? formatLivePnl(positionPnl, positionPct) : { text: '0.00', pct: '0.0' };
 
   /** Wipe local UI locks when a new countdown round begins (crashed → waiting / new gameId). */
   useEffect(() => {
@@ -225,20 +226,18 @@ export function CrashControls({
 
   const handleCashOut = async () => {
     if (!canCashOut || !onCashOut) return;
+    setTradeError(null);
     setPendingAction('cashout');
     setCashOutError(null);
-    setTradeError(null);
-    let ok = false;
     try {
       const result = await onCashOut(cashOutPct);
-      ok = result.ok;
       if (!result.ok) {
         const msg = result.error ?? 'Cash-out failed';
         setCashOutError(msg);
         setTradeError(msg);
       }
     } finally {
-      if (!ok) setPendingAction(null);
+      setPendingAction(null);
     }
   };
 
@@ -397,16 +396,14 @@ export function CrashControls({
     try {
       const wager = closing ? positionAmount : effectiveWager;
       const result = await onTrade(side, wager, closing ? positionLeverage : leverage);
-      ok = result.ok;
       if (result.ok) {
         showEntrySuccess(side, closing ? positionAmount : effectiveWager);
-        setPendingAction(null);
-      } else {
-        const msg = result.error ?? 'Trade failed — check balance or try again.';
+      } else if (result.error) {
+        const msg = result.error;
         setTradeError(msg === 'invalid amount' ? `Insufficient balance (${balance.toFixed(3)} available).` : msg);
-        setPendingAction(null);
       }
-      if (ok && !closing) setPercent(0);
+      setPendingAction(null);
+      if (result.ok && !closing) setPercent(0);
     } catch {
       setPendingAction(null);
       setTradeError('Network error — try again.');
@@ -690,9 +687,7 @@ export function CrashControls({
                   {positionLeverage}x LEV
                 </span>
                 <span className={positionPnl >= 0 ? 'text-emerald-400 font-extrabold' : 'text-rose-400 font-extrabold'}>
-                  {positionPnl >= 0 ? '+' : ''}
-                  {positionPnl.toFixed(3)} ({positionPct >= 0 ? '+' : ''}
-                  {positionPct.toFixed(1)}%)
+                  {pnlDisplay.text} ({pnlDisplay.pct}%)
                 </span>
               </div>
               <div className="text-[10px] text-white/40 mt-0.5">

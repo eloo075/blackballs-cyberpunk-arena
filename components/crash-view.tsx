@@ -80,12 +80,13 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
     processedResultRef.current = fp;
     recordCrashResult(lr.won, lr.price);
 
-    const totalWin = lr.amount + (lr.bonusAmount ?? 0);
+    const totalProfit = lr.amount + (lr.bonusAmount ?? 0);
+    const isWin = totalProfit > 0.0001;
     const crashAt = state.currentRound.crashPoint;
-    if (lr.won) {
+    if (isWin) {
       triggerResult({
         won: true,
-        amount: totalWin,
+        amount: totalProfit,
         subtitle: `@ ${lr.price.toFixed(2)}x${lr.bonusAmount ? ` · +${lr.bonusAmount.toFixed(2)} bonus` : ''}${lr.frenzyProc ? ' · FRENZY' : ''}`,
         multiplier: lr.price,
       });
@@ -93,14 +94,14 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
         recordHallOfFame({
           player: displayAddress?.slice(0, 8) ?? 'YOU',
           multiplier: lr.price,
-          profit: totalWin,
+          profit: totalProfit,
         });
       }
     } else {
-      const lossDisplay = Math.abs(lr.amount);
+      const lossAmount = totalProfit < 0 ? totalProfit : -Math.abs(lr.amount);
       triggerResult({
         won: false,
-        amount: lossDisplay,
+        amount: lossAmount,
         subtitle:
           lr.price <= 1.01
             ? `Rugged @ ${crashAt.toFixed(2)}x`
@@ -157,7 +158,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
             Close
           </button>
           <ChartCanvas
-            key={`crash-chart-mobile-${state.gameId}-${streamEpoch}`}
+            key={`crash-chart-mobile-${state.gameId}`}
             candles={state.candles}
             phase={state.phase}
             mult={chartMult}
@@ -232,7 +233,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
         <div className="flex flex-col gap-2 shrink-0 flex-none min-w-0">
         <div className="relative cp-panel overflow-visible w-full min-h-[min(42vh,340px)] h-[min(42vh,340px)] sm:min-h-[480px] sm:h-[60vh] sm:max-h-none">
           <ChartCanvas
-            key={`crash-chart-${state.gameId}-${streamEpoch}`}
+            key={`crash-chart-${state.gameId}`}
             candles={state.candles}
             phase={state.phase}
             mult={chartMult}
@@ -242,7 +243,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
             entryPrice={showLivePosition ? state.positionEntryPrice : null}
           />
 
-          {(reconnecting || !connected) && (
+          {(reconnecting && !connected) && (
             <div className="absolute inset-0 z-[15] flex items-center justify-center bg-[#141518]/70 backdrop-blur-[2px] pointer-events-none">
               <div className="text-center px-4">
                 <div className="text-sm font-extrabold text-amber-300 uppercase tracking-wider">
