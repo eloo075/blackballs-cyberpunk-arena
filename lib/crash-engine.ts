@@ -234,20 +234,13 @@ export function generateRoundPath(serverSeed: string, gameId: number, crashPoint
   const rng = seededPRNG(serverSeed, gameId);
   const ticks: PriceTick[] = [];
 
-  // Instant / near-instant rugs: short path with seeded wiggle — never a long flat line at 1.00x
-  // (flat candles telegraphed the outcome and let players cash out before the drop).
+  // Instant rugs crash on the FIRST candle — no low hover that telegraphs the
+  // outcome (players were reading flat 1.00x candles and reacting before the drop).
   if (crashPoint <= 1.01) {
-    const totalTicks = 3 + Math.floor(rng() * 3); // 3–5 ticks (~0.75–1.25s)
-    for (let i = 0; i <= totalTicks; i++) {
-      const t = (i * tickMs) / 1000;
-      if (i === totalTicks) {
-        ticks.push({ price: 1.0, t });
-        break;
-      }
-      const wiggle = 1.0 + (rng() - 0.45) * 0.035;
-      ticks.push({ price: Math.max(1.0, Math.min(1.02, wiggle)), t });
-    }
-    return ticks;
+    return [
+      { price: 1.0, t: 0 },
+      { price: 1.0, t: tickMs / 1000 },
+    ];
   }
 
   const duration = Math.max(3, Math.min(90, 3 + Math.log10(Math.max(crashPoint, 1.1)) * 30));

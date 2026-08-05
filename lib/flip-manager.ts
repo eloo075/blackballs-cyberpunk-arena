@@ -51,7 +51,7 @@ export class FlipManager {
   private feedId = 0;
   private matchId = 0;
   private dogpileRound = 0;
-  private listeners = new Set<() => void>();
+  private listeners = new Set<(base?: FlipFullState) => void>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private botTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** In-flight 1v1 matches — resolve even if bumped off the global active slot. */
@@ -226,14 +226,18 @@ export class FlipManager {
   }
 
   subscribe(address: string | null, fn: (s: FlipFullState) => void): () => void {
-    const listener = () => fn(this.snapshot(address));
+    const listener = (base?: FlipFullState) =>
+      fn(base ? { ...base, player: this.playerView(address) } : this.snapshot(address));
     this.listeners.add(listener);
     fn(this.snapshot(address));
     return () => this.listeners.delete(listener);
   }
 
+  /** Shared snapshot built once per emit; each subscriber only swaps in its player view. */
   private emit() {
-    for (const fn of this.listeners) fn();
+    if (this.listeners.size === 0) return;
+    const base = this.snapshot(null);
+    for (const fn of this.listeners) fn(base);
   }
 
   private pushFeed(kind: FlipFeedEvent['kind'], player: string, text: string, amount?: number, highlight = false) {
@@ -653,24 +657,26 @@ export class FlipManager {
     this.emit();
   }
 
-  snapshot(address: string | null): FlipFullState {
-    const player = address ? this.getPlayer(address) : null;
-    const hallOfFame = this.history.filter(h => h.highlight).slice(0, 10);
+  private playerView(address: string | null): FlipPlayerView | null {
+    if (!address) return null;
+    const player = this.getPlayer(address);
+    return {
+      balance: player.balance,
+      holdsBlackballs: player.holdsBlackballs,
+      rakeRate: flipRakeRate(player.holdsBlackballs),
+      maxBet: flipMaxBet(player.holdsBlackballs),
+      winStreak: player.winStreak,
+      lossStreak: player.lossStreak,
+      lastOpponent: player.lastOpponent,
+      active1v1Id: player.active1v1Id,
+      activeDogpileSide: player.activeDogpileSide,
+      lastResult: player.lastResult,
+    };
+  }
 
-    const playerView: FlipPlayerView | null = player
-      ? {
-          balance: player.balance,
-          holdsBlackballs: player.holdsBlackballs,
-          rakeRate: flipRakeRate(player.holdsBlackballs),
-          maxBet: flipMaxBet(player.holdsBlackballs),
-          winStreak: player.winStreak,
-          lossStreak: player.lossStreak,
-          lastOpponent: player.lastOpponent,
-          active1v1Id: player.active1v1Id,
-          activeDogpileSide: player.activeDogpileSide,
-          lastResult: player.lastResult,
-        }
-      : null;
+  snapshot(address: string | null): FlipFullState {
+    const hallOfFame = this.history.filter(h => h.highlight).slice(0, 10);
+    const playerView = this.playerView(address);
 
     return {
       mode: '1v1',

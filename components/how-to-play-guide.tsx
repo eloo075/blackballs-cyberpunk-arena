@@ -112,7 +112,7 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
               many BlackBalls you put up as margin.
             </li>
             <li>
-              <span className="text-cyan-400">3.</span> Pick <span className="text-amber-300">Leverage</span> (1x–50x).
+              <span className="text-cyan-400">3.</span> Pick <span className="text-amber-300">Leverage</span> (1x–5x).
               Higher = bigger wins <em>and</em> faster liquidation.
             </li>
             <li>

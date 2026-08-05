@@ -122,7 +122,7 @@ export class CrashManager {
   private feedId = 0;
   private tagId = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
-  private listeners = new Set<() => void>();
+  private listeners = new Set<(base?: FullState) => void>();
   private players = new Map<string, PlayerState>();
   private pressureOffset = 0;
   private orderPressure = 0;
@@ -402,14 +402,27 @@ export class CrashManager {
   }
 
   subscribe(address: string | null, fn: (s: FullState) => void): () => void {
-    const listener = () => fn(this.snapshotForStream(address));
+    const listener = (base?: FullState) => fn(this.composeStreamSnapshot(address, base));
     this.listeners.add(listener);
     fn(this.snapshotForStream(address));
     return () => this.listeners.delete(listener);
   }
 
+  /**
+   * Build the shared (address-independent) snapshot ONCE per emit and let each
+   * subscriber merge only its player fields — keeps tick cost flat as concurrent
+   * connections grow instead of rebuilding candles/history/path per subscriber.
+   */
   private emit() {
-    this.listeners.forEach(l => l());
+    if (this.listeners.size === 0) return;
+    const base = this.snapshotForStream(null);
+    this.listeners.forEach(l => l(base));
+  }
+
+  private composeStreamSnapshot(address: string | null, base?: FullState): FullState {
+    if (!base) return this.snapshotForStream(address);
+    if (!address) return base;
+    return { ...base, ...this.playerSnapshot(address) };
   }
 
   private playerSnapshot(address: string | null): Pick<
@@ -463,6 +476,7 @@ export class CrashManager {
         ? (this.round.path[Math.min(this.tickIdx, this.round.path.length - 1)]?.price ?? this.mult)
         : this.mult;
     const fairMult = this.phase === 'running' ? pathMult : this.mult;
+    const buyersIn = this.countBuyersIn();
     return {
       phase: this.phase,
       gameId: this.round.id,
@@ -484,8 +498,8 @@ export class CrashManager {
         nonce: this.round.nonce,
         crashPoint: this.round.revealed ? this.round.crashPoint : null,
       },
-      players: this.countBuyersIn(),
-      buyersIn: this.countBuyersIn(),
+      players: buyersIn,
+      buyersIn,
       roundBuyVolume: this.roundBuyVolume,
       roundSellVolume: this.roundSellVolume,
       orderPressure: this.orderPressure,
@@ -496,12 +510,22 @@ export class CrashManager {
   /** Lightweight snapshot for SSE — omits heavy seed fields from history. */
   snapshotForStream(address: string | null = null): FullState {
     const full = this.snapshot(address);
-    const pathAhead =
-      this.phase === 'running' && this.round.path.length > 0
-        ? this.round.path
-            .slice(this.tickIdx, Math.min(this.tickIdx + 48, this.round.path.length))
-            .map(p => p.price)
-        : undefined;
+    // Only a short smoothing window ahead, padded to CONSTANT length with a
+    // plausible continuation — a longer/shrinking window would let anyone reading
+    // the raw SSE payload see exactly when the round crashes and exit perfectly.
+    const AHEAD_TICKS = 8;
+    let pathAhead: number[] | undefined;
+    if (this.phase === 'running' && this.round.path.length > 0) {
+      const upcoming = this.round.path
+        .slice(this.tickIdx, Math.min(this.tickIdx + AHEAD_TICKS, this.round.path.length - 1))
+        .map(p => p.price);
+      const lastKnown = upcoming[upcoming.length - 1] ?? this.mult;
+      const growth = 1 + Math.max(0.0005, Math.min(0.01, (lastKnown - 1) * 0.004));
+      while (upcoming.length < AHEAD_TICKS) {
+        upcoming.push(Math.max(1.0, (upcoming[upcoming.length - 1] ?? lastKnown) * growth));
+      }
+      pathAhead = upcoming;
+    }
     return {
       ...full,
       serverNow: Date.now(),
@@ -1419,11 +1443,18 @@ export class CrashManager {
       player.balance = view.balance;
     }
 
+    // Never trust client-supplied leverage/entry price — clamp to server rules
+    // (entries always open @ 1.00x, leverage capped at MAX_LEVERAGE).
+    const safeLeverage = Math.min(
+      MAX_LEVERAGE,
+      Math.max(MIN_LEVERAGE, view.positionLeverage ?? 1),
+    );
+
     if (view.entryPending && this.phase === 'waiting') {
       player.pendingEntry = {
         side: view.positionSide ?? 'buy',
         amount: view.positionAmount ?? 0,
-        leverage: view.positionLeverage ?? 1,
+        leverage: safeLeverage,
         roundId: this.round.id,
       };
       return Boolean(player.pendingEntry.amount > 0);
@@ -1433,8 +1464,8 @@ export class CrashManager {
       player.hasPosition = true;
       player.positionSide = view.positionSide ?? 'buy';
       player.positionAmount = view.positionAmount ?? 0;
-      player.positionLeverage = view.positionLeverage ?? 1;
-      player.positionEntryPrice = view.positionEntryPrice ?? 1.0;
+      player.positionLeverage = safeLeverage;
+      player.positionEntryPrice = 1.0;
       player.positionRoundId = this.round.id;
       player.pendingEntry = null;
       return player.positionAmount > 0;
@@ -1444,7 +1475,7 @@ export class CrashManager {
       player.pendingEntry = {
         side: view.positionSide ?? 'buy',
         amount: view.positionAmount ?? 0,
-        leverage: view.positionLeverage ?? 1,
+        leverage: safeLeverage,
         roundId: this.round.id,
       };
       return player.pendingEntry.amount > 0;

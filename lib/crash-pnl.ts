@@ -1,7 +1,8 @@
 /** Leverage & liquidation math for crash positions. */
 
 export const MIN_LEVERAGE = 1;
-export const MAX_LEVERAGE = 50;
+/** Capped at 5x — higher leverage let early cash-outs print free profit off the opening wiggle. */
+export const MAX_LEVERAGE = 5;
 
 export function effectiveNotional(wager: number, leverage: number): number {
   return wager * leverage;

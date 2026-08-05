@@ -41,7 +41,7 @@ interface CrashControlsProps {
 }
 
 const CASH_OUT_PCTS = [0.25, 0.5, 0.75, 1] as const;
-const LEVERAGE_PRESETS = [1, 1.5, 2, 5, 10, 25, 50] as const;
+const LEVERAGE_PRESETS = [1, 1.5, 2, 3, 5] as const;
 const WAIT_FOR_ROUND_MSG = 'Wait for the next round — BUY/SELL open during the countdown.';
 /** Block entries in the last second — server may already be in the live round. */
 const COUNTDOWN_ENTRY_BUFFER_SEC = 1.0;
@@ -67,10 +67,8 @@ function leveragePillClass(preset: number, active: boolean): string {
   if (!active) {
     return 'bg-[#2a2c33] text-white/55 border border-white/10 hover:bg-[#353842]';
   }
-  if (preset >= 50) return 'bg-amber-400 text-black border-b-[3px] border-amber-600';
-  if (preset >= 25) return 'bg-rose-500 text-white border-b-[3px] border-rose-700';
-  if (preset >= 10) return 'bg-orange-500 text-white border-b-[3px] border-orange-700';
-  if (preset >= 5) return 'bg-violet-500 text-white border-b-[3px] border-violet-700';
+  if (preset >= 5) return 'bg-rose-500 text-white border-b-[3px] border-rose-700';
+  if (preset >= 3) return 'bg-orange-500 text-white border-b-[3px] border-orange-700';
   if (preset >= 2) return 'bg-sky-500 text-white border-b-[3px] border-sky-700';
   return 'bg-slate-500 text-white border-b-[3px] border-slate-700';
 }
@@ -593,19 +591,19 @@ export function CrashControls({
               <input
                 type="range"
                 min="1"
-                max="50"
+                max="5"
                 step="0.5"
                 value={leverage}
                 onChange={e => setLeverage(parseFloat(e.target.value))}
                 disabled={hasPosition}
                 className="leverage-slider w-full h-2 sm:h-2.5 cursor-pointer touch-manipulation disabled:opacity-30"
                 style={{
-                  ['--lev-pct' as string]: `${((leverage - 1) / 49) * 100}%`,
+                  ['--lev-pct' as string]: `${((leverage - 1) / 4) * 100}%`,
                 }}
               />
               <div className="hidden sm:flex justify-between text-[10px] text-white/40 font-bold">
                 <span>1x safe</span>
-                <span className="text-rose-400">50x max</span>
+                <span className="text-rose-400">5x max</span>
               </div>
             </div>
           </div>
@@ -613,7 +611,7 @@ export function CrashControls({
           <div className="flex flex-wrap gap-1 sm:gap-1.5">
             {LEVERAGE_PRESETS.map(preset => {
               const active = leverage === preset;
-              const hideOnMobile = preset === 1.5 || preset === 25;
+              const hideOnMobile = preset === 1.5;
               return (
                 <button
                   key={preset}
@@ -723,7 +721,6 @@ export function CrashControls({
                   key={p}
                   type="button"
                   onClick={() => setCashOutPct(p)}
-                  disabled={cashoutBusy}
                   className={`flex-1 min-h-[32px] rounded-lg text-[10px] font-extrabold touch-manipulation ${
                     cashOutPct === p
                       ? 'bg-emerald-500 text-white border-b-2 border-emerald-700'
