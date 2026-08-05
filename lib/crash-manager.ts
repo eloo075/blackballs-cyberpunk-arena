@@ -60,8 +60,8 @@ interface PlayerState {
 }
 
 const TICK_MS = 250;
-const ROUND_WAIT_SECONDS = 20;
-const CRASH_HOLD_SECONDS = 5;
+const ROUND_WAIT_SECONDS = 12;
+const CRASH_HOLD_SECONDS = 4;
 const MAX_CANDLES = 60;
 const MAX_HISTORY = 1000;
 const MAX_FEED = 40;
@@ -570,7 +570,7 @@ export class CrashManager {
       this.candleLow = Math.min(this.candleLow, this.mult);
       this.updateLiveCandle();
 
-      if (this.tickIdx % 4 === 0) {
+      if (this.tickIdx % 3 === 0) {
         this.commitCandle();
       }
 

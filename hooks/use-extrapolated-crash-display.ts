@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from 'react';
 import type { FullState, Phase } from '@/lib/crash-types';
 import { usePageVisibility } from '@/hooks/use-page-visibility';
 
-const TICK_MS = 250;
-const TICK_SEC = TICK_MS / 1000;
+/** Server tick cadence — used to map wall-clock drift onto pathAhead indices. */
+const SERVER_TICK_SEC = 0.25;
+/** Client display refresh — 10 Hz keeps countdown/PnL fluid without heavy re-renders. */
+const UPDATE_MS = 100;
 
 export type ExtrapolatedCrashDisplay = {
   phase: Phase;
@@ -18,9 +20,14 @@ export type ExtrapolatedCrashDisplay = {
 function resolveSyncedMult(s: FullState, driftSec: number): number {
   const base = s.pathMult ?? s.mult;
   if (s.phase !== 'running' || !s.pathAhead?.length) return base;
-  const extraTicks = Math.max(0, Math.floor(driftSec / TICK_SEC));
-  const idx = Math.min(extraTicks, s.pathAhead.length - 1);
-  return s.pathAhead[idx] ?? base;
+  // Interpolate between path ticks so the multiplier glides instead of stair-stepping.
+  const exact = Math.max(0, driftSec / SERVER_TICK_SEC);
+  const i0 = Math.min(Math.floor(exact), s.pathAhead.length - 1);
+  const i1 = Math.min(i0 + 1, s.pathAhead.length - 1);
+  const frac = Math.min(1, Math.max(0, exact - i0));
+  const a = s.pathAhead[i0] ?? base;
+  const b = s.pathAhead[i1] ?? a;
+  return a + (b - a) * frac;
 }
 
 function computeDisplay(s: FullState, clockOffset: number): ExtrapolatedCrashDisplay {
@@ -58,15 +65,16 @@ function computeDisplay(s: FullState, clockOffset: number): ExtrapolatedCrashDis
 function displayChanged(a: ExtrapolatedCrashDisplay, b: ExtrapolatedCrashDisplay): boolean {
   return (
     a.phase !== b.phase ||
-    Math.abs(a.mult - b.mult) > 0.004 ||
+    Math.abs(a.mult - b.mult) > 0.002 ||
     Math.abs(a.waitLeft - b.waitLeft) > 0.04 ||
-    Math.abs(a.elapsed - b.elapsed) > 0.08
+    Math.abs(a.elapsed - b.elapsed) > 0.05
   );
 }
 
 /**
  * Chart/countdown aligned to server wall clock (not local device clock).
- * Throttled updates (~4/sec) to keep mobile smooth.
+ * Updates at 10 Hz; per-frame visual smoothing happens in the canvas/multiplier
+ * components via refs so React re-render cost stays low on mobile.
  */
 export function useExtrapolatedCrashDisplay(
   state: FullState | null,
@@ -80,7 +88,7 @@ export function useExtrapolatedCrashDisplay(
     mult: 1,
     peakMult: 1,
     elapsed: 0,
-    waitLeft: 20,
+    waitLeft: 12,
   });
   const [display, setDisplay] = useState(displayRef.current);
 
@@ -111,7 +119,7 @@ export function useExtrapolatedCrashDisplay(
     };
 
     tick();
-    const timer = setInterval(tick, TICK_MS);
+    const timer = setInterval(tick, UPDATE_MS);
     return () => clearInterval(timer);
   }, [pageActive]);
 

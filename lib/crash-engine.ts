@@ -243,7 +243,9 @@ export function generateRoundPath(serverSeed: string, gameId: number, crashPoint
     ];
   }
 
-  const duration = Math.max(3, Math.min(90, 3 + Math.log10(Math.max(crashPoint, 1.1)) * 30));
+  // Snappier pacing (closer to rugs.fun feel): ~9s for a 2x, ~16s for a 4x,
+  // ~25s for a 10x, hard-capped at 60s. Crash point distribution / RTP unchanged.
+  const duration = Math.max(2.5, Math.min(60, 2.5 + Math.log10(Math.max(crashPoint, 1.1)) * 22));
   let totalTicks = Math.floor((duration * 1000) / tickMs);
   if (!Number.isFinite(totalTicks) || totalTicks < 1) totalTicks = 1;
 

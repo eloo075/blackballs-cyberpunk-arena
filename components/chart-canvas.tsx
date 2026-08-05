@@ -71,6 +71,10 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
     if (!ctx) return;
     let lastFrameMs = 0;
     const SHIFT_LERP_PER_SEC = 7.2;
+    // Eases the displayed multiplier toward the latest server value each frame,
+    // turning 4 Hz state updates into continuous 60 fps motion.
+    const MULT_LERP_PER_SEC = 12;
+    let smoothMult: number | null = null;
 
     const render = (frameMs: number) => {
       const dt = lastFrameMs ? Math.min((frameMs - lastFrameMs) / 1000, 0.05) : 1 / 60;
@@ -79,11 +83,29 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
       if (Math.abs(shiftOffsetRef.current) < 0.001) shiftOffsetRef.current = 0;
 
       const p = propsRef.current;
+
+      const targetMult = p.mult;
+      if (
+        smoothMult == null ||
+        p.phase !== 'running' ||
+        Math.abs(targetMult - smoothMult) > 1.5
+      ) {
+        // Snap on round transitions / crashes so the drop reads as instant.
+        smoothMult = targetMult;
+      } else {
+        smoothMult += (targetMult - smoothMult) * Math.min(1, MULT_LERP_PER_SEC * dt);
+      }
+      const dispMult = smoothMult;
+
       const dpr = Math.min(typeof devicePixelRatio === 'number' ? devicePixelRatio : 1, 2);
       const cssW = canvas.offsetWidth;
       const cssH = canvas.offsetHeight;
-      const w = (canvas.width = cssW * dpr);
-      const h = (canvas.height = cssH * dpr);
+      const targetW = Math.max(1, Math.round(cssW * dpr));
+      const targetH = Math.max(1, Math.round(cssH * dpr));
+      if (canvas.width !== targetW) canvas.width = targetW;
+      if (canvas.height !== targetH) canvas.height = targetH;
+      const w = targetW;
+      const h = targetH;
       ctx.clearRect(0, 0, w, h);
 
       const visible = p.candles;
@@ -94,7 +116,7 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
       const chartW = w - padLeft - padRight;
       const chartH = h - padTop - padBottom;
 
-      let maxPrice = Math.max(p.peakMult * 1.08, p.mult * 1.06, 1.35);
+      let maxPrice = Math.max(p.peakMult * 1.08, Math.max(p.mult, dispMult) * 1.06, 1.35);
       let minPrice = 0;
       visible.forEach(c => {
         maxPrice = Math.max(maxPrice, c.h);
@@ -138,6 +160,18 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
       const visibleCount = MAX_VISIBLE;
       const startIdx = Math.max(0, visible.length - visibleCount);
       const slice = visible.slice(startIdx);
+
+      // Drive the live (last) candle with the eased multiplier so it glides
+      // between server ticks instead of stepping 4x per second.
+      if (p.phase === 'running' && slice.length > 0) {
+        const last = slice[slice.length - 1];
+        slice[slice.length - 1] = {
+          ...last,
+          c: dispMult,
+          h: Math.max(last.h, dispMult),
+          l: Math.min(last.l, dispMult),
+        };
+      }
 
       if (visible.length > prevCandleCountRef.current) {
         shiftOffsetRef.current = 1;
@@ -194,7 +228,7 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
       });
 
       if (p.phase === 'running' || p.phase === 'crashed') {
-        const y = yFor(p.mult);
+        const y = yFor(dispMult);
         const rising = p.phase === 'running';
         const col = rising ? CANDLE_UP : CANDLE_DOWN;
 
@@ -212,7 +246,7 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
         ctx.fillStyle = '#000';
         ctx.font = `bold ${11}px JetBrains Mono`;
         ctx.textAlign = 'center';
-        ctx.fillText(`${p.mult.toFixed(2)}x`, padLeft + chartW + padRight / 2, y + 3.5 * dpr);
+        ctx.fillText(`${dispMult.toFixed(2)}x`, padLeft + chartW + padRight / 2, y + 3.5 * dpr);
         ctx.textAlign = 'left';
       }
 
@@ -252,9 +286,16 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
       }
     };
 
-    render(performance.now());
-    const timer = setInterval(() => render(performance.now()), 250);
-    return () => clearInterval(timer);
+    // 60 fps RAF loop — all data flows through refs (no React re-render per frame)
+    // and the browser pauses RAF automatically in background tabs. Combined with
+    // the pageActive gate this stays cheap on mobile.
+    let raf = 0;
+    const loop = (frameMs: number) => {
+      render(frameMs);
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
   }, [pageActive]);
 
   return (

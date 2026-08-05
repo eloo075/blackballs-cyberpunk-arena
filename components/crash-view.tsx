@@ -23,6 +23,7 @@ import { CrashMobileHeader } from '@/components/crash-mobile-header';
 import { syncGameSessionBalances } from '@/lib/sync-game-sessions';
 import { useGameTabFocus } from '@/lib/use-game-tab-focus';
 import { useExtrapolatedCrashDisplay } from '@/hooks/use-extrapolated-crash-display';
+import { SmoothMultiplier } from '@/components/smooth-multiplier';
 
 const RUG_PARTICLES = Array.from({ length: 20 }, (_, i) => ({
   x: 50 + (((i * 17) % 100) - 50),
@@ -262,14 +263,15 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
               className="pointer-events-none absolute inset-x-0 top-[12%] sm:top-[10%] flex justify-center z-[5]"
               aria-hidden
             >
-              <div
+              <SmoothMultiplier
+                value={display.mult}
+                running={state.phase === 'running'}
+                active={visible}
                 className={`font-extrabold tabular-nums text-center ${
                   state.phase === 'crashed' ? 'text-rose-400' : 'text-emerald-400'
                 } text-5xl sm:text-6xl`}
                 style={{ textShadow: '0 4px 24px rgba(0,0,0,0.55)' }}
-              >
-                {display.mult.toFixed(2)}x
-              </div>
+              />
             </div>
           )}
 
