@@ -147,7 +147,10 @@ export function CrashControls({
   const cancelToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const entryCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const entriesOpen = phase === 'waiting' && waitLeft > COUNTDOWN_ENTRY_BUFFER_SEC;
+  const continuousDemo = isDemoWallet;
+  const entriesOpen =
+    (phase === 'waiting' && waitLeft > COUNTDOWN_ENTRY_BUFFER_SEC) ||
+    (continuousDemo && phase === 'running');
   const rawWager = percent > 0
     ? parseFloat((balance * percent / 100).toFixed(4))
     : clampBetToBalance(amount, balance);
@@ -200,9 +203,10 @@ export function CrashControls({
     !hasPosition &&
     effectiveWager > 0 &&
     effectiveWager <= balance + 0.0005;
-  const canOpenSell = canOpenBuy;
+  const canOpenSell = continuousDemo ? false : canOpenBuy;
 
   const canCloseBuy =
+    !continuousDemo &&
     walletConnected && sessionReady && streamConnected && entriesOpen && !tradeBusy && hasPosition && positionSide === 'sell' && !entryPending;
   const canCloseSell =
     walletConnected && sessionReady && streamConnected && entriesOpen && !tradeBusy && hasPosition && positionSide === 'buy' && !entryPending;
@@ -245,7 +249,7 @@ export function CrashControls({
 
   /** True when BUY/SELL must show locked — live round, rugged, or countdown closed (no pending cancel). */
   const entriesClosed =
-    phase === 'running' ||
+    (!continuousDemo && phase === 'running') ||
     phase === 'crashed' ||
     (phase === 'waiting' && !entriesOpen && !(entryPending && hasPosition));
 
@@ -257,7 +261,9 @@ export function CrashControls({
     if (phase === 'running' || phase === 'crashed') {
       return livePosition
         ? `Round live — cash out anytime or wait for rug.`
-        : WAIT_FOR_ROUND_MSG;
+        : continuousDemo && phase === 'running'
+          ? 'Live market — BUY opens a long at the current price.'
+          : WAIT_FOR_ROUND_MSG;
     }
     if (phase === 'waiting' && waitLeft <= COUNTDOWN_ENTRY_BUFFER_SEC && !hasPosition) {
       return 'Round starting — wait for the next countdown.';
@@ -399,7 +405,11 @@ export function CrashControls({
       const wager = closing ? positionAmount : effectiveWager;
       const result = await onTrade(side, wager, closing ? positionLeverage : leverage);
       if (result.ok) {
-        showEntrySuccess(side, closing ? positionAmount : effectiveWager);
+        if (closing && continuousDemo) {
+          setEntryNotice(`Sold ${positionAmount.toFixed(3)} ${CURRENCY_LABEL} @ ${mult.toFixed(2)}x`);
+        } else {
+          showEntrySuccess(side, closing ? positionAmount : effectiveWager);
+        }
       } else if (result.error) {
         const msg = result.error;
         setTradeError(msg === 'invalid amount' ? `Insufficient balance (${balance.toFixed(3)} available).` : msg);
@@ -417,7 +427,7 @@ export function CrashControls({
     const showCancel = isBuy ? pendingLong : pendingShort;
     const oppositePending = isBuy ? pendingShort : pendingLong;
     const cancelClass = isBuy ? ARCADE_BTN_CANCEL_LONG : ARCADE_BTN_CANCEL_SHORT;
-    const cancelLabel = isBuy ? 'CANCEL LONG' : 'CANCEL SHORT';
+    const cancelLabel = isBuy ? 'CANCEL BUY' : 'CANCEL SHORT';
     const isPendingThis = pendingAction === side;
     const isClosingThis = isPendingThis && hasPosition && positionSide !== side;
 
@@ -441,10 +451,16 @@ export function CrashControls({
       const pendingLabel = isClosingThis
         ? isBuy
           ? 'CLOSING SHORT…'
-          : 'CLOSING LONG…'
+          : continuousDemo
+            ? 'SELLING…'
+            : 'CLOSING LONG…'
         : isBuy
-          ? 'ENTERING LONG…'
-          : 'ENTERING SHORT…';
+          ? continuousDemo
+            ? 'BUYING…'
+            : 'ENTERING LONG…'
+          : continuousDemo
+            ? 'SELLING…'
+            : 'ENTERING SHORT…';
       return (
         <button
           type="button"
@@ -459,7 +475,9 @@ export function CrashControls({
       );
     }
 
-    const locked = entriesClosed || oppositePending;
+    const noDemoAction =
+      continuousDemo && (isBuy ? hasPosition && !entryPending : !hasPosition || entryPending);
+    const locked = entriesClosed || oppositePending || noDemoAction;
     const disabled = locked || tradeBusy;
 
     return (
@@ -473,7 +491,13 @@ export function CrashControls({
       >
         {locked || oppositePending ? (
           <>
-            {isBuy ? 'BUY LONG (LOCKED)' : 'SELL SHORT (LOCKED)'}
+            {continuousDemo
+              ? isBuy
+                ? 'BUY (LOCKED)'
+                : 'SELL (NO POSITION)'
+              : isBuy
+                ? 'BUY LONG (LOCKED)'
+                : 'SELL SHORT (LOCKED)'}
             <span className="block text-[10px] font-bold normal-case tracking-normal opacity-80 mt-0.5">
               {phase === 'crashed'
                 ? 'Wait for countdown'
@@ -490,7 +514,7 @@ export function CrashControls({
           </>
         ) : (
           <>
-            {isBuy ? 'BUY LONG' : 'SELL SHORT'}
+            {continuousDemo ? (isBuy ? 'BUY' : 'SELL') : isBuy ? 'BUY LONG' : 'SELL SHORT'}
             {isBuy && !hasPosition && stimmyLabel && (
               <span className="block text-[10px] font-extrabold text-amber-300 mt-0.5 normal-case tracking-normal">
                 {stimmyLabel}

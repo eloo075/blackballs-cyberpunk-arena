@@ -37,6 +37,8 @@ export interface RoundSummary {
   clientSeed?: string;
   nonce?: number;
   instantRug?: boolean;
+  mode?: 'classic' | 'continuous';
+  rugTick?: number;
   ts: number;
 }
 
@@ -58,6 +60,8 @@ export interface FullState {
     clientSeed: string;
     nonce: number;
     crashPoint: number | null;
+    mode?: 'classic' | 'continuous';
+    rugTick?: number | null;
   };
   players: number;
   buyersIn: number;

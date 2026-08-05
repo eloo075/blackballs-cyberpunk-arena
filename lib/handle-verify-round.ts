@@ -7,6 +7,8 @@ export interface VerifyRoundInput {
   clientSeed: string;
   nonce: number;
   expectedCrashPoint: number;
+  mode?: 'classic' | 'continuous';
+  expectedRugTick?: number | null;
 }
 
 export interface VerifyRoundResult {
@@ -43,6 +45,8 @@ export async function handleVerifyRound(
       clientSeed: input.clientSeed.trim(),
       nonce: input.nonce,
       expectedCrashPoint: input.expectedCrashPoint,
+      mode: input.mode,
+      expectedRugTick: input.expectedRugTick,
     }),
     signal,
   });
@@ -50,13 +54,16 @@ export async function handleVerifyRound(
   const data = (await res.json().catch(() => ({}))) as {
     valid?: boolean;
     reason?: string;
-    derived?: { crashPoint?: number };
+    derived?: { crashPoint?: number; peakMultiplier?: number };
   };
 
   if (data.valid) {
     return {
       valid: true,
-      crashPoint: data.derived?.crashPoint ?? input.expectedCrashPoint,
+      crashPoint:
+        data.derived?.crashPoint ??
+        data.derived?.peakMultiplier ??
+        input.expectedCrashPoint,
     };
   }
 

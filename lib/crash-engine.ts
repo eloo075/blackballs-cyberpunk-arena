@@ -152,6 +152,36 @@ export function verifyCrashRound(params: {
   return valid ? { valid: true, derived } : { valid: false, reason: 'crash point mismatch', derived };
 }
 
+export function verifyContinuousCrashRound(params: {
+  serverSeed: string;
+  serverSeedHash: string;
+  nonce: number;
+  expectedPeak: number;
+  expectedRugTick: number;
+}): {
+  valid: boolean;
+  reason?: string;
+  derived?: { peakMultiplier: number; rugTick: number };
+} {
+  if (!serverSeedMatchesCommit(params.serverSeed, params.serverSeedHash)) {
+    return { valid: false, reason: 'server seed does not match committed hash' };
+  }
+  const generated = generateContinuousRoundPath(
+    normalizeServerSeed(params.serverSeed),
+    params.nonce,
+  );
+  const derived = {
+    peakMultiplier: generated.peakMultiplier,
+    rugTick: generated.rugTick,
+  };
+  const valid =
+    Math.abs(derived.peakMultiplier - roundCrashPoint(params.expectedPeak)) < 0.015 &&
+    derived.rugTick === params.expectedRugTick;
+  return valid
+    ? { valid: true, derived }
+    : { valid: false, reason: 'continuous path mismatch', derived };
+}
+
 export function computeCrashPointLegacy(serverSeed: string, gameId: number): number {
   return computeCrashPoint(serverSeed, DEFAULT_CLIENT_SEED, gameId);
 }
@@ -225,9 +255,83 @@ function seededPRNG(seed: string, gameId: number) {
   };
 }
 
+/** Correct 56-bit unit PRNG for the continuous engine (always in [0, 1)). */
+function seededUnitPRNG(seed: string, gameId: number) {
+  let counter = 0;
+  return () => {
+    const h = createHmac('sha256', seed).update(`continuous:${gameId}:${counter++}`).digest();
+    return parseInt(h.subarray(0, 7).toString('hex'), 16) / Math.pow(2, 56);
+  };
+}
+
 export interface PriceTick {
   price: number;
   t: number;
+}
+
+export const CONTINUOUS_RUG_CHANCE_PER_TICK = 0.0055;
+export const CONTINUOUS_MIN_ROUND_TICKS = 32;
+export const CONTINUOUS_MAX_ROUND_TICKS = 720;
+
+export interface ContinuousRoundPath {
+  path: PriceTick[];
+  peakMultiplier: number;
+  rugTick: number;
+}
+
+/**
+ * Demo Standard path: deterministic drift on every tick followed by a
+ * deterministic hard rug. The committed seed reproduces the complete path.
+ */
+export function generateContinuousRoundPath(
+  serverSeed: string,
+  gameId: number,
+  tickMs = 250,
+): ContinuousRoundPath {
+  const rng = seededUnitPRNG(serverSeed, gameId);
+  const path: PriceTick[] = [{ price: 1, t: 0 }];
+  let price = 1;
+  let peakMultiplier = 1;
+  let rugTick = CONTINUOUS_MAX_ROUND_TICKS;
+
+  for (let i = 1; i <= CONTINUOUS_MAX_ROUND_TICKS; i++) {
+    if (
+      i >= CONTINUOUS_MIN_ROUND_TICKS &&
+      (rng() < CONTINUOUS_RUG_CHANCE_PER_TICK || i === CONTINUOUS_MAX_ROUND_TICKS)
+    ) {
+      rugTick = i;
+      path.push({ price: 0.01, t: (i * tickMs) / 1000 });
+      break;
+    }
+
+    let change: number;
+    if (rng() < 0.035) {
+      const magnitude = 0.015 + rng() * 0.06;
+      change = rng() > 0.48 ? magnitude : -magnitude;
+    } else {
+      const drift = -0.006 + rng() * 0.013;
+      const volatility = 0.0045 * Math.min(4, Math.sqrt(Math.max(price, 0.01)));
+      change = drift + volatility * (2 * rng() - 1);
+    }
+
+    price = Math.max(0.05, Math.min(100, price * (1 + change)));
+    peakMultiplier = Math.max(peakMultiplier, price);
+    path.push({
+      price: Math.round(price * 10_000) / 10_000,
+      t: (i * tickMs) / 1000,
+    });
+  }
+
+  if (path[path.length - 1]?.price !== 0.01) {
+    rugTick = path.length;
+    path.push({ price: 0.01, t: (rugTick * tickMs) / 1000 });
+  }
+
+  return {
+    path,
+    peakMultiplier: roundCrashPoint(peakMultiplier),
+    rugTick,
+  };
 }
 
 export function generateRoundPath(serverSeed: string, gameId: number, crashPoint: number, tickMs = 250): PriceTick[] {

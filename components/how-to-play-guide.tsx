@@ -72,8 +72,8 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
           </div>
         </div>
         <p className="mt-3 text-xs text-white/60 leading-relaxed max-w-[360px] mx-auto font-bold">
-          Multiplier starts at 1.00x, climbs until it rugs. Go long if you want up, short if you want down. Manual cash-out,
-          partial exits, Auto TP — or get rekt. The chart does not care about your feelings.
+          Price starts at 1.00x and drifts up or down until it rugs. BUY a long during countdown or live, then SELL,
+          partially cash out, or use Auto TP before the hard rug.
         </p>
       </header>
 
@@ -120,8 +120,8 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
               (e.g. 2.0x) — or plan to manual cash-out during the run.
             </li>
             <li>
-              <span className="text-cyan-400">5.</span> During the <span className="text-cyan-400">countdown only</span>
-              , click <span className="text-emerald-400">BUY LONG</span> or <span className="text-rose-400">SELL SHORT</span>.
+              <span className="text-cyan-400">5.</span> During the countdown or live chart, click{' '}
+              <span className="text-emerald-400">BUY</span>. Press <span className="text-rose-400">SELL</span> to close.
               Holders see <span className="text-amber-300">+30% stimmy</span> on the buttons.
             </li>
             <li>
@@ -167,35 +167,20 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
           </InfoBox>
         </GuideSection>
 
-        {/* Sell short */}
-        <GuideSection emoji="🔴" title="SELL SHORT — How Sellers Win" accentClass="from-rose-500/15 to-transparent">
+        {/* Demo Standard sell */}
+        <GuideSection emoji="💰" title="SELL — Close Your Long" accentClass="from-rose-500/15 to-transparent">
           <p>
-            <span className="text-rose-400">SHORT</span> = you bet the multiplier goes <strong>DOWN</strong>. You profit
-            when exit price is lower than your 1.00x entry.
+            Demo Standard is <strong>long-only</strong>. BUY during the countdown at 1.00x or BUY the live chart at its
+            current price, then press <span className="text-rose-400">SELL</span> whenever you want to close.
           </p>
           <div className="rounded-xl bg-[#1f2025] border border-rose-500/20 p-2.5 text-[11px] font-mono text-white/80">
-            Profit = wager × leverage × (1 − exit ÷ entry)
+            Profit = wager × leverage × (exit ÷ entry − 1)
             <br />
-            Max loss = your full wager (margin)
-          </div>
-          <p className="text-[11px] text-white/55">Example: 1.0 BlackBalls @ 2x leverage</p>
-          <div className="grid grid-cols-2 gap-1.5 text-[10px]">
-            <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-2">
-              <div className="text-emerald-400 font-extrabold">Exit @ 0.50x</div>
-              <div className="text-white/60 mt-0.5">1 × 2 × (1−0.5) = +1.0 profit</div>
-            </div>
-            <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-2 col-span-2">
-              <div className="text-emerald-400 font-extrabold">Rug @ 0.01x (still holding short)</div>
-              <div className="text-white/60 mt-0.5">1 × 2 × (1−0.01) ≈ +1.98 profit — shorts love rugs</div>
-            </div>
-            <div className="rounded-lg bg-rose-500/10 border border-rose-500/20 p-2 col-span-2">
-              <div className="text-rose-400 font-extrabold">Pump to 1.50x (still holding)</div>
-              <div className="text-white/60 mt-0.5">1 × 2 × (1−1.5) = −1.0 (max loss)</div>
-            </div>
+            Leveraged entries charge a one-time 2% fee on notional
           </div>
           <InfoBox variant="rose">
-            <strong>Short strategy — Shorts love rugs:</strong> Best on low / instant rugs and near-miss rugs (1.85x–1.97x).
-            If the chart moons before crash, a short gets wrecked — 10x short now liquidates ~1.15x (softer than before).
+            <strong>Hard rug:</strong> Any position still open when price drops near zero loses its full remaining margin.
+            SELL is always available while your live long is open.
           </InfoBox>
         </GuideSection>
 
@@ -213,9 +198,8 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
             </div>
             {[
               ['Long', '2x', '0.50x'],
-              ['Long', '10x', '0.90x'],
-              ['Short', '2x', '1.50x'],
-              ['Short', '10x', '~1.15x'],
+              ['Long', '3x', '0.67x'],
+              ['Long', '5x', '0.80x'],
             ].map(([side, lev, liq]) => (
               <div key={`${side}-${lev}`} className="grid grid-cols-3 gap-px bg-white/5 text-center py-1.5 text-white/65">
                 <div className={side === 'Long' ? 'text-emerald-400' : 'text-rose-400'}>{side}</div>
@@ -226,7 +210,7 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
           </div>
           <p className="text-[11px] text-white/50">
             At <span className="text-white/70">1x leverage</span> there is no mid-round liquidation — you only lose your
-            full wager at crash (long) or win big (short on rug).
+            full wager only when the hard rug lands.
           </p>
         </GuideSection>
 
@@ -245,7 +229,7 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
               <span className="text-emerald-400">Long:</span> Auto TP when mult ≥ target · manual anytime mult &gt; 1.00x
             </li>
             <li>
-              <span className="text-rose-400">Short:</span> Auto TP on the way down · manual anytime before rug
+              <span className="text-rose-400">SELL:</span> Close your live long instantly at the current chart price
             </li>
           </ul>
           <InfoBox variant="cyan">
@@ -499,7 +483,7 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
               <span className="text-rose-400">✗</span> 10x long on instant rugs (liquidates at 0.90x)
             </li>
             <li>
-              <span className="text-rose-400">✗</span> Shorting a moon without remembering <span className="text-rose-300">Shorts love rugs</span> — but hate pumps (10x liq ~1.15x)
+              <span className="text-rose-400">✗</span> Forgetting the 2% leveraged-notional opening fee when planning a quick exit
             </li>
             <li>
               <span className="text-rose-400">✗</span> Ignoring the Verify button after crash — trust but verify, degen

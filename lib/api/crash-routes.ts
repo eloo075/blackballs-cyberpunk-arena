@@ -18,11 +18,11 @@ import {
 } from '@/lib/chain/crash-vault-client';
 import { normalizeDemoSessionBalance } from '@/lib/session-balance';
 import { assertGameNotCampaignLocked } from '@/lib/launch-campaign-guard';
-import { verifyCrashRound } from '@/lib/crash-engine';
+import { verifyContinuousCrashRound, verifyCrashRound } from '@/lib/crash-engine';
 
 export async function handleStream(req: NextRequest) {
-  const manager = getManager();
   const address = req.nextUrl.searchParams.get('address');
+  const manager = getManager(address);
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -92,7 +92,7 @@ export async function handleStream(req: NextRequest) {
 
 export async function handleState(req: NextRequest) {
   const address = req.nextUrl.searchParams.get('address');
-  const manager = getManager();
+  const manager = getManager(address);
   await ensureCrashStateSynced(manager, address);
   return NextResponse.json(manager.snapshotForStream(address));
 }
@@ -126,7 +126,7 @@ export async function handleSession(req: NextRequest) {
     syncedBalance = normalizeDemoSessionBalance(address, syncedBalance, isRealWallet);
   }
 
-  const manager = getManager();
+  const manager = getManager(address);
   await ensureCrashStateSynced(manager, address);
 
   const finalBalance = manager.syncPlayer(
@@ -172,7 +172,7 @@ export async function handleEnter(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'wallet not connected' }, { status: 401 });
   }
 
-  const manager = getManager();
+  const manager = getManager(address);
   const clientView = parseClientView(body);
   await ensureCrashStateSynced(manager, address, clientView);
 
@@ -202,7 +202,8 @@ export async function handleEnter(req: NextRequest) {
   const snapshot = manager.getFullState(address);
   const phase = snapshot.phase;
 
-  if (phase !== 'waiting') {
+  const liveContinuous = manager.mode === 'continuous' && phase === 'running';
+  if (phase !== 'waiting' && !liveContinuous) {
     console.warn('[crash/enter] 400 wait for round', {
       address,
       phase,
@@ -238,7 +239,10 @@ export async function handleEnter(req: NextRequest) {
       ok: true,
       action: 'open',
       balance: view.balance,
-      message: `already entered ${side === 'buy' ? 'long' : 'short'} this countdown — waiting for round start`,
+      message:
+        phase === 'running'
+          ? 'Long position already open'
+          : 'Long entered this countdown — waiting for round start',
       view,
     });
   }
@@ -325,7 +329,7 @@ export async function handleCancel(req: NextRequest) {
     );
   }
 
-  const manager = getManager();
+  const manager = getManager(address);
   const clientView = parseClientView(body);
   await ensureCrashStateSynced(manager, address, clientView);
 
@@ -386,7 +390,7 @@ export async function handleCashout(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'invalid percent' }, { status: 400 });
   }
 
-  const manager = getManager();
+  const manager = getManager(address);
   const clientView = parseClientView(body);
   await ensureCrashStateSynced(manager, address, clientView);
 
@@ -428,13 +432,13 @@ export async function handleAuto(req: NextRequest) {
   const blocked = assertGameNotCampaignLocked();
   if (blocked) return blocked;
 
-  const manager = getManager();
   const body = await req.json().catch(() => ({}));
   const address = typeof body.address === 'string' ? body.address : null;
   const v = body.value != null ? parseFloat(body.value) : null;
   if (!address) {
     return NextResponse.json({ ok: false, error: 'wallet not connected' }, { status: 401 });
   }
+  const manager = getManager(address);
   if (v != null && (isNaN(v) || v < 1.01)) {
     return NextResponse.json({ ok: false, error: 'invalid' }, { status: 400 });
   }
@@ -449,24 +453,36 @@ export async function handleVerify(req: NextRequest) {
   const clientSeed = typeof body.clientSeed === 'string' ? body.clientSeed.trim() : '';
   const nonce = parseInt(body.nonce, 10);
   const expectedCrashPoint = parseFloat(body.expectedCrashPoint);
+  const mode = body.mode === 'continuous' ? 'continuous' : 'classic';
+  const expectedRugTick = parseInt(body.expectedRugTick, 10);
 
   if (
     !serverSeed ||
     !serverSeedHash ||
     !clientSeed ||
     !Number.isFinite(nonce) ||
-    !Number.isFinite(expectedCrashPoint)
+    !Number.isFinite(expectedCrashPoint) ||
+    (mode === 'continuous' && !Number.isFinite(expectedRugTick))
   ) {
     return NextResponse.json({ valid: false, reason: 'invalid payload' }, { status: 400 });
   }
 
-  const result = verifyCrashRound({
-    serverSeed,
-    serverSeedHash,
-    clientSeed,
-    nonce,
-    expectedCrashPoint,
-  });
+  const result =
+    mode === 'continuous'
+      ? verifyContinuousCrashRound({
+          serverSeed,
+          serverSeedHash,
+          nonce,
+          expectedPeak: expectedCrashPoint,
+          expectedRugTick,
+        })
+      : verifyCrashRound({
+          serverSeed,
+          serverSeedHash,
+          clientSeed,
+          nonce,
+          expectedCrashPoint,
+        });
 
   return NextResponse.json(result, { status: 200 });
 }

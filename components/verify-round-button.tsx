@@ -12,6 +12,8 @@ interface VerifyRoundButtonProps {
     clientSeed: string;
     nonce: number;
     crashPoint: number | null;
+    mode?: 'classic' | 'continuous';
+    rugTick?: number | null;
   };
 }
 
@@ -67,6 +69,8 @@ export function VerifyRoundButton({ round }: VerifyRoundButtonProps) {
           clientSeed: round.clientSeed,
           nonce: round.nonce,
           expectedCrashPoint: round.crashPoint!,
+          mode: round.mode,
+          expectedRugTick: round.rugTick,
         },
         ac.signal,
       );

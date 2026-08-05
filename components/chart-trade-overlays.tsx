@@ -45,7 +45,7 @@ function TradeMarker({ isBuy }: { isBuy: boolean }) {
       }`}
       aria-hidden
     >
-      {isBuy ? '🚀' : '🐻'}
+      {isBuy ? '🚀' : '💰'}
     </div>
   );
 }
@@ -146,6 +146,36 @@ function computePosition(
   );
 
   return { markerX, markerY, tooltipX, tooltipY };
+}
+
+export function ChartTradeMarkers({
+  tradeTags,
+  candles,
+  layoutRef,
+}: ChartTradeOverlaysProps) {
+  const layout = layoutRef.current;
+  if (!layout || tradeTags.length === 0) return null;
+
+  return (
+    <div className="absolute inset-0 z-[18] pointer-events-none overflow-hidden" aria-hidden>
+      {tradeTags.slice(-20).map(tag => {
+        const position = computePosition(layout, candles, tag);
+        const visible =
+          position.markerX >= layout.padLeft &&
+          position.markerX <= layout.padLeft + layout.chartW;
+        if (!visible) return null;
+        return (
+          <div
+            key={tag.id}
+            className="absolute -translate-x-1/2 -translate-y-1/2 text-[11px] drop-shadow-md"
+            style={{ left: position.markerX, top: position.markerY }}
+          >
+            {tag.side === 'buy' ? '🚀' : '💰'}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export function ChartTradeOverlays({ tradeTags, candles, layoutRef }: ChartTradeOverlaysProps) {

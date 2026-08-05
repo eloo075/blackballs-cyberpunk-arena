@@ -16,6 +16,7 @@ import {
   computeCrashPoint,
   DEFAULT_CLIENT_SEED,
   deriveServerSeedForGameId,
+  generateContinuousRoundPath,
   generateRoundPath,
   generateSeedHistory,
   hashServerSeed,
@@ -47,6 +48,8 @@ interface RoundState {
   crashAtSeconds: number;
   revealed: boolean;
   path: { price: number; t: number }[];
+  mode: 'classic' | 'continuous';
+  rugTick: number | null;
 }
 
 interface PlayerState {
@@ -102,6 +105,7 @@ function randName(): string {
 }
 
 export class CrashManager {
+  readonly mode: 'classic' | 'continuous';
   private phase: Phase = 'waiting';
   private gameId = 1;
   private round!: RoundState;
@@ -131,7 +135,8 @@ export class CrashManager {
   /** Last round id that finished crash settlement — used to clear ghost positions. */
   private lastSettledRoundId = 0;
 
-  constructor() {
+  constructor(mode: 'classic' | 'continuous' = 'continuous') {
+    this.mode = mode;
     this.history = generateSeedHistory(MAX_HISTORY);
     this.gameId = MAX_HISTORY + 1;
     this.round = this.newRound();
@@ -143,8 +148,12 @@ export class CrashManager {
     const seed = deriveServerSeedForGameId(this.gameId);
     const clientSeed = DEFAULT_CLIENT_SEED;
     const nonce = this.gameId;
-    const crashPoint = computeCrashPoint(seed, clientSeed, nonce);
-    const path = generateRoundPath(seed, nonce, crashPoint, TICK_MS);
+    const classicCrashPoint = computeCrashPoint(seed, clientSeed, nonce);
+    const continuous =
+      this.mode === 'continuous' ? generateContinuousRoundPath(seed, nonce, TICK_MS) : null;
+    const crashPoint = continuous?.peakMultiplier ?? classicCrashPoint;
+    const path =
+      continuous?.path ?? generateRoundPath(seed, nonce, classicCrashPoint, TICK_MS);
     return {
       id: this.gameId,
       serverSeed: seed,
@@ -152,10 +161,12 @@ export class CrashManager {
       clientSeed,
       nonce,
       crashPoint,
-      instantRug: crashPoint <= 1.0,
-      crashAtSeconds: 0,
+      instantRug: this.mode === 'classic' && crashPoint <= 1.0,
+      crashAtSeconds: path[path.length - 1]?.t ?? 0,
       revealed: false,
       path,
+      mode: this.mode,
+      rugTick: continuous?.rugTick ?? null,
     };
   }
 
@@ -184,12 +195,16 @@ export class CrashManager {
   private applyOrderFlow(side: 'buy' | 'sell', notional: number) {
     const impact = Math.min(0.06, Math.max(0.002, notional * 0.0035));
     if (side === 'buy') {
-      this.pressureOffset += impact;
-      this.orderPressure = Math.min(0.15, this.orderPressure + impact);
+      if (this.mode === 'classic') {
+        this.pressureOffset += impact;
+        this.orderPressure = Math.min(0.15, this.orderPressure + impact);
+      }
       this.roundBuyVolume += notional;
     } else {
-      this.pressureOffset -= impact * 0.9;
-      this.orderPressure = Math.max(-0.15, this.orderPressure - impact * 0.9);
+      if (this.mode === 'classic') {
+        this.pressureOffset -= impact * 0.9;
+        this.orderPressure = Math.max(-0.15, this.orderPressure - impact * 0.9);
+      }
       this.roundSellVolume += notional;
     }
     if (this.phase === 'running') {
@@ -502,6 +517,8 @@ export class CrashManager {
         clientSeed: this.round.clientSeed,
         nonce: this.round.nonce,
         crashPoint: this.round.revealed ? this.round.crashPoint : null,
+        mode: this.round.mode,
+        rugTick: this.round.revealed ? this.round.rugTick : null,
       },
       players: buyersIn,
       buyersIn,
@@ -521,15 +538,24 @@ export class CrashManager {
     const AHEAD_TICKS = 8;
     let pathAhead: number[] | undefined;
     if (this.phase === 'running' && this.round.path.length > 0) {
-      const upcoming = this.round.path
-        .slice(this.tickIdx, Math.min(this.tickIdx + AHEAD_TICKS, this.round.path.length - 1))
-        .map(p => p.price);
-      const lastKnown = upcoming[upcoming.length - 1] ?? this.mult;
-      const growth = 1 + Math.max(0.0005, Math.min(0.01, (lastKnown - 1) * 0.004));
-      while (upcoming.length < AHEAD_TICKS) {
-        upcoming.push(Math.max(1.0, (upcoming[upcoming.length - 1] ?? lastKnown) * growth));
+      if (this.mode === 'continuous') {
+        const prev = this.round.path[Math.max(0, this.tickIdx - 1)]?.price ?? this.mult;
+        const observedMove = prev > 0 ? this.mult / prev - 1 : 0;
+        const trend = Math.max(-0.008, Math.min(0.008, observedMove));
+        pathAhead = Array.from({ length: AHEAD_TICKS }, (_, i) =>
+          Math.max(0.05, this.mult * Math.pow(1 + trend * 0.35, i)),
+        );
+      } else {
+        const upcoming = this.round.path
+          .slice(this.tickIdx, Math.min(this.tickIdx + AHEAD_TICKS, this.round.path.length - 1))
+          .map(p => p.price);
+        const lastKnown = upcoming[upcoming.length - 1] ?? this.mult;
+        const growth = 1 + Math.max(0.0005, Math.min(0.01, (lastKnown - 1) * 0.004));
+        while (upcoming.length < AHEAD_TICKS) {
+          upcoming.push(Math.max(1.0, (upcoming[upcoming.length - 1] ?? lastKnown) * growth));
+        }
+        pathAhead = upcoming;
       }
-      pathAhead = upcoming;
     }
     return {
       ...full,
@@ -540,6 +566,8 @@ export class CrashManager {
         crashPoint: h.crashPoint,
         ts: h.ts,
         instantRug: h.instantRug,
+        mode: h.mode,
+        rugTick: h.rugTick,
         serverSeedHash: h.serverSeedHash.slice(0, 16),
         serverSeed: null,
       })),
@@ -567,8 +595,12 @@ export class CrashManager {
       const maxWiggle = Math.max(0.02, baseMult * 0.04);
       this.pressureOffset = Math.max(-maxWiggle, Math.min(maxWiggle, this.pressureOffset));
       const flowMult = baseMult + this.pressureOffset;
-      const ceiling = Math.max(1.01, this.round.crashPoint - 0.01);
-      this.mult = Math.max(1.0, Math.min(ceiling, flowMult));
+      if (this.mode === 'continuous') {
+        this.mult = Math.max(0.05, Math.min(100, flowMult));
+      } else {
+        const ceiling = Math.max(1.01, this.round.crashPoint - 0.01);
+        this.mult = Math.max(1.0, Math.min(ceiling, flowMult));
+      }
       this.peakMult = Math.max(this.peakMult, this.mult);
 
       this.candleHigh = Math.max(this.candleHigh, this.mult);
@@ -826,6 +858,8 @@ export class CrashManager {
       clientSeed: this.round.clientSeed,
       nonce: this.round.nonce,
       instantRug: this.round.instantRug,
+      mode: this.round.mode,
+      rugTick: this.round.rugTick ?? undefined,
       ts: Date.now(),
     });
     if (this.history.length > MAX_HISTORY) this.history.pop();
@@ -842,7 +876,7 @@ export class CrashManager {
       if (b.status === 'out') {
         if (Math.random() < 0.08) {
           b.status = 'in';
-          b.side = Math.random() < 0.55 ? 'buy' : 'sell';
+          b.side = this.mode === 'continuous' || Math.random() < 0.55 ? 'buy' : 'sell';
           b.entryPrice = this.mult;
           b.leverage = 1 + Math.floor(Math.random() * 4);
           const notional = b.amount * b.leverage;
@@ -980,6 +1014,52 @@ export class CrashManager {
     this.applyOrderFlow(side, notional);
     this.pushFeed('YOU', side, margin, 1.0, -margin, { leverage, side });
     this.pushTag('YOU', side, margin, 1.0);
+    this.emit();
+    mirrorCrashBalanceToFlip(address, player.balance);
+    return { ok: true, balance: player.balance, action: 'open' };
+  }
+
+  private placeLiveEntry(
+    address: string,
+    amount: number,
+    leverage: number,
+  ): { ok: boolean; error?: string; balance?: number; action?: 'open' } {
+    const player = this.getPlayer(address);
+    if (this.mode !== 'continuous' || this.phase !== 'running') {
+      return { ok: false, error: 'live entry unavailable' };
+    }
+    if (player.hasPosition || player.pendingEntry) {
+      return { ok: false, error: 'already in position' };
+    }
+
+    const margin = Math.floor(amount * 1000) / 1000;
+    if (!Number.isFinite(margin) || margin <= 0) {
+      return { ok: false, error: 'invalid amount' };
+    }
+    const openFee = leveragedOpenFee(margin, leverage);
+    const totalDebit = roundMoney(margin + openFee);
+    if (!Number.isFinite(totalDebit) || totalDebit > player.balance + 0.0005) {
+      return {
+        ok: false,
+        error: `insufficient balance (${player.balance.toFixed(3)} BlackBalls available; ${openFee.toFixed(3)} fee)`,
+      };
+    }
+
+    player.balance = roundMoney(player.balance - totalDebit);
+    player.hasPosition = true;
+    player.positionSide = 'buy';
+    player.positionAmount = margin;
+    player.positionLeverage = leverage;
+    player.positionEntryPrice = this.mult;
+    player.positionRoundId = this.round.id;
+    player.pendingEntry = null;
+
+    this.applyOrderFlow('buy', margin * leverage);
+    this.pushFeed('YOU', 'buy', margin, this.mult, -totalDebit, {
+      leverage,
+      side: 'buy',
+    });
+    this.pushTag('YOU', 'buy', margin, this.mult);
     this.emit();
     mirrorCrashBalanceToFlip(address, player.balance);
     return { ok: true, balance: player.balance, action: 'open' };
@@ -1231,6 +1311,33 @@ export class CrashManager {
 
     const player = this.getPlayer(address);
 
+    if (this.mode === 'continuous') {
+      if (this.phase === 'waiting') {
+        if (side === 'sell' && !player.pendingEntry && !player.hasPosition) {
+          return { ok: false, error: 'no long position to sell' };
+        }
+        if (side === 'sell') {
+          return player.pendingEntry
+            ? this.cancelPendingEntry(address)
+            : this.closePosition(address);
+        }
+        this.preparePlayerForEnter(address);
+        if (player.pendingEntry || player.hasPosition) {
+          return { ok: false, error: 'already entered this round' };
+        }
+        return this.placePendingEntry(address, 'buy', amount, lev);
+      }
+      if (this.phase === 'running') {
+        if (side === 'sell') {
+          return player.hasPosition
+            ? this.closePosition(address)
+            : { ok: false, error: 'no long position to sell' };
+        }
+        return this.placeLiveEntry(address, amount, lev);
+      }
+      return { ok: false, error: 'wait for the next round' };
+    }
+
     if (this.phase === 'waiting') {
       this.preparePlayerForEnter(address);
       const pending =
@@ -1349,7 +1456,10 @@ export class CrashManager {
       const pathTick = this.round.path[Math.min(this.tickIdx, this.round.path.length - 1)];
       const baseMult = pathTick?.price ?? mult;
       this.pressureOffset = 0;
-      this.mult = Math.max(1.0, Math.min(Math.max(1.01, this.round.crashPoint - 0.01), baseMult));
+      this.mult =
+        this.mode === 'continuous'
+          ? Math.max(0.05, Math.min(100, baseMult))
+          : Math.max(1.0, Math.min(Math.max(1.01, this.round.crashPoint - 0.01), baseMult));
       this.peakMult = Math.max(this.peakMult, this.mult);
     } else {
       this.mult = mult;
@@ -1407,14 +1517,17 @@ export class CrashManager {
       (player.pendingEntry != null && player.pendingEntry.roundId === this.round.id);
     if (localActive) return;
 
-    player.balance = row.balance;
-    player.stimmy = row.stimmy;
-    player.frenzy = row.frenzy;
+    const maxBalance = address.startsWith('0x') ? Number.MAX_SAFE_INTEGER : MAX_DEMO_BALANCE;
+    player.balance = Number.isFinite(row.balance)
+      ? roundMoney(Math.min(maxBalance, Math.max(0, row.balance)))
+      : 0;
+    player.stimmy = clampRate(row.stimmy, MAX_STIMMY_RATE);
+    player.frenzy = clampRate(row.frenzy, MAX_FRENZY_RATE);
     player.autoSell = row.autoSell;
 
     if (row.entryPending && row.pendingRoundId === this.round.id && this.phase === 'waiting') {
       player.pendingEntry = {
-        side: row.pendingSide ?? row.positionSide,
+        side: this.mode === 'continuous' ? 'buy' : row.pendingSide ?? row.positionSide,
         amount: row.pendingAmount ?? row.positionAmount,
         leverage: row.pendingLeverage ?? row.positionLeverage,
         roundId: row.pendingRoundId,
@@ -1424,7 +1537,7 @@ export class CrashManager {
 
     if (row.hasPosition && row.positionRoundId === this.round.id) {
       player.hasPosition = true;
-      player.positionSide = row.positionSide;
+      player.positionSide = this.mode === 'continuous' ? 'buy' : row.positionSide;
       player.positionAmount = row.positionAmount;
       player.positionLeverage = row.positionLeverage;
       player.positionEntryPrice = row.positionEntryPrice;
@@ -1474,7 +1587,7 @@ export class CrashManager {
 
     if (view.entryPending && this.phase === 'waiting') {
       player.pendingEntry = {
-        side: view.positionSide ?? 'buy',
+        side: this.mode === 'continuous' ? 'buy' : view.positionSide ?? 'buy',
         amount: safeAmount,
         leverage: safeLeverage,
         roundId: this.round.id,
@@ -1484,10 +1597,12 @@ export class CrashManager {
 
     if ((view.hasLivePosition || view.hasPosition) && this.phase === 'running') {
       player.hasPosition = true;
-      player.positionSide = view.positionSide ?? 'buy';
+      player.positionSide = this.mode === 'continuous' ? 'buy' : view.positionSide ?? 'buy';
       player.positionAmount = safeAmount;
       player.positionLeverage = safeLeverage;
-      player.positionEntryPrice = 1.0;
+      // A reconnecting Demo client cannot choose a favorable entry. Continuous
+      // recovery resumes at the current authoritative server price.
+      player.positionEntryPrice = this.mode === 'continuous' ? this.mult : 1.0;
       player.positionRoundId = this.round.id;
       player.pendingEntry = null;
       return player.positionAmount > 0;
@@ -1495,7 +1610,7 @@ export class CrashManager {
 
     if ((view.hasLivePosition || view.hasPosition) && this.phase === 'waiting') {
       player.pendingEntry = {
-        side: view.positionSide ?? 'buy',
+        side: this.mode === 'continuous' ? 'buy' : view.positionSide ?? 'buy',
         amount: safeAmount,
         leverage: safeLeverage,
         roundId: this.round.id,
@@ -1509,12 +1624,21 @@ export class CrashManager {
 
 declare global {
   // eslint-disable-next-line no-var
-  var __blackballsCrashManager: CrashManager | undefined;
+  var __blackballsCrashDemoManager: CrashManager | undefined;
+  // eslint-disable-next-line no-var
+  var __blackballsCrashRealManager: CrashManager | undefined;
 }
 
-export function getManager(): CrashManager {
-  if (!globalThis.__blackballsCrashManager) {
-    globalThis.__blackballsCrashManager = new CrashManager();
+export function getManager(address: string | null = null): CrashManager {
+  const real = Boolean(address?.startsWith('0x'));
+  if (real) {
+    if (!globalThis.__blackballsCrashRealManager) {
+      globalThis.__blackballsCrashRealManager = new CrashManager('classic');
+    }
+    return globalThis.__blackballsCrashRealManager;
   }
-  return globalThis.__blackballsCrashManager;
+  if (!globalThis.__blackballsCrashDemoManager) {
+    globalThis.__blackballsCrashDemoManager = new CrashManager('continuous');
+  }
+  return globalThis.__blackballsCrashDemoManager;
 }

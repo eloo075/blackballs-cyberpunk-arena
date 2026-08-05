@@ -2,7 +2,10 @@
 import { useEffect, useRef } from 'react';
 import type { Candle, TradeTag } from '@/lib/crash-types';
 import { computeChartLayout, type ChartLayoutFrame } from '@/lib/chart-layout';
-import { ChartTradeOverlays } from '@/components/chart-trade-overlays';
+import {
+  ChartTradeMarkers,
+  ChartTradeOverlays,
+} from '@/components/chart-trade-overlays';
 import { usePageVisibility } from '@/hooks/use-page-visibility';
 
 interface ChartCanvasProps {
@@ -301,6 +304,7 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
   return (
     <div className="relative w-full h-full overflow-visible">
       <canvas ref={canvasRef} className="w-full h-full block" />
+      <ChartTradeMarkers tradeTags={tradeTags} candles={candles} layoutRef={layoutRef} />
       <ChartTradeOverlays tradeTags={tradeTags} candles={candles} layoutRef={layoutRef} />
     </div>
   );

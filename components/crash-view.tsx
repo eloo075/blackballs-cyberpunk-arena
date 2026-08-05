@@ -83,7 +83,8 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
 
     const totalProfit = lr.amount + (lr.bonusAmount ?? 0);
     const isWin = totalProfit > 0.0001;
-    const crashAt = state.currentRound.crashPoint;
+    const crashAt =
+      state.currentRound.mode === 'continuous' ? 0.01 : state.currentRound.crashPoint;
     if (isWin) {
       triggerResult({
         won: true,
@@ -110,7 +111,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
         multiplier: crashAt,
       });
     }
-  }, [state?.lastResult, state?.phase, state?.currentRound.id, state?.currentRound.crashPoint, recordCrashResult, wallet.address, displayAddress, triggerResult]);
+  }, [state?.lastResult, state?.phase, state?.currentRound.id, state?.currentRound.crashPoint, state?.currentRound.mode, recordCrashResult, wallet.address, displayAddress, triggerResult]);
 
   if (!state) {
     return (
@@ -132,8 +133,9 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
   const showPosition = state.hasPosition && state.phase !== 'crashed';
   const showLivePosition = state.hasLivePosition && state.phase === 'running';
   const liveMult = showPosition && state.phase === 'waiting' ? 1.0 : display.mult;
+  const continuousRound = state.currentRound.mode === 'continuous';
   const chartMult =
-    state.phase === 'crashed' && state.currentRound.crashPoint != null
+    state.phase === 'crashed' && state.currentRound.crashPoint != null && !continuousRound
       ? state.currentRound.crashPoint
       : display.mult;
   const chartPeak =
@@ -226,7 +228,9 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
               </span>
             )}
             {state.currentRound.crashPoint != null && (
-              <span className="text-rose-400 font-extrabold ml-1">Crash {state.currentRound.crashPoint.toFixed(2)}x</span>
+              <span className="text-rose-400 font-extrabold ml-1">
+                {continuousRound ? 'Peak' : 'Crash'} {state.currentRound.crashPoint.toFixed(2)}x
+              </span>
             )}
           </div>
         </div>
@@ -330,7 +334,9 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
                     style={{ textShadow: '0 4px 16px rgba(0,0,0,0.45)' }}
                   >
                     {state.currentRound.crashPoint != null
-                      ? `${state.currentRound.crashPoint.toFixed(2)}x`
+                      ? continuousRound
+                        ? `0.01x · peak ${state.currentRound.crashPoint.toFixed(2)}x`
+                        : `${state.currentRound.crashPoint.toFixed(2)}x`
                       : `${state.peakMult.toFixed(2)}x`}
                   </motion.div>
                   <motion.div
@@ -341,7 +347,8 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
                   >
                     {state.players} degens rekt
                   </motion.div>
-                  {(state.currentRound.crashPoint ?? 0) >= 1.85 &&
+                  {!continuousRound &&
+                    (state.currentRound.crashPoint ?? 0) >= 1.85 &&
                     (state.currentRound.crashPoint ?? 0) <= 1.97 && (
                       <motion.div
                         initial={{ opacity: 0 }}

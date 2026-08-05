@@ -12,5 +12,5 @@ export function mirrorCrashBalanceToFlip(address: string, balance: number): void
 /** Keep Crash server balance aligned after Flip balance changes. */
 export function mirrorFlipBalanceToCrash(address: string, balance: number): void {
   if (!address || address === 'BOT') return;
-  getManager().applyPeerBalance(address, balance);
+  getManager(address).applyPeerBalance(address, balance);
 }
