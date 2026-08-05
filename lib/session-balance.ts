@@ -1,4 +1,5 @@
 import { DEMO_MIN_BALANCE, DEMO_REFILL_BB } from '@/lib/demo-credits';
+import { MAX_DEMO_BALANCE, roundMoney } from '@/lib/crash-pnl';
 import type { FullState } from '@/lib/crash-types';
 import type { FlipFullState } from '@/lib/flip-types';
 
@@ -8,7 +9,9 @@ export function normalizeDemoSessionBalance(
   balance: number,
   isRealWallet = false,
 ): number {
-  const n = parseFloat(Math.max(0, balance).toFixed(3));
+  const n = Number.isFinite(balance)
+    ? roundMoney(Math.min(MAX_DEMO_BALANCE, Math.max(0, balance)))
+    : 0;
   if (isRealWallet || address.startsWith('0x')) return n;
   if (n < DEMO_MIN_BALANCE) return DEMO_REFILL_BB;
   return n;
@@ -19,7 +22,9 @@ export function resolveClientSyncBalance(
   wallet: { connected: boolean; blackballsBalance: number; isRealWallet: boolean },
 ): number {
   if (!wallet.connected) return 0;
-  const n = parseFloat(Math.max(0, wallet.blackballsBalance).toFixed(3));
+  const n = Number.isFinite(wallet.blackballsBalance)
+    ? roundMoney(Math.min(MAX_DEMO_BALANCE, Math.max(0, wallet.blackballsBalance)))
+    : 0;
   if (!wallet.isRealWallet && n < DEMO_MIN_BALANCE) return DEMO_REFILL_BB;
   return n;
 }
@@ -31,8 +36,10 @@ export function resolvePlayableBalance(
 ): number {
   const walletBal = resolveClientSyncBalance(wallet);
   if (!wallet.connected) return walletBal;
-  if (serverBalance == null || Number.isNaN(serverBalance)) return walletBal;
-  const s = parseFloat(Math.max(0, serverBalance).toFixed(3));
+  if (serverBalance == null || !Number.isFinite(serverBalance)) return walletBal;
+  const s = roundMoney(
+    Math.min(wallet.isRealWallet ? Number.MAX_SAFE_INTEGER : MAX_DEMO_BALANCE, Math.max(0, serverBalance)),
+  );
   if (!wallet.isRealWallet && s < DEMO_MIN_BALANCE && walletBal >= DEMO_MIN_BALANCE) {
     return walletBal;
   }
@@ -45,9 +52,11 @@ export function normalizeCrashStreamState(
   prev: FullState | null,
   walletFallback = 0,
 ): FullState {
-  const walletBal = parseFloat(Math.max(0, walletFallback).toFixed(3));
-  let balance = typeof raw.balance === 'number' && !Number.isNaN(raw.balance) ? raw.balance : NaN;
-  if (Number.isNaN(balance)) {
+  const walletBal = Number.isFinite(walletFallback)
+    ? roundMoney(Math.min(MAX_DEMO_BALANCE, Math.max(0, walletFallback)))
+    : 0;
+  let balance = typeof raw.balance === 'number' && Number.isFinite(raw.balance) ? raw.balance : NaN;
+  if (!Number.isFinite(balance)) {
     balance = typeof prev?.balance === 'number' ? prev.balance : walletBal;
   }
   const hasLivePosition =

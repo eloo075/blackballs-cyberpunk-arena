@@ -7,7 +7,13 @@ import { affordableBetAmount, clampBetToBalance, formatBetTokens, formatBetUsd, 
 import { useTokenUsd } from '@/hooks/use-token-usd';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { HoldBonuses } from '@/lib/hold-bonuses';
-import { calcPositionPct, calcPositionPnl, formatLivePnl } from '@/lib/crash-pnl';
+import {
+  calcPositionPct,
+  calcPositionPnl,
+  formatLivePnl,
+  leveragedOpenFee,
+  maxAffordableMargin,
+} from '@/lib/crash-pnl';
 
 interface CrashControlsProps {
   phase: 'waiting' | 'running' | 'crashed';
@@ -145,12 +151,14 @@ export function CrashControls({
   const rawWager = percent > 0
     ? parseFloat((balance * percent / 100).toFixed(4))
     : clampBetToBalance(amount, balance);
-  const safeAmount = clampWager(rawWager, balance);
+  const affordableMargin = maxAffordableMargin(balance, leverage);
+  const safeAmount = clampWager(rawWager, affordableMargin);
   const effectiveWager =
     !hasPosition && balance > 0 && safeAmount <= 0
-      ? affordableBetAmount(usdPerToken, balance)
+      ? clampWager(affordableBetAmount(usdPerToken, balance), affordableMargin)
       : safeAmount;
   const notionalExposure = parseFloat((effectiveWager * leverage).toFixed(4));
+  const openFee = leveragedOpenFee(effectiveWager, leverage);
 
   const liveMult = hasPosition && phase === 'waiting' ? 1.0 : mult;
   const positionPct = hasPosition
@@ -577,6 +585,9 @@ export function CrashControls({
             </div>
             <span className="text-[10px] sm:text-[11px] text-white/45">
               <span className="text-sky-400 font-extrabold">{notionalExposure.toFixed(2)}</span> exp.
+              {openFee > 0 && (
+                <span className="text-rose-300 font-bold"> · {openFee.toFixed(3)} fee</span>
+              )}
             </span>
           </div>
 

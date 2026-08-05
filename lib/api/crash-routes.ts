@@ -110,7 +110,7 @@ export async function handleSession(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'wallet not connected' }, { status: 401 });
   }
 
-  let syncedBalance = !isNaN(balance) && balance >= 0 ? balance : 0;
+  let syncedBalance = Number.isFinite(balance) && balance >= 0 ? balance : 0;
 
   if (isVaultEnabled() && address.startsWith('0x')) {
     try {
@@ -120,7 +120,7 @@ export async function handleSession(req: NextRequest) {
       const message = err instanceof Error ? err.message : 'vault read failed';
       return NextResponse.json({ ok: false, error: message }, { status: 503 });
     }
-  } else if (isNaN(balance) || balance < 0) {
+  } else if (!Number.isFinite(balance) || balance < 0) {
     return NextResponse.json({ ok: false, error: 'invalid balance' }, { status: 400 });
   } else {
     syncedBalance = normalizeDemoSessionBalance(address, syncedBalance, isRealWallet);
@@ -133,8 +133,8 @@ export async function handleSession(req: NextRequest) {
     address,
     syncedBalance,
     {
-      stimmy: isNaN(stimmy) ? 0 : stimmy,
-      frenzy: isNaN(frenzy) ? 0 : frenzy,
+      stimmy: Number.isFinite(stimmy) ? stimmy : 0,
+      frenzy: Number.isFinite(frenzy) ? frenzy : 0,
     },
     { boot },
   );
@@ -178,7 +178,7 @@ export async function handleEnter(req: NextRequest) {
 
   const debugBefore = manager.getPositionDebug(address);
 
-  if (!isNaN(clientBalance) && clientBalance >= 0) {
+  if (Number.isFinite(clientBalance) && clientBalance >= 0) {
     manager.syncPlayer(
       address,
       normalizeDemoSessionBalance(address, clientBalance, isRealWallet),
@@ -190,9 +190,13 @@ export async function handleEnter(req: NextRequest) {
   const clearedReason = manager.preparePlayerForEnter(address);
   const debugAfterPrepare = manager.getPositionDebug(address);
 
-  if (isNaN(amount) || amount <= 0) {
+  if (!Number.isFinite(amount) || amount <= 0) {
     console.warn('[crash/enter] 400 invalid amount', { address, amount, raw: body.amount });
     return NextResponse.json({ ok: false, error: 'invalid amount' }, { status: 400 });
+  }
+
+  if (!Number.isFinite(leverage)) {
+    return NextResponse.json({ ok: false, error: 'invalid leverage' }, { status: 400 });
   }
 
   const snapshot = manager.getFullState(address);
@@ -378,7 +382,7 @@ export async function handleCashout(req: NextRequest) {
   if (!address) {
     return NextResponse.json({ ok: false, error: 'wallet not connected' }, { status: 401 });
   }
-  if (isNaN(percent) || percent <= 0 || percent > 1) {
+  if (!Number.isFinite(percent) || percent <= 0 || percent > 1) {
     return NextResponse.json({ ok: false, error: 'invalid percent' }, { status: 400 });
   }
 

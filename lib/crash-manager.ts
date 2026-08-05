@@ -1,5 +1,16 @@
-import { applyCrashPayout } from './hold-bonuses';
-import { calcPositionPnl, isLiquidated, MAX_LEVERAGE, MIN_LEVERAGE } from './crash-pnl';
+import {
+  calcCrashSettlement,
+  calcPositionPnl,
+  clampRate,
+  isLiquidated,
+  leveragedOpenFee,
+  MAX_DEMO_BALANCE,
+  MAX_FRENZY_RATE,
+  MAX_LEVERAGE,
+  MAX_STIMMY_RATE,
+  MIN_LEVERAGE,
+  roundMoney,
+} from './crash-pnl';
 import { splitPartialCashout } from './crash-position-math';
 import {
   computeCrashPoint,
@@ -88,17 +99,6 @@ function randName(): string {
   const pre = ['7BxK', '9Lam', '3Fde', 'H8nK', '2QaZ', '5VkL', 'J4pX', '6RtY', 'K9mN', '1ZxV', '8GfD', '4HbV', 'T5nM', '7YgF'];
   const suf = ['3mPq', '8vRt', '2xWq', '9pLm', '7nDf', '1mNb', '8cVg', '3qWe', '5bXc', '4pLk', '7mJk', '2qWx', '9cXd', '3pLz'];
   return `${pre[Math.floor(Math.random() * pre.length)]}...${suf[Math.floor(Math.random() * suf.length)]}`;
-}
-
-function holdBonusesFor(player: PlayerState) {
-  return {
-    stimmy: player.stimmy,
-    frenzy: player.frenzy,
-    active: [],
-    damageMultiplier: 1 + player.stimmy,
-    payoutMultiplier: 1 + player.stimmy,
-    critChanceBonus: player.frenzy,
-  };
 }
 
 export class CrashManager {
@@ -346,7 +346,9 @@ export class CrashManager {
   /** Force-align liquid balance from the other game (ignores pending/position guards). */
   applyPeerBalance(address: string, balance: number): number {
     const player = this.getPlayer(address);
-    player.balance = parseFloat(Math.max(0, balance).toFixed(3));
+    if (!Number.isFinite(balance)) return player.balance;
+    const max = address.startsWith('0x') ? Number.MAX_SAFE_INTEGER : MAX_DEMO_BALANCE;
+    player.balance = roundMoney(Math.min(max, Math.max(0, balance)));
     this.emit();
     return player.balance;
   }
@@ -363,8 +365,11 @@ export class CrashManager {
     options?: { boot?: boolean },
   ): number {
     const player = this.getPlayer(address);
-    const clientBalance = parseFloat(Math.max(0, balance).toFixed(3));
     const isDemo = !address.startsWith('0x');
+    const maxBalance = isDemo ? MAX_DEMO_BALANCE : Number.MAX_SAFE_INTEGER;
+    const clientBalance = Number.isFinite(balance)
+      ? roundMoney(Math.min(maxBalance, Math.max(0, balance)))
+      : player.balance;
 
     if (options?.boot) {
       const inCurrentRound =
@@ -389,8 +394,8 @@ export class CrashManager {
     }
 
     if (bonuses) {
-      player.stimmy = Math.max(0, bonuses.stimmy ?? player.stimmy);
-      player.frenzy = Math.max(0, bonuses.frenzy ?? player.frenzy);
+      player.stimmy = clampRate(bonuses.stimmy ?? player.stimmy, MAX_STIMMY_RATE);
+      player.frenzy = clampRate(bonuses.frenzy ?? player.frenzy, MAX_FRENZY_RATE);
     }
     this.emit();
     return player.balance;
@@ -762,22 +767,24 @@ export class CrashManager {
     for (const [address, player] of this.players.entries()) {
       if (!player.hasPosition) continue;
       const margin = player.positionAmount;
-      const pnl = calcPositionPnl(
-        player.positionSide,
-        player.positionAmount,
-        player.positionLeverage,
-        player.positionEntryPrice,
-        exitMult,
-      );
+      const settlement = calcCrashSettlement({
+        side: player.positionSide,
+        margin,
+        leverage: player.positionLeverage,
+        entry: player.positionEntryPrice,
+        exit: exitMult,
+        stimmy: player.stimmy,
+        frenzy: player.frenzy,
+      });
+      const { pnl } = settlement;
       if (pnl > 0) {
-        const baseReturn = margin + pnl;
-        const { total } = applyCrashPayout(baseReturn, holdBonusesFor(player));
-        player.balance += total;
+        const maxBalance = address.startsWith('0x') ? Number.MAX_SAFE_INTEGER : MAX_DEMO_BALANCE;
+        player.balance = Math.min(maxBalance, roundMoney(player.balance + settlement.returnAmount));
         mirrorCrashBalanceToFlip(address, player.balance);
         dispatchSettlement({
           type: 'payout',
           player: address,
-          amount: total,
+          amount: settlement.returnAmount,
         });
       } else {
         dispatchSettlement({
@@ -791,6 +798,8 @@ export class CrashManager {
         won: pnl > 0.0001,
         amount: pnl,
         price: exitMult,
+        bonusAmount: settlement.bonus > 0 ? settlement.bonus : undefined,
+        frenzyProc: settlement.frenzyProc || undefined,
       };
       this.clearPlayerPosition(player);
     }
@@ -952,15 +961,19 @@ export class CrashManager {
     }
 
     const margin = Math.floor(amount * 1000) / 1000;
-    if (margin <= 0) return { ok: false, error: 'invalid amount' };
-    if (margin > player.balance + 0.0005) {
+    if (!Number.isFinite(margin) || margin <= 0) {
+      return { ok: false, error: 'invalid amount' };
+    }
+    const openFee = leveragedOpenFee(margin, leverage);
+    const totalDebit = roundMoney(margin + openFee);
+    if (!Number.isFinite(totalDebit) || totalDebit > player.balance + 0.0005) {
       return {
         ok: false,
-        error: `insufficient balance (${player.balance.toFixed(3)} BlackBalls available)`,
+        error: `insufficient balance (${player.balance.toFixed(3)} BlackBalls available; ${openFee.toFixed(3)} fee)`,
       };
     }
 
-    player.balance = parseFloat((player.balance - margin).toFixed(3));
+    player.balance = roundMoney(player.balance - totalDebit);
     player.pendingEntry = { side, amount: margin, leverage, roundId: this.round.id };
 
     const notional = margin * leverage;
@@ -1086,19 +1099,23 @@ export class CrashManager {
     const side = player.positionSide;
     const entry = player.positionEntryPrice;
     const exit = this.mult;
-    const pnl = calcPositionPnl(player.positionSide, closeMargin, leverage, entry, exit);
-    let returnAmount = closeMargin + pnl;
-    let frenzyProc = false;
-    let bonusAmount: number | undefined;
-
-    if (pnl > 0) {
-      const { total, frenzyProc: fp } = applyCrashPayout(returnAmount, holdBonusesFor(player));
-      bonusAmount = parseFloat((total - returnAmount).toFixed(3));
-      returnAmount = total;
-      frenzyProc = fp;
+    const settlementResult = calcCrashSettlement({
+      side: player.positionSide,
+      margin: closeMargin,
+      leverage,
+      entry,
+      exit,
+      stimmy: player.stimmy,
+      frenzy: player.frenzy,
+    });
+    const { pnl, returnAmount, frenzyProc } = settlementResult;
+    const bonusAmount = settlementResult.bonus;
+    const maxBalance = address.startsWith('0x') ? Number.MAX_SAFE_INTEGER : MAX_DEMO_BALANCE;
+    const nextBalance = roundMoney(player.balance + returnAmount);
+    if (!Number.isFinite(nextBalance) || nextBalance < 0) {
+      return { ok: false, error: 'invalid payout' };
     }
-
-    player.balance = parseFloat((player.balance + returnAmount).toFixed(3));
+    player.balance = Math.min(maxBalance, nextBalance);
     const closeSide = player.positionSide === 'buy' ? 'sell' : 'buy';
     this.applyOrderFlow(closeSide, closeMargin * leverage);
 
@@ -1439,21 +1456,26 @@ export class CrashManager {
       (player.pendingEntry != null && player.pendingEntry.roundId === this.round.id);
     if (localActive) return true;
 
-    if (typeof view.balance === 'number') {
-      player.balance = view.balance;
+    if (typeof view.balance === 'number' && Number.isFinite(view.balance)) {
+      player.balance = roundMoney(Math.min(MAX_DEMO_BALANCE, Math.max(0, view.balance)));
     }
 
     // Never trust client-supplied leverage/entry price — clamp to server rules
     // (entries always open @ 1.00x, leverage capped at MAX_LEVERAGE).
-    const safeLeverage = Math.min(
-      MAX_LEVERAGE,
-      Math.max(MIN_LEVERAGE, view.positionLeverage ?? 1),
-    );
+    const rawLeverage = view.positionLeverage ?? 1;
+    const safeLeverage = Number.isFinite(rawLeverage)
+      ? Math.min(MAX_LEVERAGE, Math.max(MIN_LEVERAGE, rawLeverage))
+      : MIN_LEVERAGE;
+    const rawAmount = view.positionAmount ?? 0;
+    const safeAmount =
+      Number.isFinite(rawAmount) && rawAmount > 0
+        ? roundMoney(Math.min(MAX_DEMO_BALANCE, rawAmount))
+        : 0;
 
     if (view.entryPending && this.phase === 'waiting') {
       player.pendingEntry = {
         side: view.positionSide ?? 'buy',
-        amount: view.positionAmount ?? 0,
+        amount: safeAmount,
         leverage: safeLeverage,
         roundId: this.round.id,
       };
@@ -1463,7 +1485,7 @@ export class CrashManager {
     if ((view.hasLivePosition || view.hasPosition) && this.phase === 'running') {
       player.hasPosition = true;
       player.positionSide = view.positionSide ?? 'buy';
-      player.positionAmount = view.positionAmount ?? 0;
+      player.positionAmount = safeAmount;
       player.positionLeverage = safeLeverage;
       player.positionEntryPrice = 1.0;
       player.positionRoundId = this.round.id;
@@ -1474,7 +1496,7 @@ export class CrashManager {
     if ((view.hasLivePosition || view.hasPosition) && this.phase === 'waiting') {
       player.pendingEntry = {
         side: view.positionSide ?? 'buy',
-        amount: view.positionAmount ?? 0,
+        amount: safeAmount,
         leverage: safeLeverage,
         roundId: this.round.id,
       };

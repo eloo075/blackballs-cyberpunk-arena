@@ -3,6 +3,40 @@
 export const MIN_LEVERAGE = 1;
 /** Capped at 5x — higher leverage let early cash-outs print free profit off the opening wiggle. */
 export const MAX_LEVERAGE = 5;
+export const LEVERAGED_OPEN_FEE_RATE = 0.02;
+export const MAX_STIMMY_RATE = 0.5;
+export const MAX_FRENZY_RATE = 0.15;
+/** Bonus only; total positive PnL can therefore never exceed 3x base profit. */
+export const MAX_BONUS_TO_PROFIT = 2;
+export const MAX_DEMO_BALANCE = 1_000_000;
+
+export function roundMoney(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round((value + Number.EPSILON) * 1000) / 1000;
+}
+
+export function clampRate(value: number, max: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.min(value, max);
+}
+
+export function leveragedOpenFee(margin: number, leverage: number): number {
+  if (
+    !Number.isFinite(margin) ||
+    !Number.isFinite(leverage) ||
+    margin <= 0 ||
+    leverage <= MIN_LEVERAGE
+  ) {
+    return 0;
+  }
+  return roundMoney(margin * leverage * LEVERAGED_OPEN_FEE_RATE);
+}
+
+export function maxAffordableMargin(balance: number, leverage: number): number {
+  if (!Number.isFinite(balance) || balance <= 0) return 0;
+  if (!Number.isFinite(leverage) || leverage <= MIN_LEVERAGE) return roundMoney(balance);
+  return Math.floor((balance / (1 + leverage * LEVERAGED_OPEN_FEE_RATE)) * 1000) / 1000;
+}
 
 export function effectiveNotional(wager: number, leverage: number): number {
   return wager * leverage;
@@ -48,11 +82,81 @@ export function calcPositionPnl(
   entry: number,
   exit: number,
 ): number {
-  if (entry <= 0 || exit <= 0) return -margin;
-  if (side === 'buy') {
-    return Math.max(-margin, margin * leverage * (exit / entry - 1));
+  if (!Number.isFinite(margin) || margin <= 0) return 0;
+  if (
+    !Number.isFinite(leverage) ||
+    leverage <= 0 ||
+    !Number.isFinite(entry) ||
+    entry <= 0 ||
+    !Number.isFinite(exit) ||
+    exit <= 0
+  ) {
+    return -margin;
   }
-  return Math.max(-margin, margin * leverage * (1 - exit / entry));
+  let pnl: number;
+  if (side === 'buy') {
+    pnl = margin * leverage * (exit / entry - 1);
+  } else {
+    pnl = margin * leverage * (1 - exit / entry);
+  }
+  if (!Number.isFinite(pnl)) return -margin;
+  return roundMoney(Math.max(-margin, pnl));
+}
+
+export interface CrashSettlement {
+  pnl: number;
+  baseProfit: number;
+  bonus: number;
+  frenzyProc: boolean;
+  returnAmount: number;
+}
+
+/**
+ * The sole Crash payout formula. Bonuses are calculated from positive PnL only;
+ * returned margin is never bonused and leverage is never applied twice.
+ */
+export function calcCrashSettlement(params: {
+  side: 'buy' | 'sell';
+  margin: number;
+  leverage: number;
+  entry: number;
+  exit: number;
+  stimmy?: number;
+  frenzy?: number;
+  random?: () => number;
+}): CrashSettlement {
+  const margin =
+    Number.isFinite(params.margin) && params.margin > 0 ? roundMoney(params.margin) : 0;
+  if (margin <= 0) {
+    return { pnl: 0, baseProfit: 0, bonus: 0, frenzyProc: false, returnAmount: 0 };
+  }
+
+  const pnl = calcPositionPnl(
+    params.side,
+    margin,
+    params.leverage,
+    params.entry,
+    params.exit,
+  );
+  const baseProfit = Math.max(0, pnl);
+  const stimmy = clampRate(params.stimmy ?? 0, MAX_STIMMY_RATE);
+  const frenzy = clampRate(params.frenzy ?? 0, MAX_FRENZY_RATE);
+  const frenzyProc = frenzy > 0 && (params.random ?? Math.random)() < frenzy;
+  const rawBonus = baseProfit * (stimmy + (frenzyProc ? frenzy : 0));
+  const bonus = roundMoney(Math.min(rawBonus, baseProfit * MAX_BONUS_TO_PROFIT));
+  const returnAmount = roundMoney(Math.max(0, margin + pnl) + bonus);
+
+  if (![pnl, baseProfit, bonus, returnAmount].every(Number.isFinite)) {
+    return {
+      pnl: -margin,
+      baseProfit: 0,
+      bonus: 0,
+      frenzyProc: false,
+      returnAmount: 0,
+    };
+  }
+
+  return { pnl, baseProfit, bonus, frenzyProc, returnAmount };
 }
 
 export function calcPositionPct(
