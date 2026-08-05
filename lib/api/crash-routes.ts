@@ -31,10 +31,15 @@ export async function handleStream(req: NextRequest) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
       let hydrateTimer: ReturnType<typeof setInterval> | null = null;
+      // Single-instance hosts (Fly) keep authoritative in-memory state — hydrating
+      // from Supabase would overwrite live positions with stale rows (cashout flicker).
+      const skipDbHydrate = process.env.SINGLE_INSTANCE_GAME === 'true';
 
       void (async () => {
-        await loadAndApplyEngineSnapshot(manager);
-        if (address) await loadAndApplyPlayerSnapshot(manager, address);
+        if (!skipDbHydrate) {
+          await loadAndApplyEngineSnapshot(manager);
+          if (address) await loadAndApplyPlayerSnapshot(manager, address);
+        }
         send(manager.snapshotForStream(address));
       })();
 
@@ -43,15 +48,17 @@ export async function handleStream(req: NextRequest) {
         maybePersistEngineSnapshot(manager);
       });
 
-      hydrateTimer = setInterval(() => {
-        void (async () => {
-          const engineSynced = await loadAndApplyEngineSnapshot(manager);
-          if (address) await loadAndApplyPlayerSnapshot(manager, address);
-          if (engineSynced) {
-            send(manager.snapshotForStream(address));
-          }
-        })();
-      }, 1000);
+      if (!skipDbHydrate) {
+        hydrateTimer = setInterval(() => {
+          void (async () => {
+            const engineSynced = await loadAndApplyEngineSnapshot(manager);
+            if (address) await loadAndApplyPlayerSnapshot(manager, address);
+            if (engineSynced) {
+              send(manager.snapshotForStream(address));
+            }
+          })();
+        }, 1000);
+      }
 
       const ka = setInterval(() => {
         try {

@@ -37,10 +37,14 @@ export async function handleStream(req: NextRequest) {
       };
 
       let hydrateTimer: ReturnType<typeof setInterval> | null = null;
+      // Single-instance hosts keep authoritative in-memory state — skip stale DB hydrate.
+      const skipDbHydrate = process.env.SINGLE_INSTANCE_GAME === 'true';
 
       void (async () => {
-        await loadAndApplyFlipEngineSnapshot(manager);
-        if (address) await loadAndApplyFlipPlayerSnapshot(manager, address);
+        if (!skipDbHydrate) {
+          await loadAndApplyFlipEngineSnapshot(manager);
+          if (address) await loadAndApplyFlipPlayerSnapshot(manager, address);
+        }
         send(manager.getFullState(address));
       })();
 
@@ -49,7 +53,7 @@ export async function handleStream(req: NextRequest) {
         maybePersistFlipEngineSnapshot(manager);
       });
 
-      if (address) {
+      if (address && !skipDbHydrate) {
         hydrateTimer = setInterval(() => {
           void loadAndApplyFlipPlayerSnapshot(manager, address);
         }, 1000);
