@@ -129,6 +129,8 @@ export function useCrashStream() {
   const cancelSuppressUntilRef = useRef(0);
   const entrySuppressUntilRef = useRef(0);
   const cashoutSuppressUntilRef = useRef(0);
+  /** Whether the most recent cash-out closed the whole position (guards stale frames differently). */
+  const cashoutWasFullRef = useRef(false);
   const actionLockRef = useRef<string | null>(null);
   const reconnectOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -173,7 +175,12 @@ export function useCrashStream() {
         next = guardLivePositionOnStream(prev, next);
         next = guardCancelledPositionOnStream(prev, next, cancelSuppressUntilRef.current);
         next = guardRecentEntryOnStream(prev, next, entrySuppressUntilRef.current);
-        next = guardCashoutOnStream(prev, next, cashoutSuppressUntilRef.current);
+        next = guardCashoutOnStream(
+          prev,
+          next,
+          cashoutSuppressUntilRef.current,
+          cashoutWasFullRef.current,
+        );
         stateRef.current = next;
         if (
           sessionReadyRef.current &&
@@ -783,6 +790,7 @@ export function useCrashStream() {
         const split = splitPartialCashout(snap.positionAmount, pct);
         if (!split.fullClose && split.remaining > 0) {
           optimisticRemaining = split.remaining;
+          cashoutWasFullRef.current = false;
           cashoutSuppressUntilRef.current = Date.now() + 10_000;
           setState(prev => {
             if (!prev || prev.phase !== 'running') return prev;
@@ -844,6 +852,7 @@ export function useCrashStream() {
             data.action === 'close' ||
             (typeof data.cashedPct === 'number' && data.cashedPct >= 0.999);
 
+          cashoutWasFullRef.current = fullClose;
           cashoutSuppressUntilRef.current = Date.now() + (fullClose ? 5000 : 10_000);
           notifyDemoRefresh(address, 'crash');
 

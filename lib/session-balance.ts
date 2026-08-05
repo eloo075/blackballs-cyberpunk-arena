@@ -227,10 +227,25 @@ export function guardCashoutOnStream(
   prev: FullState | null,
   next: FullState,
   suppressUntilMs: number,
+  lastCashoutWasFull = false,
 ): FullState {
   if (Date.now() > suppressUntilMs) return next;
   if (!prev) return next;
   if (isNewRoundTransition(prev, next)) return next;
+
+  // After a FULL cash-out: drop stale frames that still show the closed position.
+  if (lastCashoutWasFull && !prev.hasPosition && !prev.entryPending && next.hasPosition) {
+    return {
+      ...next,
+      hasPosition: false,
+      hasLivePosition: false,
+      entryPending: false,
+      positionAmount: 0,
+      positionLeverage: 1,
+      positionEntryPrice: 1.0,
+      balance: Math.max(next.balance, prev.balance),
+    };
+  }
 
   const hadLive = prev.hasLivePosition || (prev.hasPosition && !prev.entryPending);
   if (!hadLive) return next;
@@ -284,18 +299,11 @@ export function guardCashoutOnStream(
     };
   }
 
-  const refund = next.balance - prev.balance;
-  if (refund >= prev.positionAmount * 0.05) return next;
-
-  // Stale SSE restoring a position that was fully cashed out
+  // Steady state — same position, same balance. Trust the server frame.
+  // (This used to fall through to a "clear position" branch, which made the UI
+  // flicker position/no-position on every other frame after a partial cash-out.)
   return {
     ...next,
-    hasPosition: false,
-    hasLivePosition: false,
-    entryPending: false,
-    positionAmount: 0,
-    positionLeverage: 1,
-    positionEntryPrice: 1.0,
     balance: Math.max(next.balance, prev.balance),
   };
 }
