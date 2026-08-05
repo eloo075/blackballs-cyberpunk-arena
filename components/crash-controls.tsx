@@ -187,6 +187,7 @@ export function CrashControls({
   const canOpenBuy =
     walletConnected &&
     sessionReady &&
+    streamConnected &&
     entriesOpen &&
     !tradeBusy &&
     !entryCooldown &&
@@ -196,9 +197,9 @@ export function CrashControls({
   const canOpenSell = canOpenBuy;
 
   const canCloseBuy =
-    walletConnected && sessionReady && entriesOpen && !tradeBusy && hasPosition && positionSide === 'sell' && !entryPending;
+    walletConnected && sessionReady && streamConnected && entriesOpen && !tradeBusy && hasPosition && positionSide === 'sell' && !entryPending;
   const canCloseSell =
-    walletConnected && sessionReady && entriesOpen && !tradeBusy && hasPosition && positionSide === 'buy' && !entryPending;
+    walletConnected && sessionReady && streamConnected && entriesOpen && !tradeBusy && hasPosition && positionSide === 'buy' && !entryPending;
 
   const stimmyLabel =
     holdBonuses.stimmy > 0 ? `+${Math.round(holdBonuses.stimmy * 100)}% stimmy` : null;
@@ -221,7 +222,7 @@ export function CrashControls({
   }, [pendingAction, hasPosition]);
 
   const canCashOut =
-    walletConnected && phase === 'running' && livePosition && !cashoutBusy && !!onCashOut;
+    walletConnected && streamConnected && phase === 'running' && livePosition && !cashoutBusy && !!onCashOut;
 
   const handleCashOut = async () => {
     if (!canCashOut || !onCashOut) return;

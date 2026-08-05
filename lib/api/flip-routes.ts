@@ -57,11 +57,11 @@ export async function handleStream(req: NextRequest) {
 
       const ka = setInterval(() => {
         try {
-          controller.enqueue(encoder.encode(`: keepalive\n\n`));
+          send(manager.getFullState(address));
         } catch {
           /* closed */
         }
-      }, 15000);
+      }, 4000);
       req.signal.addEventListener('abort', () => {
         clearInterval(ka);
         if (hydrateTimer) clearInterval(hydrateTimer);

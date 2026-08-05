@@ -9,6 +9,7 @@ import { teardownEventSource } from '@/lib/crash-event-source';
 import { fetchJsonWithTimeout, actionErrorMessage } from '@/lib/action-timeout';
 import { notifyDemoRefresh, subscribeDemoTabMessages } from '@/lib/demo-tab-coordinator';
 import { splitPartialCashout } from '@/lib/crash-position-math';
+import { isLikelyMobileDevice } from '@/hooks/use-page-visibility';
 
 async function syncCrashSession(
   address: string,
@@ -39,9 +40,14 @@ async function syncCrashSession(
 }
 
 const STALE_FEED_MS =
-  typeof process !== 'undefined' && process.env.NODE_ENV === 'development' ? 15000 : 12000;
+  typeof process !== 'undefined' && process.env.NODE_ENV === 'development'
+    ? 15000
+    : isLikelyMobileDevice()
+      ? 22000
+      : 12000;
 
 const RECONNECT_OVERLAY_MS = 2800;
+const ACTION_TIMEOUT_MS = isLikelyMobileDevice() ? 20000 : 8000;
 
 /** Seconds before round start when new entries are blocked (avoids countdown-end race). */
 const COUNTDOWN_ENTRY_BUFFER_SEC = 1.0;
@@ -315,6 +321,7 @@ export function useCrashStream() {
     connectStream();
     staleTimer = setInterval(() => {
       if (cancelled || !es) return;
+      if (typeof document !== 'undefined' && document.hidden) return;
       if (Date.now() - lastMsgAt > STALE_FEED_MS) {
         console.warn('[crash/stream] stale feed — reconnecting');
         markStreamUnhealthy();
@@ -333,6 +340,17 @@ export function useCrashStream() {
       es = null;
     };
   }, [hydrated, address, applyStreamPayload, refreshGameState]);
+
+  // Mobile: refresh when returning from background (iOS suspends SSE).
+  useEffect(() => {
+    if (!hydrated) return;
+    const onVisible = () => {
+      if (document.hidden) return;
+      void refreshGameState();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [hydrated, refreshGameState]);
 
   // Reset player-specific state when wallet address changes (not on first mount).
   const prevAddressRef = useRef<string | null>(null);
@@ -645,7 +663,7 @@ export function useCrashStream() {
                 clientView,
               }),
             },
-            8000,
+            ACTION_TIMEOUT_MS,
           );
           const data = await res.json().catch(() => ({}));
 
@@ -799,7 +817,7 @@ export function useCrashStream() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ address, percent: pct, clientView }),
             },
-            8000,
+            ACTION_TIMEOUT_MS,
           );
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {

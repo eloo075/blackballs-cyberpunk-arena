@@ -34,7 +34,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
   const { wallet, connect, disconnect, holdBonuses, displayAddress, refillDemoCredits } = useWallet();
   const { state: compState, recordCrashResult } = useCompetitive();
   const { event: resultEvent, trigger: triggerResult, dismiss: dismissResult } = useResultFeedback();
-  const display = useExtrapolatedCrashDisplay(state);
+  const display = useExtrapolatedCrashDisplay(state, visible);
   const [mobileFull, setMobileFull] = useState(false);
   const processedResultRef = useRef<string | null>(null);
   const vaultEnabled = isVaultConfigured();
@@ -159,6 +159,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
           </button>
           <ChartCanvas
             key={`crash-chart-mobile-${state.gameId}`}
+            active={visible}
             candles={state.candles}
             phase={state.phase}
             mult={chartMult}
@@ -234,6 +235,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
         <div className="relative cp-panel overflow-visible w-full min-h-[min(42vh,340px)] h-[min(42vh,340px)] sm:min-h-[480px] sm:h-[60vh] sm:max-h-none">
           <ChartCanvas
             key={`crash-chart-${state.gameId}`}
+            active={visible}
             candles={state.candles}
             phase={state.phase}
             mult={chartMult}

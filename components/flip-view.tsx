@@ -233,6 +233,7 @@ export function FlipView({ visible = true }: { visible?: boolean }) {
           openMatches={state.open1v1}
           walletConnected={walletConnected}
           sessionReady={sessionReady}
+          streamConnected={connected}
           isDemoWallet={wallet.connected && !wallet.isRealWallet}
           onConnect={vaultEnabled ? tryDemo : connect}
           onFlip={flip}

@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Nav } from '@/components/nav';
@@ -9,6 +9,7 @@ import { FlipView } from '@/components/flip-view';
 import { LeaderboardView } from '@/components/leaderboard-view';
 import { LaunchCampaignView } from '@/components/launch-campaign-view';
 import { isLaunchCampaignActive } from '@/lib/launch-campaign';
+import { isLikelyMobileDevice } from '@/hooks/use-page-visibility';
 
 type Tab = 'crash' | 'flip' | 'arena' | 'leaderboard';
 
@@ -22,17 +23,32 @@ export default function Page() {
 
 function GameHome() {
   const [tab, setTab] = useState<Tab>('crash');
+  const [mobile, setMobile] = useState(false);
+
+  useEffect(() => {
+    setMobile(isLikelyMobileDevice());
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#141518] flex flex-col font-arcade">
       <Nav activeTab={tab} onTabChange={setTab} />
       <main className="flex-1">
-        {/* Keep Crash + Flip mounted so SSE/session stay warm across tab switches */}
-        <div className={tab === 'crash' ? '' : 'hidden'} aria-hidden={tab !== 'crash'}>
-          <CrashView visible={tab === 'crash'} />
-        </div>
-        <div className={tab === 'flip' ? '' : 'hidden'} aria-hidden={tab !== 'flip'}>
-          <FlipView visible={tab === 'flip'} />
-        </div>
+        {mobile ? (
+          <>
+            {tab === 'crash' && <CrashView visible />}
+            {tab === 'flip' && <FlipView visible />}
+          </>
+        ) : (
+          <>
+            {/* Keep Crash + Flip mounted on desktop so SSE/session stay warm across tab switches */}
+            <div className={tab === 'crash' ? '' : 'hidden'} aria-hidden={tab !== 'crash'}>
+              <CrashView visible={tab === 'crash'} />
+            </div>
+            <div className={tab === 'flip' ? '' : 'hidden'} aria-hidden={tab !== 'flip'}>
+              <FlipView visible={tab === 'flip'} />
+            </div>
+          </>
+        )}
         <AnimatePresence mode="wait">
           {tab === 'arena' && (
             <motion.div key="arena" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.2 }}>

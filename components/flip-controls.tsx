@@ -17,6 +17,7 @@ interface FlipControlsProps {
   openMatches: Flip1v1Match[];
   walletConnected: boolean;
   sessionReady?: boolean;
+  streamConnected?: boolean;
   isDemoWallet?: boolean;
   flipInProgress?: boolean;
   onConnect: () => void;
@@ -39,6 +40,7 @@ export function FlipControls({
   openMatches,
   walletConnected,
   sessionReady = true,
+  streamConnected = true,
   isDemoWallet,
   flipInProgress = false,
   onConnect,
@@ -105,7 +107,8 @@ export function FlipControls({
     !!player?.active1v1Id &&
     !flipInProgress &&
     openMatches.some(m => m.id === player.active1v1Id && m.status === 'waiting');
-  const canFlip = walletConnected && sessionReady && !busy && !waitingOwn && !flipInProgress;
+  const canFlip =
+    walletConnected && sessionReady && streamConnected && !busy && !waitingOwn && !flipInProgress;
 
   return (
     <div className="cp-panel font-arcade overflow-hidden">

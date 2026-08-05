@@ -7,6 +7,7 @@ import { useWallet } from '@/lib/wallet-context';
 import { resolveClientSyncBalance, shouldApplyServerBalance, normalizeFlipStreamState } from '@/lib/session-balance';
 import { shouldSkipSessionSync, markSessionSynced } from '@/lib/sync-session-debounce';
 import { notifyDemoRefresh, subscribeDemoTabMessages } from '@/lib/demo-tab-coordinator';
+import { isLikelyMobileDevice } from '@/hooks/use-page-visibility';
 
 async function syncFlipSession(
   address: string,
@@ -35,9 +36,13 @@ async function syncFlipSession(
 }
 
 const STALE_FEED_MS =
-  typeof process !== 'undefined' && process.env.NODE_ENV === 'development' ? 15000 : 8000;
+  typeof process !== 'undefined' && process.env.NODE_ENV === 'development'
+    ? 15000
+    : isLikelyMobileDevice()
+      ? 20000
+      : 12000;
 
-const FLIP_JOIN_TIMEOUT_MS = 15000;
+const FLIP_JOIN_TIMEOUT_MS = isLikelyMobileDevice() ? 22000 : 15000;
 const FLIP_RETRY_RE = /already in a match|insufficient balance|no open match|match not available/i;
 
 function sleep(ms: number) {
@@ -210,6 +215,16 @@ export function useFlipStream() {
       es?.close();
     };
   }, [hydrated, address, applyBalanceFromServer, refreshFlipState]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const onVisible = () => {
+      if (document.hidden) return;
+      void refreshFlipState();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [hydrated, refreshFlipState]);
 
   useEffect(() => {
     if (!address) return;

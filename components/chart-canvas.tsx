@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import type { Candle, TradeTag } from '@/lib/crash-types';
 import { computeChartLayout, type ChartLayoutFrame } from '@/lib/chart-layout';
 import { ChartTradeOverlays } from '@/components/chart-trade-overlays';
+import { usePageVisibility } from '@/hooks/use-page-visibility';
 
 interface ChartCanvasProps {
   candles: Candle[];
@@ -12,6 +13,8 @@ interface ChartCanvasProps {
   elapsed: number;
   tradeTags: TradeTag[];
   entryPrice?: number | null;
+  /** Pause redraw loop when tab hidden or game not visible (mobile perf). */
+  active?: boolean;
 }
 
 const MAX_VISIBLE = 56;
@@ -50,21 +53,22 @@ function pickTimeTicks(elapsed: number): number[] {
   return ticks.length ? ticks : [0];
 }
 
-export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags, entryPrice }: ChartCanvasProps) {
+export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags, entryPrice, active = true }: ChartCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const layoutRef = useRef<ChartLayoutFrame | null>(null);
   const propsRef = useRef({ candles, phase, mult, peakMult, elapsed, tradeTags, entryPrice });
   propsRef.current = { candles, phase, mult, peakMult, elapsed, tradeTags, entryPrice };
+  const pageActive = usePageVisibility(active);
 
   const shiftOffsetRef = useRef(0);
   const prevCandleCountRef = useRef(0);
 
   useEffect(() => {
+    if (!pageActive) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    let raf = 0;
     let lastFrameMs = 0;
     const SHIFT_LERP_PER_SEC = 7.2;
 
@@ -75,7 +79,7 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
       if (Math.abs(shiftOffsetRef.current) < 0.001) shiftOffsetRef.current = 0;
 
       const p = propsRef.current;
-      const dpr = devicePixelRatio || 1;
+      const dpr = Math.min(typeof devicePixelRatio === 'number' ? devicePixelRatio : 1, 2);
       const cssW = canvas.offsetWidth;
       const cssH = canvas.offsetHeight;
       const w = (canvas.width = cssW * dpr);
@@ -246,13 +250,12 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
         ctx.fillText('// AWAITING_ROUND', padLeft + chartW / 2, padTop + chartH / 2);
         ctx.textAlign = 'left';
       }
-
-      raf = requestAnimationFrame(render);
     };
 
-    raf = requestAnimationFrame(render);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+    render(performance.now());
+    const timer = setInterval(() => render(performance.now()), 250);
+    return () => clearInterval(timer);
+  }, [pageActive]);
 
   return (
     <div className="relative w-full h-full overflow-visible">
