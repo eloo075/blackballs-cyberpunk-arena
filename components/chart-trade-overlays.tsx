@@ -167,10 +167,27 @@ export function ChartTradeMarkers({
         return (
           <div
             key={tag.id}
-            className="absolute -translate-x-1/2 -translate-y-1/2 text-[11px] drop-shadow-md"
+            className="absolute -translate-x-1/2 -translate-y-1/2 flex items-center gap-1 drop-shadow-lg"
             style={{ left: position.markerX, top: position.markerY }}
           >
-            {tag.side === 'buy' ? '🚀' : '💰'}
+            <span
+              className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] ${
+                tag.side === 'buy'
+                  ? 'bg-emerald-950/95 border-emerald-400'
+                  : 'bg-rose-950/95 border-rose-400'
+              }`}
+            >
+              {tag.side === 'buy' ? '🚀' : '💰'}
+            </span>
+            <span
+              className={`max-w-[112px] truncate rounded-md border bg-[#111418]/92 px-1.5 py-0.5 text-[8px] font-extrabold ${
+                tag.side === 'buy'
+                  ? 'border-emerald-500/45 text-emerald-200'
+                  : 'border-rose-500/45 text-rose-200'
+              }`}
+            >
+              {tag.user.slice(0, 8)} · {tag.amount.toFixed(3)}
+            </span>
           </div>
         );
       })}

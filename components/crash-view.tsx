@@ -291,20 +291,51 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="absolute inset-0 flex items-center justify-center bg-[#141518]/75 backdrop-blur-sm z-10"
+                className={`absolute inset-0 z-10 ${
+                  continuousRound
+                    ? 'bg-[#111518]/95 ring-2 ring-inset ring-emerald-500'
+                    : 'flex items-center justify-center bg-[#141518]/75 backdrop-blur-sm'
+                }`}
               >
-                <div className="flex flex-col items-center justify-center gap-2 sm:gap-6 font-arcade px-4 py-6 sm:px-6 sm:py-14 rounded-2xl sm:rounded-3xl border border-white/10 bg-[#141518]/90 shadow-2xl min-w-[min(88vw,420px)]">
-                  <div className="text-sm sm:text-lg font-extrabold text-white/70 uppercase tracking-wide">
-                    Place your entry
+                {continuousRound ? (
+                  <>
+                    <div className="absolute left-5 top-5 sm:left-8 sm:top-7 font-arcade">
+                      <div className="text-2xl sm:text-4xl font-black text-white tracking-tight">
+                        PRESALE
+                      </div>
+                      <div className="mt-2 max-w-[250px] text-xs sm:text-sm font-bold text-white/60">
+                        Buy a guaranteed position at <span className="text-emerald-400">1.00x</span>
+                        <br />
+                        before the round starts
+                      </div>
+                    </div>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center font-arcade pointer-events-none">
+                      <div className="text-sm sm:text-xl font-extrabold text-white/70">Next round in…</div>
+                      <div
+                        className="mt-2 text-5xl sm:text-7xl font-black text-white tabular-nums leading-none"
+                        style={{ textShadow: '0 4px 28px rgba(0,0,0,0.55)' }}
+                      >
+                        {display.waitLeft.toFixed(1)}s
+                      </div>
+                    </div>
+                    <div className="absolute bottom-5 inset-x-0 text-center text-[10px] sm:text-xs font-bold text-emerald-300/70">
+                      Seed committed · provably fair
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center justify-center gap-2 sm:gap-6 font-arcade px-4 py-6 sm:px-6 sm:py-14 rounded-2xl sm:rounded-3xl border border-white/10 bg-[#141518]/90 shadow-2xl min-w-[min(88vw,420px)]">
+                    <div className="text-sm sm:text-lg font-extrabold text-white/70 uppercase tracking-wide">
+                      Place your entry
+                    </div>
+                    <div className="text-5xl sm:text-8xl md:text-9xl font-extrabold text-white tabular-nums leading-none" style={{ textShadow: '0 4px 28px rgba(0,0,0,0.55)' }}>
+                      {display.waitLeft.toFixed(1)}s
+                    </div>
+                    <div className="text-xs sm:text-base text-emerald-300/90 font-bold text-center max-w-[280px]">
+                      BUY or SELL @ 1.00x
+                    </div>
+                    <div className="text-xs text-white/40">Seed committed · provably fair</div>
                   </div>
-                  <div className="text-5xl sm:text-8xl md:text-9xl font-extrabold text-white tabular-nums leading-none" style={{ textShadow: '0 4px 28px rgba(0,0,0,0.55)' }}>
-                    {display.waitLeft.toFixed(1)}s
-                  </div>
-                  <div className="text-xs sm:text-base text-emerald-300/90 font-bold text-center max-w-[280px]">
-                    BUY or SELL @ 1.00x
-                  </div>
-                  <div className="text-xs text-white/40">Seed committed · provably fair</div>
-                </div>
+                )}
               </motion.div>
             )}
             {state.phase === 'crashed' && (
@@ -401,6 +432,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
           holdBonuses={holdBonuses}
           walletConnected={walletConnected}
           isDemoWallet={wallet.connected && !wallet.isRealWallet}
+          continuousMode={continuousRound}
           vaultEnabled={vaultEnabled}
           onConnect={connect}
           onTryDemo={vaultEnabled ? tryDemo : undefined}

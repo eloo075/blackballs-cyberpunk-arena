@@ -305,13 +305,14 @@ export function generateContinuousRoundPath(
     }
 
     let change: number;
-    if (rng() < 0.035) {
-      const magnitude = 0.015 + rng() * 0.06;
+    if (rng() < 0.065) {
+      const magnitude = 0.025 + rng() * 0.135;
       change = rng() > 0.48 ? magnitude : -magnitude;
     } else {
-      const drift = -0.006 + rng() * 0.013;
-      const volatility = 0.0045 * Math.min(4, Math.sqrt(Math.max(price, 0.01)));
-      change = drift + volatility * (2 * rng() - 1);
+      const drift = -0.014 + rng() * 0.028;
+      const volatility = 0.009 * Math.min(3, Math.sqrt(Math.max(price, 0.01)));
+      const meanReversion = Math.max(-0.004, Math.min(0.004, (1 - price) * 0.003));
+      change = drift + volatility * (2 * rng() - 1) + meanReversion;
     }
 
     price = Math.max(0.05, Math.min(100, price * (1 + change)));

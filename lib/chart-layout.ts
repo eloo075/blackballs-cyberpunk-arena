@@ -1,6 +1,39 @@
 import type { Candle } from '@/lib/crash-types';
 
-const MAX_VISIBLE = 56;
+export function chartVisibleCount(cssW: number): number {
+  return cssW < 640 ? 18 : 24;
+}
+
+export function chartSlotOffset(visibleCount: number, sliceLength: number): number {
+  if (sliceLength >= visibleCount * 0.55) return 0;
+  return Math.max(0, Math.floor(visibleCount * 0.55) - sliceLength);
+}
+
+export function chartPriceRange(
+  candles: Candle[],
+  mult: number,
+  visibleCount: number,
+): { minPrice: number; maxPrice: number } {
+  const slice = candles.slice(Math.max(0, candles.length - visibleCount));
+  let low = Number.isFinite(mult) && mult > 0 ? mult : 1;
+  let high = low;
+  for (const candle of slice) {
+    low = Math.min(low, candle.l, candle.o, candle.c);
+    high = Math.max(high, candle.h, candle.o, candle.c);
+  }
+
+  const observed = Math.max(0, high - low);
+  const minWindow = Math.max(0.38, mult * 0.42);
+  const window = Math.max(observed * 1.35, minWindow);
+  const center = (high + low) / 2;
+  let minPrice = Math.max(0, center - window / 2);
+  let maxPrice = minPrice + window;
+  if (maxPrice < high + window * 0.1) {
+    maxPrice = high + window * 0.1;
+    minPrice = Math.max(0, maxPrice - window);
+  }
+  return { minPrice, maxPrice };
+}
 
 export interface ChartLayoutFrame {
   cssW: number;
@@ -16,6 +49,7 @@ export interface ChartLayoutFrame {
   slotW: number;
   visibleStartIdx: number;
   visibleCount: number;
+  slotOffset: number;
 }
 
 export function priceToY(price: number, layout: ChartLayoutFrame): number {
@@ -53,7 +87,11 @@ export function resolveCandleIndex(
 }
 
 export function markerXForCandle(layout: ChartLayoutFrame, candleIndexInSlice: number): number {
-  return layout.padLeft + (candleIndexInSlice + 0.5) * layout.slotW + layout.shiftPx;
+  return (
+    layout.padLeft +
+    (layout.slotOffset + candleIndexInSlice + 0.5) * layout.slotW +
+    layout.shiftPx
+  );
 }
 
 export function computeChartLayout(
@@ -65,6 +103,8 @@ export function computeChartLayout(
   peakMult: number,
   _elapsed: number,
   shiftOffset: number,
+  minPriceOverride?: number,
+  maxPriceOverride?: number,
 ): ChartLayoutFrame {
   const padLeft = 12;
   const padRight = 58;
@@ -73,24 +113,20 @@ export function computeChartLayout(
   const chartW = cssW - padLeft - padRight;
   const chartH = cssH - padTop - padBottom;
 
-  let maxPrice = Math.max(peakMult * 1.08, mult * 1.06, 1.35);
-  let minPrice = 0;
-  candles.forEach(c => {
-    maxPrice = Math.max(maxPrice, c.h);
-    minPrice = Math.min(minPrice, c.l);
-  });
-  minPrice = Math.max(0, minPrice);
-  const range = Math.max(maxPrice - minPrice, 0.35);
-  maxPrice = minPrice + range * 1.12;
-  minPrice = Math.max(0, minPrice - range * 0.04);
-
-  const visibleCount = MAX_VISIBLE;
+  void peakMult;
+  const visibleCount = chartVisibleCount(cssW);
+  const computedRange = chartPriceRange(candles, mult, visibleCount);
+  const minPrice = minPriceOverride ?? computedRange.minPrice;
+  const maxPrice = maxPriceOverride ?? computedRange.maxPrice;
   const startIdx = Math.max(0, candles.length - visibleCount);
   const slice = candles.slice(startIdx);
   const slotW = chartW / visibleCount;
   const shiftPx = shiftOffset * slotW;
+  const slotOffset = chartSlotOffset(visibleCount, slice.length);
   const tagX =
-    slice.length > 0 ? padLeft + (slice.length - 0.5) * slotW + shiftPx : padLeft + slotW * 0.5;
+    slice.length > 0
+      ? padLeft + (slotOffset + slice.length - 0.5) * slotW + shiftPx
+      : padLeft + slotW * 0.5;
 
   return {
     cssW,
@@ -106,5 +142,6 @@ export function computeChartLayout(
     slotW,
     visibleStartIdx: startIdx,
     visibleCount,
+    slotOffset,
   };
 }

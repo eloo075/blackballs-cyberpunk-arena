@@ -37,6 +37,7 @@ interface CrashControlsProps {
   walletConnected: boolean;
   sessionReady?: boolean;
   isDemoWallet?: boolean;
+  continuousMode?: boolean;
   vaultEnabled?: boolean;
   onConnect: () => void;
   onTryDemo?: () => void;
@@ -56,7 +57,10 @@ function entryButtonSubtext(
   phase: 'waiting' | 'running' | 'crashed',
   waitLeft: number,
   entriesOpen: boolean,
+  continuousMode: boolean,
 ): string {
+  if (continuousMode && phase === 'running') return 'Open now at the live price';
+  if (continuousMode && entriesOpen) return `PRESALE · guaranteed 1.00x · ${waitLeft.toFixed(1)}s`;
   if (entriesOpen) return `${waitLeft.toFixed(1)}s to enter @ 1.00x`;
   if (phase === 'waiting' && waitLeft <= COUNTDOWN_ENTRY_BUFFER_SEC) return 'Starting soon…';
   if (phase === 'crashed') return 'Rugged — wait for countdown';
@@ -122,6 +126,7 @@ export function CrashControls({
   walletConnected,
   sessionReady = true,
   isDemoWallet = false,
+  continuousMode,
   vaultEnabled = false,
   onConnect,
   onTryDemo,
@@ -147,7 +152,7 @@ export function CrashControls({
   const cancelToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const entryCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const continuousDemo = isDemoWallet;
+  const continuousDemo = continuousMode ?? isDemoWallet;
   const entriesOpen =
     (phase === 'waiting' && waitLeft > COUNTDOWN_ENTRY_BUFFER_SEC) ||
     (continuousDemo && phase === 'running');
@@ -343,7 +348,11 @@ export function CrashControls({
       ok = result.ok;
       if (result.ok) {
         showCancelSuccess(
-          positionSide === 'sell' ? 'Short position cancelled.' : 'Long position cancelled.',
+          continuousDemo
+            ? 'Presale BUY cancelled.'
+            : positionSide === 'sell'
+              ? 'Short position cancelled.'
+              : 'Long position cancelled.',
         );
         setEntryCooldown(true);
         entryCooldownTimerRef.current = setTimeout(() => {
@@ -366,7 +375,7 @@ export function CrashControls({
       return;
     }
 
-    if (phase === 'running' || phase === 'crashed') {
+    if (phase === 'crashed' || (phase === 'running' && !continuousDemo)) {
       setTradeError(WAIT_FOR_ROUND_MSG);
       return;
     }
@@ -534,7 +543,7 @@ export function CrashControls({
             )}
             {!hasPosition && (
               <span className="block text-[11px] font-bold opacity-70 normal-case tracking-normal">
-                {entryButtonSubtext(phase, waitLeft, entriesOpen)}
+                {entryButtonSubtext(phase, waitLeft, entriesOpen, continuousDemo)}
               </span>
             )}
           </>
@@ -700,7 +709,12 @@ export function CrashControls({
             >
               <div className="flex items-center justify-between text-xs gap-2">
                 <span className={positionSide === 'buy' ? 'text-emerald-400 font-extrabold' : 'text-rose-400 font-extrabold'}>
-                  {positionSide === 'buy' ? 'LONG' : 'SHORT'} · {positionAmount.toFixed(3)} {CURRENCY_LABEL}
+                  {continuousDemo
+                    ? 'POSITION'
+                    : positionSide === 'buy'
+                      ? 'LONG'
+                      : 'SHORT'}{' '}
+                  · {positionAmount.toFixed(3)} {CURRENCY_LABEL}
                 </span>
                 <span
                   className={`font-extrabold px-2.5 py-0.5 rounded-full text-xs shrink-0 ${
@@ -735,7 +749,7 @@ export function CrashControls({
                   +{Math.round(holdBonuses.stimmy * 100)}% stimmy on wins — because you hold BlackBalls
                 </div>
               )}
-              {positionSide === 'sell' && (
+              {!continuousDemo && positionSide === 'sell' && (
                 <div className="text-[10px] text-rose-300/80 font-bold mt-0.5">Shorts love rugs 💀</div>
               )}
             </motion.div>

@@ -1,7 +1,13 @@
 'use client';
 import { useEffect, useRef } from 'react';
 import type { Candle, TradeTag } from '@/lib/crash-types';
-import { computeChartLayout, type ChartLayoutFrame } from '@/lib/chart-layout';
+import {
+  chartPriceRange,
+  chartSlotOffset,
+  chartVisibleCount,
+  computeChartLayout,
+  type ChartLayoutFrame,
+} from '@/lib/chart-layout';
 import {
   ChartTradeMarkers,
   ChartTradeOverlays,
@@ -19,8 +25,6 @@ interface ChartCanvasProps {
   /** Pause redraw loop when tab hidden or game not visible (mobile perf). */
   active?: boolean;
 }
-
-const MAX_VISIBLE = 56;
 
 const CANDLE_UP = '#22c55e';
 const CANDLE_DOWN = '#ef4444';
@@ -74,10 +78,13 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
     if (!ctx) return;
     let lastFrameMs = 0;
     const SHIFT_LERP_PER_SEC = 7.2;
+    const RANGE_LERP_PER_SEC = 5;
     // Eases the displayed multiplier toward the latest server value each frame,
     // turning 4 Hz state updates into continuous 60 fps motion.
     const MULT_LERP_PER_SEC = 12;
     let smoothMult: number | null = null;
+    let smoothMinPrice: number | null = null;
+    let smoothMaxPrice: number | null = null;
 
     const render = (frameMs: number) => {
       const dt = lastFrameMs ? Math.min((frameMs - lastFrameMs) / 1000, 0.05) : 1 / 60;
@@ -119,16 +126,23 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
       const chartW = w - padLeft - padRight;
       const chartH = h - padTop - padBottom;
 
-      let maxPrice = Math.max(p.peakMult * 1.08, Math.max(p.mult, dispMult) * 1.06, 1.35);
-      let minPrice = 0;
-      visible.forEach(c => {
-        maxPrice = Math.max(maxPrice, c.h);
-        minPrice = Math.min(minPrice, c.l);
-      });
-      minPrice = Math.max(0, minPrice);
-      const range = Math.max(maxPrice - minPrice, 0.35);
-      maxPrice = minPrice + range * 1.12;
-      minPrice = Math.max(0, minPrice - range * 0.04);
+      const visibleCount = chartVisibleCount(cssW);
+      const targetRange = chartPriceRange(visible, dispMult, visibleCount);
+      if (
+        smoothMinPrice == null ||
+        smoothMaxPrice == null ||
+        p.phase === 'waiting' ||
+        p.phase === 'crashed'
+      ) {
+        smoothMinPrice = targetRange.minPrice;
+        smoothMaxPrice = targetRange.maxPrice;
+      } else {
+        const rangeLerp = Math.min(1, RANGE_LERP_PER_SEC * dt);
+        smoothMinPrice += (targetRange.minPrice - smoothMinPrice) * rangeLerp;
+        smoothMaxPrice += (targetRange.maxPrice - smoothMaxPrice) * rangeLerp;
+      }
+      const minPrice = smoothMinPrice;
+      const maxPrice = Math.max(smoothMaxPrice, minPrice + 0.1);
 
       const yFor = (price: number) => padTop + chartH - ((price - minPrice) / (maxPrice - minPrice)) * chartH;
 
@@ -160,7 +174,6 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
       }
       ctx.textAlign = 'left';
 
-      const visibleCount = MAX_VISIBLE;
       const startIdx = Math.max(0, visible.length - visibleCount);
       const slice = visible.slice(startIdx);
 
@@ -190,15 +203,18 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
         p.peakMult,
         p.elapsed,
         shiftOffsetRef.current,
+        minPrice,
+        maxPrice,
       );
 
       const slotW = chartW / visibleCount;
       const shiftPx = shiftOffsetRef.current * slotW;
-      const bodyRatio = 0.88;
-      const maxBodyW = 22 * dpr;
+      const slotOffset = chartSlotOffset(visibleCount, slice.length);
+      const bodyRatio = 0.68;
+      const maxBodyW = 38 * dpr;
 
       slice.forEach((c, i) => {
-        const cx = padLeft + (i + 0.5) * slotW + shiftPx;
+        const cx = padLeft + (slotOffset + i + 0.5) * slotW + shiftPx;
         if (cx < padLeft - slotW || cx > padLeft + chartW + slotW) return;
 
         const isLast = i === slice.length - 1;
@@ -208,13 +224,22 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
 
         const yH = yFor(c.h);
         const yL = yFor(c.l);
+        const yO = yFor(c.o);
+        const yC = yFor(c.c);
 
-        const pillW = Math.max(4 * dpr, Math.min(maxBodyW, slotW * bodyRatio));
-        const pillTop = Math.min(yH, yL);
-        const pillH = Math.max(Math.abs(yL - yH), 4 * dpr);
-        const pillX = cx - pillW / 2;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(1.5, 1.25 * dpr);
+        ctx.beginPath();
+        ctx.moveTo(cx, yH);
+        ctx.lineTo(cx, yL);
+        ctx.stroke();
 
-        roundRectPath(ctx, pillX, pillTop, pillW, pillH, pillW / 2);
+        const bodyW = Math.max(6 * dpr, Math.min(maxBodyW, slotW * bodyRatio));
+        const bodyTop = Math.min(yO, yC);
+        const bodyH = Math.max(Math.abs(yC - yO), 3 * dpr);
+        const bodyX = cx - bodyW / 2;
+
+        roundRectPath(ctx, bodyX, bodyTop, bodyW, bodyH, 2.5 * dpr);
         ctx.fillStyle = color;
         ctx.fill();
 
@@ -222,7 +247,7 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
           ctx.save();
           ctx.shadowColor = color;
           ctx.shadowBlur = isCrashCandle ? 14 * dpr : 8 * dpr;
-          roundRectPath(ctx, pillX, pillTop, pillW, pillH, pillW / 2);
+          roundRectPath(ctx, bodyX, bodyTop, bodyW, bodyH, 2.5 * dpr);
           ctx.strokeStyle = color;
           ctx.lineWidth = 1.5 * dpr;
           ctx.stroke();

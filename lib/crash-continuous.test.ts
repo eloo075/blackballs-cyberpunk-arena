@@ -38,6 +38,10 @@ describe('Demo continuous Crash engine', () => {
         path.slice(1, -1).some((tick, i) => tick.price < (path[i]?.price ?? tick.price)),
       ),
     ).toBe(true);
+    const deepDipRounds = paths.filter(path =>
+      path.slice(0, -1).some(tick => tick.price <= 0.85),
+    ).length;
+    expect(deepDipRounds).toBeGreaterThanOrEqual(5);
     expect(paths.every(path => path[path.length - 1]?.price === 0.01)).toBe(true);
   });
 

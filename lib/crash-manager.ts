@@ -104,6 +104,15 @@ function randName(): string {
   return `${pre[Math.floor(Math.random() * pre.length)]}...${suf[Math.floor(Math.random() * suf.length)]}`;
 }
 
+function playerMarkerName(address: string): string {
+  if (!address) return 'PLAYER';
+  if (address.startsWith('0x') && address.length > 10) {
+    return `${address.slice(0, 6)}…${address.slice(-4)}`;
+  }
+  const clean = address.replace(/^demo[-_:]?/i, '');
+  return clean.length > 12 ? `${clean.slice(0, 10)}…` : clean || 'PLAYER';
+}
+
 export class CrashManager {
   readonly mode: 'classic' | 'continuous';
   private phase: Phase = 'waiting';
@@ -668,7 +677,7 @@ export class CrashManager {
       amount: -margin,
       price: this.mult,
     };
-    this.pushFeed('YOU', 'rug', margin, this.mult, -margin, { leverage, side });
+    this.pushFeed(playerMarkerName(address), 'rug', margin, this.mult, -margin, { leverage, side });
     this.clearPlayerPosition(player);
     dispatchSettlement({
       type: 'loss',
@@ -1012,8 +1021,9 @@ export class CrashManager {
 
     const notional = margin * leverage;
     this.applyOrderFlow(side, notional);
-    this.pushFeed('YOU', side, margin, 1.0, -margin, { leverage, side });
-    this.pushTag('YOU', side, margin, 1.0);
+    const playerName = playerMarkerName(address);
+    this.pushFeed(playerName, side, margin, 1.0, -margin, { leverage, side });
+    this.pushTag(playerName, side, margin, 1.0);
     this.emit();
     mirrorCrashBalanceToFlip(address, player.balance);
     return { ok: true, balance: player.balance, action: 'open' };
@@ -1055,11 +1065,12 @@ export class CrashManager {
     player.pendingEntry = null;
 
     this.applyOrderFlow('buy', margin * leverage);
-    this.pushFeed('YOU', 'buy', margin, this.mult, -totalDebit, {
+    const playerName = playerMarkerName(address);
+    this.pushFeed(playerName, 'buy', margin, this.mult, -totalDebit, {
       leverage,
       side: 'buy',
     });
-    this.pushTag('YOU', 'buy', margin, this.mult);
+    this.pushTag(playerName, 'buy', margin, this.mult);
     this.emit();
     mirrorCrashBalanceToFlip(address, player.balance);
     return { ok: true, balance: player.balance, action: 'open' };
@@ -1092,7 +1103,7 @@ export class CrashManager {
       return { ok: false, error: 'no pending entry' };
     }
     const closeSide = pending.side === 'buy' ? 'sell' : 'buy';
-    this.pushFeed('YOU', closeSide, pending.amount, 1.0, 0, {
+    this.pushFeed(playerMarkerName(address), closeSide, pending.amount, 1.0, 0, {
       leverage: pending.leverage,
       side: pending.side,
     });
@@ -1153,7 +1164,7 @@ export class CrashManager {
       const leverage = player.positionLeverage;
       const side = player.positionSide;
       player.balance += margin;
-      this.pushFeed('YOU', closeSide, margin, 1.0, 0, { leverage, side });
+      this.pushFeed(playerMarkerName(address), closeSide, margin, 1.0, 0, { leverage, side });
       this.clearPlayerPosition(player);
       this.emit();
       return { ok: true, balance: player.balance, action: 'close' };
@@ -1222,8 +1233,9 @@ export class CrashManager {
       };
     }
 
-    this.pushFeed('YOU', 'cashout', closeMargin, exit, pnl, { leverage, side });
-    this.pushTag('YOU', closeSide, closeMargin, exit);
+    const playerName = playerMarkerName(address);
+    this.pushFeed(playerName, 'cashout', closeMargin, exit, pnl, { leverage, side });
+    this.pushTag(playerName, closeSide, closeMargin, exit);
     this.emit();
     mirrorCrashBalanceToFlip(address, player.balance);
 
