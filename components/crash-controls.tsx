@@ -94,7 +94,7 @@ const ARCADE_BTN_CANCEL_SHORT =
 const ARCADE_BTN_CANCEL_LONG =
   'bg-amber-400 hover:bg-amber-300 text-black font-black uppercase tracking-wider rounded-xl border-b-4 border-emerald-600 active:border-b-0 active:translate-y-1 transition-all';
 const TRADE_BTN =
-  'touch-manipulation min-h-[52px] sm:min-h-[56px] py-2.5 sm:py-3 px-3 sm:px-4 text-sm sm:text-base font-black uppercase tracking-wider';
+  'touch-manipulation min-h-[48px] sm:min-h-[52px] py-2 sm:py-2.5 px-2 sm:px-3 text-sm sm:text-base font-black uppercase tracking-wider';
 
 function TradeSpinner() {
   return (
@@ -132,15 +132,15 @@ export function CrashControls({
   onTryDemo,
   onTrade,
   onCancelEntry,
-  onSetAutoSell,
+  onSetAutoSell: _onSetAutoSell,
   onCashOut,
 }: CrashControlsProps) {
+  void _onSetAutoSell;
   const { usdPerToken } = useTokenUsd();
   const [amount, setAmount] = useState(0.01);
   const [percent, setPercent] = useState(0);
   const [cashOutPct, setCashOutPct] = useState(0.5);
   const [leverage, setLeverage] = useState(1);
-  const [autoVal, setAutoVal] = useState('');
   const [pendingAction, setPendingAction] = useState<'buy' | 'sell' | 'cancel' | 'cashout' | null>(null);
   const tradeBusy = pendingAction === 'buy' || pendingAction === 'sell' || pendingAction === 'cancel';
   const cashoutBusy = pendingAction === 'cashout';
@@ -616,56 +616,45 @@ export function CrashControls({
         </div>
       )}
 
-      <div className="flex flex-col">
-        {/* wager amount */}
-        <div
-          className={`relative px-3 py-2 sm:px-4 sm:py-3 border-b border-white/5 bg-[#25262c] ${
-            hasPosition ? 'opacity-50 pointer-events-none' : ''
-          }`}
-        >
-          <WagerAmountPanel
-            amount={hasPosition ? clampBetToBalance(amount, balance) : effectiveWager}
-            onAmountChange={v => setAmount(clampBetToBalance(v, balance))}
-            balance={balance}
-            disabled={hasPosition}
-            percent={percent}
-            onPercentChange={setPercent}
-            showPercentButtons
-            showBalanceHint
-          />
-        </div>
-
-        {/* leverage */}
-        <div
-          className={`relative px-3 py-2 sm:px-4 sm:py-3 border-b border-white/5 bg-[#25262c] ${
-            hasPosition ? 'opacity-50 pointer-events-none' : ''
-          }`}
-        >
-          <div className="flex items-center justify-between gap-2 mb-1.5 sm:mb-2">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-extrabold text-amber-300">⚡ Leverage</span>
-              {leverage > 1 && (
-                <span className="hidden sm:inline text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                  DEGEN MODE
-                </span>
-              )}
-            </div>
-            <span className="text-[10px] sm:text-[11px] text-white/45">
-              <span className="text-sky-400 font-extrabold">{notionalExposure.toFixed(2)}</span> exp.
-              {openFee > 0 && (
-                <span className="text-rose-300 font-bold"> · {openFee.toFixed(3)} fee</span>
-              )}
-            </span>
+      <div className="flex flex-col gap-1.5 p-2 sm:p-2.5">
+        {/* rugs.fun-style: wager | leverage/% in two separate rectangles */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div
+            className={`rounded-xl border border-white/10 bg-[#1a1b20] px-2.5 py-2 ${
+              hasPosition ? 'opacity-50 pointer-events-none' : ''
+            }`}
+          >
+            <WagerAmountPanel
+              amount={hasPosition ? clampBetToBalance(amount, balance) : effectiveWager}
+              onAmountChange={v => setAmount(clampBetToBalance(v, balance))}
+              balance={balance}
+              disabled={hasPosition}
+              percent={percent}
+              onPercentChange={setPercent}
+              showPercentButtons={false}
+              showBalanceHint
+              inputClassName="flex-1 min-w-0 bg-transparent text-lg sm:text-2xl font-extrabold text-white outline-none disabled:opacity-50 tabular-nums placeholder:text-white/20"
+            />
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3 mb-1.5 sm:mb-2">
-            <div className="shrink-0 min-w-[56px] sm:min-w-[72px] text-center px-2 py-1 sm:px-3 sm:py-1.5 rounded-full bg-amber-400 text-black border-b-[3px] border-amber-600">
-              <div className="text-xl sm:text-3xl font-extrabold leading-none tabular-nums">
-                {leverage % 1 === 0 ? `${leverage}x` : `${leverage.toFixed(1)}x`}
-              </div>
+          <div
+            className={`rounded-xl border border-white/10 bg-[#1a1b20] px-2.5 py-2 ${
+              hasPosition ? 'opacity-50 pointer-events-none' : ''
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <span className="text-xs font-extrabold text-amber-300">⚡ Leverage</span>
+              <span className="text-[10px] text-white/45 tabular-nums">
+                <span className="text-sky-400 font-extrabold">{notionalExposure.toFixed(2)}</span>
+                {openFee > 0 && <span className="text-rose-300"> · {openFee.toFixed(3)} fee</span>}
+              </span>
             </div>
-
-            <div className="flex-1 flex flex-col gap-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1.5">
+              <div className="shrink-0 min-w-[48px] text-center px-2 py-1 rounded-lg bg-amber-400 text-black border-b-2 border-amber-600">
+                <div className="text-lg font-extrabold leading-none tabular-nums">
+                  {leverage % 1 === 0 ? `${leverage}x` : `${leverage.toFixed(1)}x`}
+                </div>
+              </div>
               <input
                 type="range"
                 min="1"
@@ -674,64 +663,48 @@ export function CrashControls({
                 value={leverage}
                 onChange={e => setLeverage(parseFloat(e.target.value))}
                 disabled={hasPosition}
-                className="leverage-slider w-full h-2 sm:h-2.5 cursor-pointer touch-manipulation disabled:opacity-30"
+                className="leverage-slider flex-1 h-2 cursor-pointer touch-manipulation disabled:opacity-30"
                 style={{
                   ['--lev-pct' as string]: `${((leverage - 1) / 4) * 100}%`,
                 }}
               />
-              <div className="hidden sm:flex justify-between text-[10px] text-white/40 font-bold">
-                <span>1x safe</span>
-                <span className="text-rose-400">5x max</span>
-              </div>
+            </div>
+            <div className="flex gap-1 mb-1.5">
+              {LEVERAGE_PRESETS.map(preset => {
+                const active = leverage === preset;
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setLeverage(preset)}
+                    disabled={hasPosition}
+                    className={`flex-1 min-h-[28px] rounded-lg text-[10px] font-extrabold touch-manipulation transition-all disabled:opacity-30 ${leveragePillClass(preset, active)}`}
+                  >
+                    {preset}x
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex gap-1">
+              {[10, 25, 50, 100].map(p => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPercent(p)}
+                  disabled={hasPosition}
+                  className={`flex-1 min-h-[30px] rounded-lg text-[10px] font-extrabold touch-manipulation disabled:opacity-30 ${
+                    percent === p
+                      ? 'bg-violet-500 text-white border-b-2 border-violet-700'
+                      : 'bg-[#2a2c33] text-white/55 border border-white/10'
+                  }`}
+                >
+                  {p}%
+                </button>
+              ))}
             </div>
           </div>
-
-          <div className="flex flex-wrap gap-1 sm:gap-1.5">
-            {LEVERAGE_PRESETS.map(preset => {
-              const active = leverage === preset;
-              const hideOnMobile = preset === 1.5;
-              return (
-                <button
-                  key={preset}
-                  type="button"
-                  onClick={() => setLeverage(preset)}
-                  disabled={hasPosition}
-                  className={`flex-1 min-w-[36px] min-h-[32px] sm:min-h-[36px] rounded-full text-[11px] sm:text-xs font-extrabold touch-manipulation transition-all disabled:opacity-30 ${leveragePillClass(preset, active)} ${hideOnMobile ? 'hidden sm:flex' : ''}`}
-                >
-                  {preset}x
-                </button>
-              );
-            })}
-          </div>
         </div>
 
-        {/* auto take-profit — desktop only */}
-        <div className="hidden sm:flex items-center justify-between px-4 py-2.5 text-xs border-b border-white/5 bg-[#1f2025]">
-          <span className="text-white/40 text-[11px] font-bold">
-            {holdBonuses.stimmy > 0
-              ? `+${Math.round(holdBonuses.stimmy * 100)}% stimmy active`
-              : 'Wager → leverage → BUY / SELL'}
-          </span>
-          <div className="flex items-center gap-1.5">
-            <span className="text-white/35 text-[11px] font-bold">Auto TP</span>
-            <input
-              type="number"
-              min="1.01"
-              step="0.1"
-              inputMode="decimal"
-              value={autoVal}
-              onChange={e => {
-                setAutoVal(e.target.value);
-                onSetAutoSell(e.target.value ? parseFloat(e.target.value) : null);
-              }}
-              placeholder="OFF"
-              className="w-16 bg-[#2a2c33] border border-white/10 rounded-lg px-2 py-1 text-[11px] text-amber-300 text-right outline-none focus:border-amber-400/50"
-            />
-            <span className="text-white/35">x</span>
-          </div>
-        </div>
-
-        {/* open position panel */}
         <AnimatePresence initial={false}>
           {hasPosition && (
             <motion.div
@@ -739,140 +712,71 @@ export function CrashControls({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
-              className="px-3 py-2 border-b border-white/5 bg-[#25262c]"
+              className="rounded-xl border border-white/10 bg-[#1a1b20] px-2.5 py-1.5"
             >
               <div className="flex items-center justify-between text-xs gap-2">
                 <span className={positionSide === 'buy' ? 'text-emerald-400 font-extrabold' : 'text-rose-400 font-extrabold'}>
-                  {continuousDemo
-                    ? 'POSITION'
-                    : positionSide === 'buy'
-                      ? 'LONG'
-                      : 'SHORT'}{' '}
-                  · {positionAmount.toFixed(3)} {CURRENCY_LABEL}
+                  {continuousDemo ? 'POSITION' : positionSide === 'buy' ? 'LONG' : 'SHORT'} ·{' '}
+                  {positionAmount.toFixed(3)}
                 </span>
-                <span
-                  className={`font-extrabold px-2.5 py-0.5 rounded-full text-xs shrink-0 ${
-                    positionLeverage >= 50
-                      ? 'bg-amber-400 text-black'
-                      : positionLeverage >= 10
-                        ? 'bg-rose-500 text-white'
-                        : positionLeverage > 1
-                          ? 'bg-amber-400/90 text-black'
-                          : 'bg-[#2a2c33] text-white/55 border border-white/10'
-                  }`}
-                >
-                  {positionLeverage}x LEV
+                <span className="text-[10px] text-white/45">
+                  ENTRY {positionEntryPrice.toFixed(2)}x
+                  {phase === 'running' && ` · NOW ${mult.toFixed(2)}x`}
                 </span>
                 <span className={positionPnl >= 0 ? 'text-emerald-400 font-extrabold' : 'text-rose-400 font-extrabold'}>
                   {pnlDisplay.text} ({pnlDisplay.pct}%)
                 </span>
               </div>
-              <div className="text-[10px] text-white/40 mt-0.5">
-                {entryPending && phase === 'waiting' ? (
-                  <span className="text-amber-300 font-bold">COUNTDOWN ENTRY · starts @ 1.00x when timer hits 0</span>
-                ) : (
-                  <>
-                    ENTRY {positionEntryPrice.toFixed(4)}x
-                    {phase === 'waiting' && ' · LIVE @ ROUND START'}
-                    {phase === 'running' && ` · NOW ${mult.toFixed(4)}x`}
-                  </>
-                )}
-              </div>
-              {holdBonuses.stimmy > 0 && (
-                <div className="text-[10px] text-amber-300 font-extrabold mt-0.5">
-                  +{Math.round(holdBonuses.stimmy * 100)}% stimmy on wins — because you hold BlackBalls
-                </div>
-              )}
-              {!continuousDemo && positionSide === 'sell' && (
-                <div className="text-[10px] text-rose-300/80 font-bold mt-0.5">Shorts love rugs 💀</div>
-              )}
             </motion.div>
           )}
         </AnimatePresence>
 
         {showCashoutPanel && (
-          <div className="px-3 py-2.5 border-b border-white/5 bg-emerald-500/10">
-            <div className="text-[10px] font-extrabold text-emerald-300 mb-1.5">
-              CASH OUT @ {mult.toFixed(2)}x
-              {continuousDemo ? ' · SELL uses this %' : ''}
-            </div>
-            {cashOutError && (
-              <div className="mb-2 px-2 py-1.5 text-[10px] font-bold rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-200">
-                {cashOutError}
-              </div>
-            )}
-            <div className="flex gap-1.5 mb-2">
+          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-2">
+            <div className="flex items-center gap-1.5 mb-1.5">
               {CASH_OUT_PCTS.map(p => (
                 <button
                   key={p}
                   type="button"
                   onClick={() => setCashOutPct(p)}
-                  className={`flex-1 min-h-[40px] rounded-lg text-xs font-extrabold touch-manipulation ${
+                  className={`flex-1 min-h-[34px] rounded-lg text-[11px] font-extrabold touch-manipulation ${
                     cashOutPct === p
-                      ? p === 0.5 || p === 0.75
-                        ? 'bg-amber-500 text-black border-b-2 border-amber-700'
-                        : 'bg-emerald-500 text-white border-b-2 border-emerald-700'
+                      ? 'bg-emerald-500 text-white border-b-2 border-emerald-700'
                       : 'bg-[#2a2c33] text-white/55 border border-white/10'
                   }`}
                 >
                   {p * 100}%
                 </button>
               ))}
-            </div>
-            <button
-              type="button"
-              onClick={handleCashOut}
-              disabled={!canCashOut}
-              className={`w-full touch-manipulation min-h-[48px] py-2.5 text-sm font-black rounded-xl border-b-4 active:border-b-0 active:translate-y-1 transition-all ${
-                canCashOut
-                  ? 'bg-emerald-500 hover:bg-emerald-400 text-white border-emerald-700'
-                  : 'bg-[#2a2c33] text-white/40 border-white/10 cursor-not-allowed'
-              }`}
-            >
-              {pendingAction === 'cashout'
-                ? 'CASHING OUT…'
-                : cashOutPct >= 1
-                  ? 'CASH OUT 100%'
-                  : `PARTIAL CASH OUT ${cashOutPct * 100}%`}
-            </button>
-          </div>
-        )}
-
-        {/* BUY / SELL */}
-        <div className="min-h-0">
-        {entryNotice && walletConnected && (
-          <div className="mx-3 mt-2 px-3 py-2 text-xs leading-relaxed rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-200 font-bold">
-            {entryNotice}
-          </div>
-        )}
-        {cancelNotice && walletConnected && (
-          <div className="mx-3 mt-2 px-3 py-2 text-xs leading-relaxed rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-200 font-bold">
-            {cancelNotice}
-          </div>
-        )}
-        {(tradeBlockReason || tradeError) && walletConnected && !pendingAction && (
-          <div className="mx-3 mt-2 px-3 py-2 text-xs leading-relaxed rounded-xl bg-amber-400/10 border border-amber-400/25 text-amber-200 font-bold">
-            {tradeError ?? tradeBlockReason}
-            {tradeBlockReason?.includes('Vault balance is 0') && onTryDemo && (
               <button
                 type="button"
-                onClick={onTryDemo}
-                className="block mt-2 text-xs font-extrabold underline text-sky-400"
+                onClick={handleCashOut}
+                disabled={!canCashOut}
+                className={`flex-[1.4] min-h-[34px] rounded-lg text-[11px] font-black touch-manipulation ${
+                  canCashOut
+                    ? 'bg-emerald-500 text-white border-b-2 border-emerald-700'
+                    : 'bg-[#2a2c33] text-white/40 border border-white/10'
+                }`}
               >
-                Or switch to demo mode with free credits →
+                {pendingAction === 'cashout' ? '…' : cashOutPct >= 1 ? 'CASH OUT' : `OUT ${cashOutPct * 100}%`}
               </button>
+            </div>
+            {cashOutError && (
+              <div className="text-[10px] font-bold text-rose-200">{cashOutError}</div>
             )}
           </div>
         )}
-        </div>
-        {walletConnected && isDemoWallet && (
-          <div className="hidden sm:block mx-3 mt-2 px-3 py-1.5 text-[11px] text-center text-emerald-300 border border-emerald-500/20 bg-emerald-500/10 rounded-xl font-bold">
-            DEMO MODE · off-chain credits · no real tokens at risk
-          </div>
-        )}
 
-        {/* BUY / SELL — same markup on all screen sizes (no sticky / no duplicate logic) */}
-        <div className="grid grid-cols-2 gap-3 p-3">
+        {(entryNotice || cancelNotice || tradeError || (tradeBlockReason && !hasPosition && phase !== 'running')) &&
+          walletConnected &&
+          !pendingAction && (
+            <div className="px-1 text-[10px] font-bold text-amber-200/90 leading-snug">
+              {tradeError ?? entryNotice ?? cancelNotice ?? tradeBlockReason}
+            </div>
+          )}
+
+        {/* BUY / SELL — always visible under chart, no scroll required */}
+        <div className="grid grid-cols-2 gap-2">
           {renderTradeButton('buy')}
           {renderTradeButton('sell')}
         </div>
@@ -884,7 +788,7 @@ export function CrashControls({
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className={`mx-3 mb-3 p-3 text-center text-sm font-extrabold rounded-xl ${lastResult.won ? 'text-emerald-300 bg-emerald-500/15 border border-emerald-500/25' : 'text-rose-300 bg-rose-500/15 border border-rose-500/25'}`}
+            className={`mx-2 mb-2 p-2 text-center text-xs font-extrabold rounded-xl ${lastResult.won ? 'text-emerald-300 bg-emerald-500/15 border border-emerald-500/25' : 'text-rose-300 bg-rose-500/15 border border-rose-500/25'}`}
           >
             {lastResult.won
               ? `+${lastResult.amount.toFixed(3)} ${CURRENCY_LABEL} @ ${lastResult.price.toFixed(2)}x${lastResult.bonusAmount ? ` (+${lastResult.bonusAmount.toFixed(3)} bonus)` : ''}${lastResult.frenzyProc ? ' · FRENZY!' : ''}`

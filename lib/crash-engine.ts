@@ -276,9 +276,9 @@ export interface PriceTick {
  * Price mean-reverts toward a slowly wandering target so candles balance up/down
  * instead of one-way pumping into a ceiling.
  */
-export const CONTINUOUS_MIN_ROUND_TICKS = 24; // 6s
+export const CONTINUOUS_MIN_ROUND_TICKS = 48; // 12s minimum — avoid instant rugs feeling broken
 export const CONTINUOUS_MAX_ROUND_TICKS = 720; // 180s / 3 minutes
-export const CONTINUOUS_PATH_EXTENSION_TICKS = 120; // +30s liquidity buffer
+export const CONTINUOUS_PATH_EXTENSION_TICKS = 160; // +40s liquidity buffer
 export const CONTINUOUS_PRICE_FLOOR = 0.4;
 export const CONTINUOUS_PRICE_CEIL = 80;
 /** @deprecated Prefer sampleContinuousRugTick — kept for imports/tests. */
@@ -291,19 +291,19 @@ export interface ContinuousRoundPath {
   rugTick: number;
 }
 
-/** Seeded duration mix: many short rugs, some mid, rare multi-minute charts. */
+/** Seeded duration mix targeting ~90s average (rugs.fun Standard feel). */
 export function sampleContinuousRugTick(rng: () => number): number {
   const u = rng();
   let seconds: number;
-  if (u < 0.22) {
-    // Instant / very short rugs (6–20s) — matches 6s chart popups
-    seconds = 6 + rng() * 14;
+  if (u < 0.1) {
+    // Short rugs (15–45s)
+    seconds = 15 + rng() * 30;
   } else if (u < 0.55) {
-    // Typical (20–70s)
-    seconds = 20 + rng() * 50;
+    // Core band around 1–2 minutes (55–110s)
+    seconds = 55 + rng() * 55;
   } else if (u < 0.85) {
-    // Extended (70–140s)
-    seconds = 70 + rng() * 70;
+    // Extended (95–150s)
+    seconds = 95 + rng() * 55;
   } else {
     // Long moon charts (140–180s / up to ~3 min)
     seconds = 140 + rng() * 40;

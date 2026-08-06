@@ -245,9 +245,9 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
           </div>
         </div>
 
-        {/* chart + cash-out dock — fixed block; controls scroll below without shrinking chart */}
-        <div className="flex flex-col gap-2 shrink-0 flex-none min-w-0">
-        <div className={`relative cp-panel overflow-visible w-full min-h-[min(42vh,340px)] h-[min(42vh,340px)] sm:min-h-[480px] sm:h-[60vh] sm:max-h-none ${chartCadreClass}`}>
+        {/* chart + trade dock — same screen, no scroll for BUY/SELL */}
+        <div className="flex flex-col gap-1.5 shrink-0 flex-none min-w-0">
+        <div className={`relative cp-panel overflow-visible w-full min-h-[min(32vh,260px)] h-[min(32vh,260px)] sm:min-h-[420px] sm:h-[52vh] sm:max-h-none ${chartCadreClass}`}>
           <ChartCanvas
             key={`crash-chart-${state.gameId}`}
             active={visible}
@@ -419,7 +419,6 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
             )}
           </AnimatePresence>
         </div>
-        </div>
 
         <CrashControls
           phase={state.phase}
@@ -452,6 +451,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
           onCashOut={cashOut}
           onSetAutoSell={setAutoSell}
         />
+        </div>
 
         {holdBonuses.active.length > 0 && (
           <HoldBonusBar active={holdBonuses.active} compact className="sm:hidden" />

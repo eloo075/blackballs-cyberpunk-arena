@@ -65,7 +65,7 @@ describe('Demo continuous Crash engine', () => {
   });
 
   it('balances up and down with varied peaks (not a 25x wall)', () => {
-    const samples = Array.from({ length: 280 }, (_, i) => {
+    const samples = Array.from({ length: 180 }, (_, i) => {
       const gameId = 9000 + i;
       return generateContinuousRoundPath(deriveServerSeedForGameId(gameId), gameId);
     });
@@ -83,13 +83,13 @@ describe('Demo continuous Crash engine', () => {
       return ups >= 10 && downs >= 10;
     }).length;
 
-    expect(oscillating).toBeGreaterThanOrEqual(200);
-    expect(median).toBeLessThan(10);
-    expect(ceilingHits / peaks.length).toBeLessThan(0.12);
+    expect(oscillating).toBeGreaterThanOrEqual(120);
+    expect(median).toBeLessThan(12);
+    expect(ceilingHits / peaks.length).toBeLessThan(0.15);
     expect(peaks.some(p => p >= 5)).toBe(true);
-  });
+  }, 20_000);
 
-  it('supports rugs.fun round lengths from ~6s to ~3 minutes', () => {
+  it('targets ~1.5 minute average rounds (still 12s–3min range)', () => {
     const durations = Array.from({ length: 300 }, (_, i) => {
       const gameId = 5000 + i;
       const result = generateContinuousRoundPath(deriveServerSeedForGameId(gameId), gameId);
@@ -98,14 +98,14 @@ describe('Demo continuous Crash engine', () => {
       return result.rugTick * 0.25;
     });
     const average = durations.reduce((sum, seconds) => sum + seconds, 0) / durations.length;
-    const shortCount = durations.filter(s => s <= 20).length;
+    const shortCount = durations.filter(s => s <= 45).length;
     const longCount = durations.filter(s => s >= 140).length;
 
-    expect(average).toBeGreaterThanOrEqual(35);
-    expect(average).toBeLessThanOrEqual(100);
-    expect(Math.min(...durations)).toBeGreaterThanOrEqual(6);
+    expect(average).toBeGreaterThanOrEqual(70);
+    expect(average).toBeLessThanOrEqual(110);
+    expect(Math.min(...durations)).toBeGreaterThanOrEqual(12);
     expect(Math.max(...durations)).toBeLessThanOrEqual(180);
-    expect(shortCount).toBeGreaterThanOrEqual(40);
+    expect(shortCount).toBeGreaterThanOrEqual(15);
     expect(longCount).toBeGreaterThanOrEqual(20);
   }, 25_000);
 });

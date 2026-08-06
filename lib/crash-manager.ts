@@ -815,6 +815,24 @@ export class CrashManager {
       b.status = 'out';
       b.entryPrice = 1.0;
     });
+    // Continuous: seed some live buyers at 1.00x so the round opens busy
+    if (this.mode === 'continuous') {
+      for (const b of this.bots) {
+        if (Math.random() < 0.4) {
+          b.status = 'in';
+          b.side = 'buy';
+          b.entryPrice = 1.0;
+          b.amount = parseFloat((Math.random() * 2.5 + 0.05).toFixed(2));
+          b.leverage = 1 + Math.floor(Math.random() * 3);
+          this.applyOrderFlow('buy', b.amount * b.leverage);
+          this.pushFeed(b.name, 'buy', b.amount, 1.0, -b.amount, {
+            leverage: b.leverage,
+            side: 'buy',
+          });
+          this.pushTag(b.name, 'buy', b.amount, 1.0);
+        }
+      }
+    }
     this.emit();
   }
 
@@ -926,10 +944,13 @@ export class CrashManager {
   private simulateBots() {
     this.bots.forEach(b => {
       if (b.status === 'out') {
-        if (Math.random() < 0.08) {
+        // Continuous: frequent live buys at the current price (different entries).
+        const joinChance = this.mode === 'continuous' ? 0.16 : 0.08;
+        if (Math.random() < joinChance) {
           b.status = 'in';
           b.side = this.mode === 'continuous' || Math.random() < 0.55 ? 'buy' : 'sell';
           b.entryPrice = this.mult;
+          b.amount = parseFloat((Math.random() * 2.5 + 0.05).toFixed(2));
           b.leverage = 1 + Math.floor(Math.random() * 4);
           const notional = b.amount * b.leverage;
           this.applyOrderFlow(b.side, notional);
@@ -940,12 +961,14 @@ export class CrashManager {
           this.pushTag(b.name, b.side, b.amount, this.mult);
         }
       } else {
-        const pnlPct = this.botPnl(b) / b.amount;
+        const pnlPct = this.botPnl(b) / Math.max(0.001, b.amount);
         const takeProfit = pnlPct > 0.08 + Math.random() * 0.35;
         const stopLoss = pnlPct < -0.12;
         const shortTp = b.side === 'sell' && this.mult <= b.entryPrice * (0.85 + Math.random() * 0.1);
         const longTp = b.side === 'buy' && this.mult >= b.entryPrice * (1.1 + Math.random() * 0.3);
-        if (takeProfit || stopLoss || shortTp || longTp) {
+        // Continuous bots hold longer so the chart stays busy with mixed entries
+        const exitChance = this.mode === 'continuous' ? 0.55 : 1;
+        if ((takeProfit || stopLoss || shortTp || longTp) && Math.random() < exitChance) {
           b.status = 'out';
           const pnl = this.botPnl(b);
           const closeSide = b.side === 'buy' ? 'sell' : 'buy';
