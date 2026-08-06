@@ -6,8 +6,9 @@ import type { Candle, TradeTag } from '@/lib/crash-types';
 import type { ChartLayoutFrame } from '@/lib/chart-layout';
 import { markerXForCandle, priceToY, resolveCandleIndex } from '@/lib/chart-layout';
 
-const TOOLTIP_TTL_MS = 1750;
-const FADE_START_MS = 1200;
+/** rugs.fun-style: brief toast only — no permanent crowded labels */
+const TOOLTIP_TTL_MS = 2000;
+const FADE_START_MS = 1550;
 
 interface ChartTradeOverlaysProps {
   tradeTags: TradeTag[];
@@ -22,94 +23,52 @@ interface OverlayPosition {
   tooltipY: number;
 }
 
-function TradeAvatar({ player }: { player: string }) {
-  const hue = player.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
+function TradeIcon({ isBuy }: { isBuy: boolean }) {
   return (
     <div
-      className="w-5 h-5 rounded-full shrink-0 border border-white/15 flex items-center justify-center text-[8px] font-extrabold text-white/80 overflow-hidden"
-      style={{ background: `hsl(${hue} 22% 34%)` }}
-      aria-hidden
-    >
-      {player.slice(0, 2).toUpperCase()}
-    </div>
-  );
-}
-
-function TradeMarker({ isBuy }: { isBuy: boolean }) {
-  return (
-    <div
-      className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] shrink-0 border-2 shadow-md ${
-        isBuy
-          ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
-          : 'bg-orange-500/20 border-orange-400 text-orange-200'
+      className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 border-2 shadow-lg overflow-hidden ${
+        isBuy ? 'bg-[#141518] border-amber-400' : 'bg-[#141518] border-orange-500'
       }`}
       aria-hidden
     >
-      {isBuy ? '🚀' : '💰'}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={isBuy ? '/orange-coin.svg' : '/bear-icon.svg'}
+        alt=""
+        width={22}
+        height={22}
+        className="w-[22px] h-[22px]"
+        draggable={false}
+      />
     </div>
   );
 }
 
 function TradeTooltip({ tag }: { tag: TradeTag }) {
   const isBuy = tag.side === 'buy';
-  const actionLabel = isBuy
-    ? `Buy +${tag.amount.toFixed(3)}`
-    : `Sell -${tag.amount.toFixed(3)}`;
 
   return (
     <div
-      className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border-2 shadow-lg backdrop-blur-sm font-arcade min-w-0 max-w-[148px] ${
+      className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border shadow-lg backdrop-blur-sm font-arcade min-w-0 max-w-[140px] ${
         isBuy
-          ? 'bg-[#141518]/95 border-emerald-500/50'
-          : 'bg-[#141518]/95 border-orange-500/50'
+          ? 'bg-[#141518]/95 border-amber-400/55'
+          : 'bg-[#141518]/95 border-orange-500/55'
       }`}
     >
-      <TradeAvatar player={tag.user} />
+      <TradeIcon isBuy={isBuy} />
       <div className="min-w-0 flex-1">
-        <div className="text-[9px] font-extrabold text-white/75 truncate leading-tight">{tag.user}</div>
+        <div className="text-[10px] font-extrabold text-white truncate leading-tight">
+          {tag.user}
+        </div>
         <div
-          className={`text-[10px] font-extrabold leading-tight tabular-nums ${
-            isBuy ? 'text-emerald-400' : 'text-orange-400'
+          className={`text-[9px] font-extrabold leading-tight tabular-nums ${
+            isBuy ? 'text-amber-300' : 'text-orange-300'
           }`}
         >
-          {actionLabel}
+          {isBuy ? 'Buy' : 'Sell'} +{tag.amount.toFixed(3)}
         </div>
       </div>
     </div>
-  );
-}
-
-function ConnectorLine({
-  x1,
-  y1,
-  x2,
-  y2,
-  isBuy,
-  opacity,
-}: {
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-  isBuy: boolean;
-  opacity: number;
-}) {
-  return (
-    <svg
-      className="absolute inset-0 w-full h-full pointer-events-none overflow-visible"
-      style={{ opacity }}
-      aria-hidden
-    >
-      <line
-        x1={x1}
-        y1={y1}
-        x2={x2}
-        y2={y2}
-        stroke={isBuy ? 'rgba(34,197,94,0.45)' : 'rgba(251,146,60,0.45)'}
-        strokeWidth={1.5}
-        strokeDasharray="4 3"
-      />
-    </svg>
   );
 }
 
@@ -126,19 +85,17 @@ function computePosition(
   );
   const markerX = markerXForCandle(layout, candleIdx);
   const markerY = priceToY(tag.price, layout);
-  const tooltipW = 138;
+  const tooltipW = 132;
   const tooltipH = 36;
 
-  let tooltipX = markerX - tooltipW - 18;
-  if (tooltipX < layout.padLeft + 6) {
-    tooltipX = Math.min(markerX + 18, layout.padLeft + layout.chartW - tooltipW - 6);
+  let tooltipX = markerX + 16;
+  if (tooltipX + tooltipW > layout.padLeft + layout.chartW - 4) {
+    tooltipX = Math.max(layout.padLeft + 4, markerX - tooltipW - 14);
   }
 
   const centerBandBottom = layout.padTop + layout.chartH * 0.42;
   let tooltipY =
-    markerY < centerBandBottom
-      ? markerY + 24
-      : markerY - tooltipH - 8;
+    markerY < centerBandBottom ? markerY + 18 : markerY - tooltipH - 6;
 
   tooltipY = Math.max(
     layout.padTop + 6,
@@ -148,51 +105,11 @@ function computePosition(
   return { markerX, markerY, tooltipX, tooltipY };
 }
 
-export function ChartTradeMarkers({
-  tradeTags,
-  candles,
-  layoutRef,
-}: ChartTradeOverlaysProps) {
-  const layout = layoutRef.current;
-  if (!layout || tradeTags.length === 0) return null;
-
-  return (
-    <div className="absolute inset-0 z-[18] pointer-events-none overflow-hidden" aria-hidden>
-      {tradeTags.slice(-20).map(tag => {
-        const position = computePosition(layout, candles, tag);
-        const visible =
-          position.markerX >= layout.padLeft &&
-          position.markerX <= layout.padLeft + layout.chartW;
-        if (!visible) return null;
-        return (
-          <div
-            key={tag.id}
-            className="absolute -translate-x-1/2 -translate-y-1/2 flex items-center gap-1 drop-shadow-lg"
-            style={{ left: position.markerX, top: position.markerY }}
-          >
-            <span
-              className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] ${
-                tag.side === 'buy'
-                  ? 'bg-emerald-950/95 border-emerald-400'
-                  : 'bg-rose-950/95 border-rose-400'
-              }`}
-            >
-              {tag.side === 'buy' ? '🚀' : '💰'}
-            </span>
-            <span
-              className={`max-w-[112px] truncate rounded-md border bg-[#111418]/92 px-1.5 py-0.5 text-[8px] font-extrabold ${
-                tag.side === 'buy'
-                  ? 'border-emerald-500/45 text-emerald-200'
-                  : 'border-rose-500/45 text-rose-200'
-              }`}
-            >
-              {tag.user.slice(0, 8)} · {tag.amount.toFixed(3)}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
+/**
+ * @deprecated Permanent markers crowded the chart — kept as no-op so old imports don't break.
+ */
+export function ChartTradeMarkers(_props: ChartTradeOverlaysProps) {
+  return null;
 }
 
 export function ChartTradeOverlays({ tradeTags, candles, layoutRef }: ChartTradeOverlaysProps) {
@@ -200,8 +117,10 @@ export function ChartTradeOverlays({ tradeTags, candles, layoutRef }: ChartTrade
   const [opacity, setOpacity] = useState(1);
   const [position, setPosition] = useState<OverlayPosition | null>(null);
   const lastSeenIdRef = useRef(-1);
+  const queueRef = useRef<TradeTag[]>([]);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showingRef = useRef(false);
   const candlesRef = useRef(candles);
   candlesRef.current = candles;
 
@@ -213,7 +132,8 @@ export function ChartTradeOverlays({ tradeTags, candles, layoutRef }: ChartTrade
   };
 
   const showTag = (tag: TradeTag) => {
-    lastSeenIdRef.current = tag.id;
+    lastSeenIdRef.current = Math.max(lastSeenIdRef.current, tag.id);
+    showingRef.current = true;
     setActiveTag(tag);
     setOpacity(1);
     const layout = layoutRef.current;
@@ -226,6 +146,9 @@ export function ChartTradeOverlays({ tradeTags, candles, layoutRef }: ChartTrade
       setActiveTag(null);
       setPosition(null);
       setOpacity(1);
+      showingRef.current = false;
+      const next = queueRef.current.shift();
+      if (next) showTag(next);
     }, TOOLTIP_TTL_MS);
   };
 
@@ -236,8 +159,19 @@ export function ChartTradeOverlays({ tradeTags, candles, layoutRef }: ChartTrade
       lastSeenIdRef.current = latest.id;
       return;
     }
-    if (latest.id <= lastSeenIdRef.current) return;
-    showTag(latest);
+    const fresh = tradeTags.filter(t => t.id > lastSeenIdRef.current);
+    if (fresh.length === 0) return;
+    lastSeenIdRef.current = fresh[fresh.length - 1].id;
+
+    // Prefer the newest events; keep queue short so chart stays clean.
+    const incoming = fresh.slice(-3);
+    if (!showingRef.current) {
+      const [first, ...rest] = incoming;
+      queueRef.current = rest;
+      showTag(first);
+    } else {
+      queueRef.current = [...queueRef.current, ...incoming].slice(-4);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- showTag resets timers only
   }, [tradeTags]);
 
@@ -265,11 +199,8 @@ export function ChartTradeOverlays({ tradeTags, candles, layoutRef }: ChartTrade
 
   if (!activeTag || !position) return null;
 
-  const isBuy = activeTag.side === 'buy';
   const { markerX, markerY, tooltipX, tooltipY } = position;
-  const tooltipH = 36;
-  const lineX2 = tooltipX + 138;
-  const lineY2 = tooltipY + tooltipH / 2;
+  const isBuy = activeTag.side === 'buy';
 
   return (
     <div className="absolute inset-0 z-20 pointer-events-none overflow-visible">
@@ -277,29 +208,21 @@ export function ChartTradeOverlays({ tradeTags, candles, layoutRef }: ChartTrade
         <motion.div
           key={activeTag.id}
           className="absolute inset-0 pointer-events-none"
-          initial={{ opacity: 0 }}
-          animate={{ opacity }}
+          initial={{ opacity: 0, scale: 0.85 }}
+          animate={{ opacity, scale: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
+          transition={{ duration: 0.18 }}
         >
-          <ConnectorLine
-            x1={markerX}
-            y1={markerY}
-            x2={lineX2}
-            y2={lineY2}
-            isBuy={isBuy}
-            opacity={opacity * 0.85}
-          />
           <div
             className="absolute -translate-x-1/2 -translate-y-1/2"
             style={{ left: markerX, top: markerY }}
           >
-            <TradeMarker isBuy={isBuy} />
+            <TradeIcon isBuy={isBuy} />
           </div>
           <div className="absolute" style={{ left: tooltipX, top: tooltipY }}>
             <motion.div
-              initial={{ scale: 0.88, x: 8 }}
-              animate={{ scale: 1, x: 0 }}
+              initial={{ scale: 0.88, y: 6 }}
+              animate={{ scale: 1, y: 0 }}
               transition={{ type: 'spring', stiffness: 420, damping: 26 }}
             >
               <TradeTooltip tag={activeTag} />

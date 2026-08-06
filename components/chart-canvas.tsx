@@ -22,6 +22,8 @@ interface ChartCanvasProps {
   elapsed: number;
   tradeTags: TradeTag[];
   entryPrice?: number | null;
+  /** When live: green entry marker if price ≥ entry, red if underwater. */
+  entryInProfit?: boolean;
   /** Pause redraw loop when tab hidden or game not visible (mobile perf). */
   active?: boolean;
 }
@@ -60,11 +62,39 @@ function pickTimeTicks(elapsed: number): number[] {
   return ticks.length ? ticks : [0];
 }
 
-export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags, entryPrice, active = true }: ChartCanvasProps) {
+export function ChartCanvas({
+  candles,
+  phase,
+  mult,
+  peakMult,
+  elapsed,
+  tradeTags,
+  entryPrice,
+  entryInProfit = true,
+  active = true,
+}: ChartCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const layoutRef = useRef<ChartLayoutFrame | null>(null);
-  const propsRef = useRef({ candles, phase, mult, peakMult, elapsed, tradeTags, entryPrice });
-  propsRef.current = { candles, phase, mult, peakMult, elapsed, tradeTags, entryPrice };
+  const propsRef = useRef({
+    candles,
+    phase,
+    mult,
+    peakMult,
+    elapsed,
+    tradeTags,
+    entryPrice,
+    entryInProfit,
+  });
+  propsRef.current = {
+    candles,
+    phase,
+    mult,
+    peakMult,
+    elapsed,
+    tradeTags,
+    entryPrice,
+    entryInProfit,
+  };
   const pageActive = usePageVisibility(active);
 
   const shiftOffsetRef = useRef(0);
@@ -278,9 +308,12 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
         ctx.textAlign = 'left';
       }
 
-      if (entryPrice && entryPrice > 0) {
-        const ey = yFor(entryPrice);
-        ctx.strokeStyle = 'rgba(252,238,10,0.55)';
+      if (p.entryPrice && p.entryPrice > 0) {
+        const ey = yFor(p.entryPrice);
+        const inProfit = p.entryInProfit !== false;
+        const entryCol = inProfit ? 'rgba(34,197,94,0.75)' : 'rgba(239,68,68,0.75)';
+        const entryFill = inProfit ? '#22c55e' : '#ef4444';
+        ctx.strokeStyle = entryCol;
         ctx.setLineDash([6 * dpr, 4 * dpr]);
         ctx.lineWidth = 1.5 * dpr;
         ctx.beginPath();
@@ -288,9 +321,23 @@ export function ChartCanvas({ candles, phase, mult, peakMult, elapsed, tradeTags
         ctx.lineTo(padLeft + chartW, ey);
         ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = '#fcee0a';
-        ctx.font = `${9 * dpr}px JetBrains Mono`;
-        ctx.fillText(`ENTRY ${entryPrice.toFixed(2)}`, padLeft + 6 * dpr, ey - 5 * dpr);
+
+        // rugs.fun-style entry badge
+        const label = `ENTRY ${p.entryPrice.toFixed(2)}x`;
+        ctx.font = `bold ${9 * dpr}px JetBrains Mono`;
+        const tw = ctx.measureText(label).width;
+        const bx = padLeft + 6 * dpr;
+        const by = ey - 18 * dpr;
+        const bw = tw + 18 * dpr;
+        const bh = 16 * dpr;
+        roundRectPath(ctx, bx, by, bw, bh, 4 * dpr);
+        ctx.fillStyle = 'rgba(20,21,24,0.92)';
+        ctx.fill();
+        ctx.strokeStyle = entryFill;
+        ctx.lineWidth = 1.5 * dpr;
+        ctx.stroke();
+        ctx.fillStyle = entryFill;
+        ctx.fillText(label, bx + 9 * dpr, by + 11.5 * dpr);
       }
 
       if (p.peakMult > 1.15 && p.phase !== 'waiting') {

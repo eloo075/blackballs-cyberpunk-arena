@@ -269,19 +269,25 @@ export interface PriceTick {
   t: number;
 }
 
-export const CONTINUOUS_RUG_CHANCE_PER_TICK = 0.0055;
-export const CONTINUOUS_MIN_ROUND_TICKS = 32;
-export const CONTINUOUS_MAX_ROUND_TICKS = 720;
+/** ~0.42%/tick @ 250ms ≈ average ~55–70s before base rug (liquidity can delay/advance). */
+export const CONTINUOUS_RUG_CHANCE_PER_TICK = 0.0042;
+export const CONTINUOUS_MIN_ROUND_TICKS = 48; // 12s minimum before a hard rug
+export const CONTINUOUS_MAX_ROUND_TICKS = 960; // 240s hard cap
+/** Extra path after base rug so high-liquidity rounds can keep running. */
+export const CONTINUOUS_PATH_EXTENSION_TICKS = 320;
 
 export interface ContinuousRoundPath {
   path: PriceTick[];
   peakMultiplier: number;
+  /** Seed-fair base rug tick — live liquidity can delay or advance this. */
   rugTick: number;
 }
 
 /**
- * Demo Standard path: deterministic drift on every tick followed by a
- * deterministic hard rug. The committed seed reproduces the complete path.
+ * Demo Standard path: rugs.fun-style continuous drift that freely trades
+ * above/below 1x, with occasional momentum pumps (can peak 10x+) and deep
+ * dips. Seed commits the full path + base rug tick; the manager may shift
+ * the live rug earlier/later from buy/sell liquidity.
  */
 export function generateContinuousRoundPath(
   serverSeed: string,
@@ -293,39 +299,66 @@ export function generateContinuousRoundPath(
   let price = 1;
   let peakMultiplier = 1;
   let rugTick = CONTINUOUS_MAX_ROUND_TICKS;
+  let momentum = 0;
+  let rugDecided = false;
+
+  const stepPrice = () => {
+    const roll = rng();
+    let change: number;
+    if (roll < 0.04) {
+      const magnitude = 0.04 + rng() * (price > 3 ? 0.22 : 0.16);
+      change = magnitude;
+      momentum = Math.min(0.12, momentum + 0.03);
+    } else if (roll < 0.09) {
+      const magnitude = 0.035 + rng() * (price > 1.5 ? 0.2 : 0.12);
+      change = -magnitude;
+      momentum = Math.max(-0.1, momentum - 0.04);
+    } else if (roll < 0.14) {
+      const magnitude = 0.02 + rng() * 0.1;
+      change = rng() > 0.5 ? magnitude : -magnitude;
+    } else {
+      const drift = momentum * 0.55 + (-0.006 + rng() * 0.014);
+      const volatility = 0.012 * Math.min(4.5, Math.sqrt(Math.max(price, 0.08)));
+      const meanReversion = Math.max(-0.0025, Math.min(0.0025, (1 - price) * 0.0012));
+      change = drift + volatility * (2 * rng() - 1) + meanReversion;
+      momentum *= 0.92;
+    }
+
+    price = Math.max(0.08, Math.min(80, price * (1 + change)));
+    peakMultiplier = Math.max(peakMultiplier, price);
+  };
 
   for (let i = 1; i <= CONTINUOUS_MAX_ROUND_TICKS; i++) {
     if (
+      !rugDecided &&
       i >= CONTINUOUS_MIN_ROUND_TICKS &&
       (rng() < CONTINUOUS_RUG_CHANCE_PER_TICK || i === CONTINUOUS_MAX_ROUND_TICKS)
     ) {
       rugTick = i;
-      path.push({ price: 0.01, t: (i * tickMs) / 1000 });
-      break;
+      rugDecided = true;
     }
 
-    let change: number;
-    if (rng() < 0.065) {
-      const magnitude = 0.025 + rng() * 0.135;
-      change = rng() > 0.48 ? magnitude : -magnitude;
-    } else {
-      const drift = -0.014 + rng() * 0.028;
-      const volatility = 0.009 * Math.min(3, Math.sqrt(Math.max(price, 0.01)));
-      const meanReversion = Math.max(-0.004, Math.min(0.004, (1 - price) * 0.003));
-      change = drift + volatility * (2 * rng() - 1) + meanReversion;
-    }
-
-    price = Math.max(0.05, Math.min(100, price * (1 + change)));
-    peakMultiplier = Math.max(peakMultiplier, price);
+    stepPrice();
     path.push({
       price: Math.round(price * 10_000) / 10_000,
       t: (i * tickMs) / 1000,
     });
-  }
 
-  if (path[path.length - 1]?.price !== 0.01) {
-    rugTick = path.length;
-    path.push({ price: 0.01, t: (rugTick * tickMs) / 1000 });
+    // Once rug is decided, only generate the liquidity-extension buffer.
+    if (rugDecided && i >= rugTick) {
+      const extendUntil = Math.min(
+        CONTINUOUS_MAX_ROUND_TICKS + CONTINUOUS_PATH_EXTENSION_TICKS,
+        rugTick + CONTINUOUS_PATH_EXTENSION_TICKS,
+      );
+      for (let j = i + 1; j <= extendUntil; j++) {
+        stepPrice();
+        path.push({
+          price: Math.round(price * 10_000) / 10_000,
+          t: (j * tickMs) / 1000,
+        });
+      }
+      break;
+    }
   }
 
   return {

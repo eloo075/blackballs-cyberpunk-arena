@@ -142,6 +142,15 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
     state.phase === 'crashed' && state.currentRound.crashPoint != null
       ? Math.max(state.peakMult, state.currentRound.crashPoint)
       : display.peakMult;
+  const entryPrice = showLivePosition ? state.positionEntryPrice : null;
+  const aboveEntry =
+    entryPrice != null && entryPrice > 0 && chartMult >= entryPrice - 1e-9;
+  const chartCadreClass =
+    showLivePosition && state.phase === 'running'
+      ? aboveEntry
+        ? 'ring-2 ring-inset ring-emerald-500 shadow-[inset_0_0_28px_rgba(34,197,94,0.18)]'
+        : 'ring-2 ring-inset ring-rose-500 shadow-[inset_0_0_28px_rgba(239,68,68,0.2)]'
+      : '';
 
   if (mobileFull) {
     return (
@@ -153,7 +162,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
         exit={{ opacity: 0 }}
         className="fixed inset-0 z-50 bg-[#141518]/95 safe-bottom"
       >
-        <div className="relative h-full w-full">
+        <div className={`relative h-full w-full ${chartCadreClass}`}>
           <button
             onClick={() => setMobileFull(false)}
             className="absolute top-3 right-3 z-50 touch-target touch-manipulation px-4 py-2 text-sm font-extrabold bg-[#2a2c33] text-white rounded-xl border border-white/10"
@@ -169,7 +178,8 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
             peakMult={chartPeak}
             elapsed={display.elapsed}
             tradeTags={state.tradeTags}
-            entryPrice={showLivePosition ? state.positionEntryPrice : null}
+            entryPrice={entryPrice}
+            entryInProfit={aboveEntry}
           />
         </div>
       </motion.div>
@@ -237,7 +247,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
 
         {/* chart + cash-out dock — fixed block; controls scroll below without shrinking chart */}
         <div className="flex flex-col gap-2 shrink-0 flex-none min-w-0">
-        <div className="relative cp-panel overflow-visible w-full min-h-[min(42vh,340px)] h-[min(42vh,340px)] sm:min-h-[480px] sm:h-[60vh] sm:max-h-none">
+        <div className={`relative cp-panel overflow-visible w-full min-h-[min(42vh,340px)] h-[min(42vh,340px)] sm:min-h-[480px] sm:h-[60vh] sm:max-h-none ${chartCadreClass}`}>
           <ChartCanvas
             key={`crash-chart-${state.gameId}`}
             active={visible}
@@ -247,7 +257,8 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
             peakMult={chartPeak}
             elapsed={display.elapsed}
             tradeTags={state.tradeTags}
-            entryPrice={showLivePosition ? state.positionEntryPrice : null}
+            entryPrice={entryPrice}
+            entryInProfit={aboveEntry}
           />
 
           {(reconnecting && !connected) && (

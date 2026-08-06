@@ -13,6 +13,9 @@ import {
 } from './crash-pnl';
 import { splitPartialCashout } from './crash-position-math';
 import {
+  CONTINUOUS_MAX_ROUND_TICKS,
+  CONTINUOUS_MIN_ROUND_TICKS,
+  CONTINUOUS_PATH_EXTENSION_TICKS,
   computeCrashPoint,
   DEFAULT_CLIENT_SEED,
   deriveServerSeedForGameId,
@@ -74,6 +77,9 @@ interface PlayerState {
 }
 
 const TICK_MS = 250;
+/** Continuous (rugs.fun-style) candles close every 4 seconds. */
+const CONTINUOUS_CANDLE_TICKS = 16;
+const CLASSIC_CANDLE_TICKS = 3;
 const ROUND_WAIT_SECONDS = 12;
 const CRASH_HOLD_SECONDS = 4;
 const MAX_CANDLES = 60;
@@ -141,6 +147,8 @@ export class CrashManager {
   private orderPressure = 0;
   private roundBuyVolume = 0;
   private roundSellVolume = 0;
+  /** Seed-fair base rug tick before live liquidity shifts it. */
+  private baseRugTick: number | null = null;
   /** Last round id that finished crash settlement — used to clear ghost positions. */
   private lastSettledRoundId = 0;
 
@@ -202,24 +210,36 @@ export class CrashManager {
   }
 
   private applyOrderFlow(side: 'buy' | 'sell', notional: number) {
-    const impact = Math.min(0.06, Math.max(0.002, notional * 0.0035));
+    const impact = Math.min(0.08, Math.max(0.002, notional * 0.004));
     if (side === 'buy') {
-      if (this.mode === 'classic') {
-        this.pressureOffset += impact;
-        this.orderPressure = Math.min(0.15, this.orderPressure + impact);
-      }
+      this.pressureOffset += impact;
+      this.orderPressure = Math.min(0.18, this.orderPressure + impact);
       this.roundBuyVolume += notional;
     } else {
-      if (this.mode === 'classic') {
-        this.pressureOffset -= impact * 0.9;
-        this.orderPressure = Math.max(-0.15, this.orderPressure - impact * 0.9);
-      }
+      this.pressureOffset -= impact * 0.9;
+      this.orderPressure = Math.max(-0.18, this.orderPressure - impact * 0.9);
       this.roundSellVolume += notional;
     }
     if (this.phase === 'running') {
       this.candleHigh = Math.max(this.candleHigh, this.mult);
       this.candleLow = Math.min(this.candleLow, this.mult);
     }
+  }
+
+  /**
+   * More presale/live buy liquidity delays the rug (and can let price keep
+   * running on the extended path). Heavy selling pulls the rug forward.
+   */
+  private liquidityAdjustedRugTick(): number {
+    const base = this.baseRugTick ?? this.round.rugTick ?? CONTINUOUS_MAX_ROUND_TICKS;
+    const delay = Math.floor(this.roundBuyVolume * 3.5);
+    const accel = Math.floor(this.roundSellVolume * 2.5);
+    const maxTick =
+      CONTINUOUS_MAX_ROUND_TICKS + CONTINUOUS_PATH_EXTENSION_TICKS - 1;
+    return Math.max(
+      CONTINUOUS_MIN_ROUND_TICKS,
+      Math.min(maxTick, base + delay - accel),
+    );
   }
 
   private getPlayer(address: string): PlayerState {
@@ -616,7 +636,9 @@ export class CrashManager {
       this.candleLow = Math.min(this.candleLow, this.mult);
       this.updateLiveCandle();
 
-      if (this.tickIdx % 3 === 0) {
+      const candleEvery =
+        this.mode === 'continuous' ? CONTINUOUS_CANDLE_TICKS : CLASSIC_CANDLE_TICKS;
+      if (this.tickIdx % candleEvery === 0) {
         this.commitCandle();
       }
 
@@ -624,7 +646,13 @@ export class CrashManager {
       this.checkAutoSellForAllPlayers();
       this.checkLiquidationsForAllPlayers();
 
-      if (this.tickIdx >= this.round.path.length - 1) {
+      if (this.mode === 'continuous') {
+        if (this.tickIdx >= this.liquidityAdjustedRugTick()) {
+          this.round.rugTick = this.tickIdx;
+          this.crash();
+          return;
+        }
+      } else if (this.tickIdx >= this.round.path.length - 1) {
         this.crash();
         return;
       }
@@ -773,6 +801,13 @@ export class CrashManager {
     this.orderPressure = 0;
     this.roundBuyVolume = 0;
     this.roundSellVolume = 0;
+    this.baseRugTick = this.round.rugTick;
+    // Presale liquidity counts toward delaying the rug.
+    for (const player of this.players.values()) {
+      if (player.hasPosition && player.positionRoundId === this.round.id) {
+        this.roundBuyVolume += player.positionAmount * Math.max(1, player.positionLeverage);
+      }
+    }
     this.bots.forEach(b => {
       b.status = 'out';
       b.entryPrice = 1.0;
@@ -1341,9 +1376,15 @@ export class CrashManager {
       }
       if (this.phase === 'running') {
         if (side === 'sell') {
-          return player.hasPosition
-            ? this.closePosition(address)
-            : { ok: false, error: 'no long position to sell' };
+          if (!player.hasPosition) {
+            return { ok: false, error: 'no long position to sell' };
+          }
+          // amount as fraction of position → partial sell (50%/75%); else full close
+          const pct =
+            amount > 0 && amount < player.positionAmount - 0.0005
+              ? Math.min(1, Math.max(0.01, amount / player.positionAmount))
+              : 1;
+          return this.closePosition(address, pct);
         }
         return this.placeLiveEntry(address, amount, lev);
       }

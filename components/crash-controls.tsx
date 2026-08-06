@@ -138,7 +138,7 @@ export function CrashControls({
   const { usdPerToken } = useTokenUsd();
   const [amount, setAmount] = useState(0.01);
   const [percent, setPercent] = useState(0);
-  const [cashOutPct, setCashOutPct] = useState(1);
+  const [cashOutPct, setCashOutPct] = useState(0.5);
   const [leverage, setLeverage] = useState(1);
   const [autoVal, setAutoVal] = useState('');
   const [pendingAction, setPendingAction] = useState<'buy' | 'sell' | 'cancel' | 'cashout' | null>(null);
@@ -407,18 +407,39 @@ export function CrashControls({
       return;
     }
 
+    // Continuous Demo: SELL uses the cash-out % (50/75/100) so partial exits work.
+    if (closing && continuousDemo && side === 'sell' && onCashOut) {
+      setPendingAction('cashout');
+      setTradeError(null);
+      setCashOutError(null);
+      try {
+        const result = await onCashOut(cashOutPct);
+        setPendingAction(null);
+        if (result.ok) {
+          const sold = parseFloat((positionAmount * cashOutPct).toFixed(3));
+          setEntryNotice(
+            cashOutPct >= 0.999
+              ? `Sold ${positionAmount.toFixed(3)} ${CURRENCY_LABEL} @ ${mult.toFixed(2)}x`
+              : `Cashed out ${Math.round(cashOutPct * 100)}% (${sold.toFixed(3)} ${CURRENCY_LABEL}) @ ${mult.toFixed(2)}x`,
+          );
+        } else if (result.error) {
+          setCashOutError(result.error);
+          setTradeError(result.error);
+        }
+      } catch {
+        setPendingAction(null);
+        setTradeError('Network error — try again.');
+      }
+      return;
+    }
+
     setPendingAction(side);
     setTradeError(null);
-    let ok = false;
     try {
       const wager = closing ? positionAmount : effectiveWager;
       const result = await onTrade(side, wager, closing ? positionLeverage : leverage);
       if (result.ok) {
-        if (closing && continuousDemo) {
-          setEntryNotice(`Sold ${positionAmount.toFixed(3)} ${CURRENCY_LABEL} @ ${mult.toFixed(2)}x`);
-        } else {
-          showEntrySuccess(side, closing ? positionAmount : effectiveWager);
-        }
+        showEntrySuccess(side, closing ? positionAmount : effectiveWager);
       } else if (result.error) {
         const msg = result.error;
         setTradeError(msg === 'invalid amount' ? `Insufficient balance (${balance.toFixed(3)} available).` : msg);
@@ -523,15 +544,28 @@ export function CrashControls({
           </>
         ) : (
           <>
-            {continuousDemo ? (isBuy ? 'BUY' : 'SELL') : isBuy ? 'BUY LONG' : 'SELL SHORT'}
+            {continuousDemo
+              ? isBuy
+                ? 'BUY'
+                : hasPosition && !entryPending
+                  ? `SELL ${Math.round(cashOutPct * 100)}%`
+                  : 'SELL'
+              : isBuy
+                ? 'BUY LONG'
+                : 'SELL SHORT'}
             {isBuy && !hasPosition && stimmyLabel && (
               <span className="block text-[10px] font-extrabold text-amber-300 mt-0.5 normal-case tracking-normal">
                 {stimmyLabel}
               </span>
             )}
-            {!isBuy && !hasPosition && (
+            {!isBuy && !hasPosition && !continuousDemo && (
               <span className="block text-[10px] font-bold text-rose-200/80 mt-0.5 normal-case tracking-normal">
                 Shorts love rugs
+              </span>
+            )}
+            {continuousDemo && !isBuy && hasPosition && !entryPending && (
+              <span className="block text-[10px] font-bold text-orange-200/90 mt-0.5 normal-case tracking-normal">
+                Partial exit · pick % above
               </span>
             )}
             {!hasPosition && (
@@ -757,22 +791,27 @@ export function CrashControls({
         </AnimatePresence>
 
         {showCashoutPanel && (
-          <div className="px-3 py-2 border-b border-white/5 bg-emerald-500/10">
-            <div className="text-[10px] font-extrabold text-emerald-300 mb-1.5">CASH OUT @ {mult.toFixed(2)}x</div>
+          <div className="px-3 py-2.5 border-b border-white/5 bg-emerald-500/10">
+            <div className="text-[10px] font-extrabold text-emerald-300 mb-1.5">
+              CASH OUT @ {mult.toFixed(2)}x
+              {continuousDemo ? ' · SELL uses this %' : ''}
+            </div>
             {cashOutError && (
               <div className="mb-2 px-2 py-1.5 text-[10px] font-bold rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-200">
                 {cashOutError}
               </div>
             )}
-            <div className="flex gap-1 mb-2">
+            <div className="flex gap-1.5 mb-2">
               {CASH_OUT_PCTS.map(p => (
                 <button
                   key={p}
                   type="button"
                   onClick={() => setCashOutPct(p)}
-                  className={`flex-1 min-h-[32px] rounded-lg text-[10px] font-extrabold touch-manipulation ${
+                  className={`flex-1 min-h-[40px] rounded-lg text-xs font-extrabold touch-manipulation ${
                     cashOutPct === p
-                      ? 'bg-emerald-500 text-white border-b-2 border-emerald-700'
+                      ? p === 0.5 || p === 0.75
+                        ? 'bg-amber-500 text-black border-b-2 border-amber-700'
+                        : 'bg-emerald-500 text-white border-b-2 border-emerald-700'
                       : 'bg-[#2a2c33] text-white/55 border border-white/10'
                   }`}
                 >
@@ -790,7 +829,11 @@ export function CrashControls({
                   : 'bg-[#2a2c33] text-white/40 border-white/10 cursor-not-allowed'
               }`}
             >
-              {pendingAction === 'cashout' ? 'CASHING OUT…' : cashOutPct >= 1 ? 'CASH OUT 100%' : `PARTIAL CASH OUT ${cashOutPct * 100}%`}
+              {pendingAction === 'cashout'
+                ? 'CASHING OUT…'
+                : cashOutPct >= 1
+                  ? 'CASH OUT 100%'
+                  : `PARTIAL CASH OUT ${cashOutPct * 100}%`}
             </button>
           </div>
         )}
