@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CONTINUOUS_PRICE_FLOOR,
   deriveServerSeedForGameId,
   generateContinuousRoundPath,
   hashServerSeed,
@@ -44,18 +45,48 @@ describe('Demo continuous Crash engine', () => {
     expect(deepDipRounds).toBeGreaterThanOrEqual(8);
   });
 
-  it('can moon well above 2x and sometimes past 10x across seeds', () => {
-    const peaks = Array.from({ length: 200 }, (_, i) => {
-      const gameId = 9000 + i;
-      return generateContinuousRoundPath(deriveServerSeedForGameId(gameId), gameId)
-        .peakMultiplier;
+  it('never flatlines under the live floor for long stretches', () => {
+    const paths = Array.from({ length: 80 }, (_, i) => {
+      const gameId = 7000 + i;
+      return generateContinuousRoundPath(deriveServerSeedForGameId(gameId), gameId).path;
     });
-    expect(peaks.some(p => p >= 3)).toBe(true);
-    expect(peaks.some(p => p >= 10)).toBe(true);
-    expect(Math.max(...peaks)).toBeGreaterThanOrEqual(10);
+
+    for (const path of paths) {
+      expect(path.every(tick => tick.price >= CONTINUOUS_PRICE_FLOOR - 1e-9)).toBe(true);
+      let lowStreak = 0;
+      for (const tick of path) {
+        if (tick.price < 0.5) lowStreak += 1;
+        else lowStreak = 0;
+        // 4s candles × ~8 = 32 ticks max near-floor crawl
+        expect(lowStreak).toBeLessThanOrEqual(40);
+      }
+    }
   });
 
-  it('keeps average base rug duration in a playable window', () => {
+  it('swings up and down and can peak toward 15x across seeds', () => {
+    const samples = Array.from({ length: 250 }, (_, i) => {
+      const gameId = 9000 + i;
+      return generateContinuousRoundPath(deriveServerSeedForGameId(gameId), gameId);
+    });
+    const peaks = samples.map(s => s.peakMultiplier);
+    const oscillating = samples.filter(s => {
+      const prices = s.path.map(t => t.price);
+      let ups = 0;
+      let downs = 0;
+      for (let i = 1; i < prices.length; i++) {
+        if (prices[i]! > prices[i - 1]!) ups += 1;
+        if (prices[i]! < prices[i - 1]!) downs += 1;
+      }
+      return ups >= 8 && downs >= 8;
+    }).length;
+
+    expect(oscillating).toBeGreaterThanOrEqual(180);
+    expect(peaks.some(p => p >= 3)).toBe(true);
+    expect(peaks.some(p => p >= 10)).toBe(true);
+    expect(Math.max(...peaks)).toBeGreaterThanOrEqual(15);
+  });
+
+  it('keeps average base rug duration snappy (not multi-minute)', () => {
     const durations = Array.from({ length: 200 }, (_, i) => {
       const gameId = 5000 + i;
       const result = generateContinuousRoundPath(deriveServerSeedForGameId(gameId), gameId);
@@ -63,8 +94,8 @@ describe('Demo continuous Crash engine', () => {
     });
     const average = durations.reduce((sum, seconds) => sum + seconds, 0) / durations.length;
 
-    expect(average).toBeGreaterThanOrEqual(35);
-    expect(average).toBeLessThanOrEqual(90);
-    expect(Math.max(...durations)).toBeLessThanOrEqual(240);
+    expect(average).toBeGreaterThanOrEqual(20);
+    expect(average).toBeLessThanOrEqual(55);
+    expect(Math.max(...durations)).toBeLessThanOrEqual(90);
   }, 15_000);
 });

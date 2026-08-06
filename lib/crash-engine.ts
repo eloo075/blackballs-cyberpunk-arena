@@ -269,12 +269,14 @@ export interface PriceTick {
   t: number;
 }
 
-/** ~0.42%/tick @ 250ms ≈ average ~55–70s before base rug (liquidity can delay/advance). */
-export const CONTINUOUS_RUG_CHANCE_PER_TICK = 0.0042;
-export const CONTINUOUS_MIN_ROUND_TICKS = 48; // 12s minimum before a hard rug
-export const CONTINUOUS_MAX_ROUND_TICKS = 960; // 240s hard cap
-/** Extra path after base rug so high-liquidity rounds can keep running. */
-export const CONTINUOUS_PATH_EXTENSION_TICKS = 320;
+/** ~0.85%/tick @ 250ms ≈ average ~30–50s before base rug (liquidity can delay a bit). */
+export const CONTINUOUS_RUG_CHANCE_PER_TICK = 0.0085;
+export const CONTINUOUS_MIN_ROUND_TICKS = 40; // 10s minimum before a hard rug
+export const CONTINUOUS_MAX_ROUND_TICKS = 360; // 90s hard cap — no endless crawl
+/** Extra path after base rug so high-liquidity rounds can keep running briefly. */
+export const CONTINUOUS_PATH_EXTENSION_TICKS = 80; // +20s max buffer
+export const CONTINUOUS_PRICE_FLOOR = 0.38;
+export const CONTINUOUS_PRICE_CEIL = 25;
 
 export interface ContinuousRoundPath {
   path: PriceTick[];
@@ -284,10 +286,9 @@ export interface ContinuousRoundPath {
 }
 
 /**
- * Demo Standard path: rugs.fun-style continuous drift that freely trades
- * above/below 1x, with occasional momentum pumps (can peak 10x+) and deep
- * dips. Seed commits the full path + base rug tick; the manager may shift
- * the live rug earlier/later from buy/sell liquidity.
+ * Demo Standard path: rugs.fun-style continuous drift that swings up and down
+ * (including below 1x), with bull/bear regimes that can moon toward 15x+ and
+ * bounce hard off the floor so price never flatlines near 0.1x for minutes.
  */
 export function generateContinuousRoundPath(
   serverSeed: string,
@@ -299,32 +300,63 @@ export function generateContinuousRoundPath(
   let price = 1;
   let peakMultiplier = 1;
   let rugTick = CONTINUOUS_MAX_ROUND_TICKS;
-  let momentum = 0;
   let rugDecided = false;
+  /** -1 dump / 0 chop / 1 pump */
+  let regime = 0;
+  let regimeLeft = 0;
 
   const stepPrice = () => {
-    const roll = rng();
+    if (regimeLeft <= 0) {
+      const r = rng();
+      if (r < 0.28) {
+        regime = 1;
+        regimeLeft = 5 + Math.floor(rng() * 16);
+      } else if (r < 0.5) {
+        regime = -1;
+        regimeLeft = 4 + Math.floor(rng() * 10);
+      } else {
+        regime = 0;
+        regimeLeft = 3 + Math.floor(rng() * 8);
+      }
+    }
+    regimeLeft -= 1;
+
     let change: number;
-    if (roll < 0.04) {
-      const magnitude = 0.04 + rng() * (price > 3 ? 0.22 : 0.16);
-      change = magnitude;
-      momentum = Math.min(0.12, momentum + 0.03);
-    } else if (roll < 0.09) {
-      const magnitude = 0.035 + rng() * (price > 1.5 ? 0.2 : 0.12);
-      change = -magnitude;
-      momentum = Math.max(-0.1, momentum - 0.04);
-    } else if (roll < 0.14) {
-      const magnitude = 0.02 + rng() * 0.1;
-      change = rng() > 0.5 ? magnitude : -magnitude;
+    if (regime === 1) {
+      // Momentum pump — can climb toward 15x+
+      const boost =
+        price < 1.5 ? 0.05 + rng() * 0.09 : price < 6 ? 0.04 + rng() * 0.14 : 0.05 + rng() * 0.2;
+      change = boost;
+    } else if (regime === -1) {
+      // Dump, but never dig into an endless 0.1x crawl
+      const cut = price > 2 ? 0.04 + rng() * 0.14 : 0.025 + rng() * 0.07;
+      change = -cut;
     } else {
-      const drift = momentum * 0.55 + (-0.006 + rng() * 0.014);
-      const volatility = 0.012 * Math.min(4.5, Math.sqrt(Math.max(price, 0.08)));
-      const meanReversion = Math.max(-0.0025, Math.min(0.0025, (1 - price) * 0.0012));
-      change = drift + volatility * (2 * rng() - 1) + meanReversion;
-      momentum *= 0.92;
+      // Choppy up/down every tick
+      const amp = 0.035 + 0.025 * Math.min(3, Math.sqrt(Math.max(price, 0.4)));
+      change = (rng() - 0.48) * 2 * amp;
     }
 
-    price = Math.max(0.08, Math.min(80, price * (1 + change)));
+    // Hard bounce when underwater — always fight back toward 1x
+    if (price < CONTINUOUS_PRICE_FLOOR + 0.12) {
+      change = Math.max(change, 0.06 + rng() * 0.14);
+      regime = 1;
+      regimeLeft = Math.max(regimeLeft, 4 + Math.floor(rng() * 6));
+    } else if (price < 0.7) {
+      change += 0.02 + rng() * 0.06;
+    } else if (price < 0.95) {
+      change += 0.008 * rng();
+    }
+
+    // Soft pressure only very high so 15x remains reachable but rare
+    if (price > 14) {
+      change -= 0.015 + rng() * 0.04;
+    }
+
+    price = Math.max(
+      CONTINUOUS_PRICE_FLOOR,
+      Math.min(CONTINUOUS_PRICE_CEIL, price * (1 + change)),
+    );
     peakMultiplier = Math.max(peakMultiplier, price);
   };
 

@@ -16,6 +16,8 @@ import {
   CONTINUOUS_MAX_ROUND_TICKS,
   CONTINUOUS_MIN_ROUND_TICKS,
   CONTINUOUS_PATH_EXTENSION_TICKS,
+  CONTINUOUS_PRICE_CEIL,
+  CONTINUOUS_PRICE_FLOOR,
   computeCrashPoint,
   DEFAULT_CLIENT_SEED,
   deriveServerSeedForGameId,
@@ -227,12 +229,12 @@ export class CrashManager {
   }
 
   /**
-   * More presale/live buy liquidity delays the rug (and can let price keep
-   * running on the extended path). Heavy selling pulls the rug forward.
+   * More presale/live buy liquidity delays the rug briefly. Heavy selling
+   * pulls it forward. Delay is hard-capped so rounds never crawl for minutes.
    */
   private liquidityAdjustedRugTick(): number {
     const base = this.baseRugTick ?? this.round.rugTick ?? CONTINUOUS_MAX_ROUND_TICKS;
-    const delay = Math.floor(this.roundBuyVolume * 3.5);
+    const delay = Math.min(60, Math.floor(this.roundBuyVolume * 2));
     const accel = Math.floor(this.roundSellVolume * 2.5);
     const maxTick =
       CONTINUOUS_MAX_ROUND_TICKS + CONTINUOUS_PATH_EXTENSION_TICKS - 1;
@@ -625,7 +627,7 @@ export class CrashManager {
       this.pressureOffset = Math.max(-maxWiggle, Math.min(maxWiggle, this.pressureOffset));
       const flowMult = baseMult + this.pressureOffset;
       if (this.mode === 'continuous') {
-        this.mult = Math.max(0.05, Math.min(100, flowMult));
+        this.mult = Math.max(CONTINUOUS_PRICE_FLOOR, Math.min(CONTINUOUS_PRICE_CEIL, flowMult));
       } else {
         const ceiling = Math.max(1.01, this.round.crashPoint - 0.01);
         this.mult = Math.max(1.0, Math.min(ceiling, flowMult));
