@@ -33,7 +33,7 @@ function TradeIcon({ isBuy }: { isBuy: boolean }) {
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={isBuy ? '/orange-coin.svg' : '/bear-icon.svg'}
+        src={isBuy ? '/blackballs-coin.png' : '/bear-icon.svg'}
         alt=""
         width={22}
         height={22}
