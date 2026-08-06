@@ -25,6 +25,7 @@ import {
   generateRoundPath,
   generateSeedHistory,
   hashServerSeed,
+  roundCrashPoint,
 } from './crash-engine';
 import type { Candle, FeedEvent, FullState, Phase, RoundSummary, TradeTag } from './crash-types';
 import { dispatchSettlement, type SettlementAction } from './chain/crash-vault-client';
@@ -234,7 +235,7 @@ export class CrashManager {
    */
   private liquidityAdjustedRugTick(): number {
     const base = this.baseRugTick ?? this.round.rugTick ?? CONTINUOUS_MAX_ROUND_TICKS;
-    const delay = Math.min(60, Math.floor(this.roundBuyVolume * 2));
+    const delay = Math.min(100, Math.floor(this.roundBuyVolume * 2.2));
     const accel = Math.floor(this.roundSellVolume * 2.5);
     const maxTick =
       CONTINUOUS_MAX_ROUND_TICKS + CONTINUOUS_PATH_EXTENSION_TICKS - 1;
@@ -885,6 +886,11 @@ export class CrashManager {
     this.forceClearAllPlayers(false, 'after-crash');
     this.lastSettledRoundId = this.round.id;
     this.round.revealed = true;
+    // Continuous: history shows the live peak players actually saw — not the
+    // pre-generated path ceiling (which was falsely printing 25.00x every round).
+    if (this.mode === 'continuous') {
+      this.round.crashPoint = roundCrashPoint(Math.max(1, this.peakMult));
+    }
     const cp = this.round.crashPoint;
     if (cp >= 1.85 && cp <= 1.97) {
       this.pushFeed('SYSTEM', 'rug', 0, cp, 0);

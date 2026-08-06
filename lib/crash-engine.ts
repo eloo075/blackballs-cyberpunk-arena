@@ -269,14 +269,15 @@ export interface PriceTick {
   t: number;
 }
 
-/** ~0.85%/tick @ 250ms ≈ average ~30–50s before base rug (liquidity can delay a bit). */
-export const CONTINUOUS_RUG_CHANCE_PER_TICK = 0.0085;
-export const CONTINUOUS_MIN_ROUND_TICKS = 40; // 10s minimum before a hard rug
-export const CONTINUOUS_MAX_ROUND_TICKS = 360; // 90s hard cap — no endless crawl
-/** Extra path after base rug so high-liquidity rounds can keep running briefly. */
-export const CONTINUOUS_PATH_EXTENSION_TICKS = 80; // +20s max buffer
-export const CONTINUOUS_PRICE_FLOOR = 0.38;
-export const CONTINUOUS_PRICE_CEIL = 25;
+/** ~0.45%/tick @ 250ms ≈ average ~55–75s before base rug. */
+export const CONTINUOUS_RUG_CHANCE_PER_TICK = 0.0045;
+export const CONTINUOUS_MIN_ROUND_TICKS = 56; // 14s minimum
+export const CONTINUOUS_MAX_ROUND_TICKS = 600; // 150s hard cap
+/** Extra path after base rug so high-liquidity rounds can keep running a bit. */
+export const CONTINUOUS_PATH_EXTENSION_TICKS = 160; // +40s buffer
+export const CONTINUOUS_PRICE_FLOOR = 0.42;
+/** Soft technical cap — resistance makes hitting this rare. */
+export const CONTINUOUS_PRICE_CEIL = 40;
 
 export interface ContinuousRoundPath {
   path: PriceTick[];
@@ -287,8 +288,8 @@ export interface ContinuousRoundPath {
 
 /**
  * Demo Standard path: rugs.fun-style continuous drift that swings up and down
- * (including below 1x), with bull/bear regimes that can moon toward 15x+ and
- * bounce hard off the floor so price never flatlines near 0.1x for minutes.
+ * around 1x. Most rounds peak in the low/mid multiples; higher moons (10–15x+)
+ * are uncommon. Hard bounce off the floor prevents 0.1x flatlines.
  */
 export function generateContinuousRoundPath(
   serverSeed: string,
@@ -308,49 +309,69 @@ export function generateContinuousRoundPath(
   const stepPrice = () => {
     if (regimeLeft <= 0) {
       const r = rng();
-      if (r < 0.28) {
+      if (r < 0.04) {
+        // Rare moon run — can push into double digits
+        regime = 2;
+        regimeLeft = 8 + Math.floor(rng() * 14);
+      } else if (r < 0.22) {
         regime = 1;
-        regimeLeft = 5 + Math.floor(rng() * 16);
-      } else if (r < 0.5) {
-        regime = -1;
         regimeLeft = 4 + Math.floor(rng() * 10);
+      } else if (r < 0.44) {
+        regime = -1;
+        regimeLeft = 4 + Math.floor(rng() * 9);
       } else {
         regime = 0;
-        regimeLeft = 3 + Math.floor(rng() * 8);
+        regimeLeft = 4 + Math.floor(rng() * 10);
       }
     }
     regimeLeft -= 1;
 
     let change: number;
-    if (regime === 1) {
-      // Momentum pump — can climb toward 15x+
-      const boost =
-        price < 1.5 ? 0.05 + rng() * 0.09 : price < 6 ? 0.04 + rng() * 0.14 : 0.05 + rng() * 0.2;
+    if (regime === 2) {
+      let boost = 0.03 + rng() * 0.07;
+      if (price > 8) boost *= 0.7;
+      if (price > 15) boost *= 0.55;
+      change = boost;
+    } else if (regime === 1) {
+      // Mild pumps by default — high multiples need rare moon ticks
+      let boost = 0.012 + rng() * 0.03;
+      if (price > 2) boost *= 0.75;
+      if (price > 4) boost *= 0.6;
+      if (price > 8) boost *= 0.45;
+      if (rng() < 0.035 && price < 10) {
+        boost += 0.05 + rng() * 0.1;
+      }
       change = boost;
     } else if (regime === -1) {
-      // Dump, but never dig into an endless 0.1x crawl
-      const cut = price > 2 ? 0.04 + rng() * 0.14 : 0.025 + rng() * 0.07;
+      const cut = price > 2.5 ? 0.03 + rng() * 0.1 : 0.02 + rng() * 0.055;
       change = -cut;
     } else {
-      // Choppy up/down every tick
-      const amp = 0.035 + 0.025 * Math.min(3, Math.sqrt(Math.max(price, 0.4)));
-      change = (rng() - 0.48) * 2 * amp;
+      const amp = 0.022 + 0.018 * Math.min(2.5, Math.sqrt(Math.max(price, 0.45)));
+      change = (rng() - 0.5) * 2 * amp;
     }
 
-    // Hard bounce when underwater — always fight back toward 1x
-    if (price < CONTINUOUS_PRICE_FLOOR + 0.12) {
-      change = Math.max(change, 0.06 + rng() * 0.14);
-      regime = 1;
-      regimeLeft = Math.max(regimeLeft, 4 + Math.floor(rng() * 6));
-    } else if (price < 0.7) {
-      change += 0.02 + rng() * 0.06;
-    } else if (price < 0.95) {
-      change += 0.008 * rng();
+    // Bounce off the floor — never crawl near 0.1x
+    if (price < CONTINUOUS_PRICE_FLOOR + 0.1) {
+      change = Math.max(change, 0.04 + rng() * 0.1);
+      if (regime !== 2) {
+        regime = 1;
+        regimeLeft = Math.max(regimeLeft, 3 + Math.floor(rng() * 5));
+      }
+    } else if (price < 0.75) {
+      change += 0.015 + rng() * 0.04;
     }
 
-    // Soft pressure only very high so 15x remains reachable but rare
-    if (price > 14) {
-      change -= 0.015 + rng() * 0.04;
+    // Growing resistance above mid multiples so history isn't a wall of 25.00x
+    if (regime !== 2 && price > 3) {
+      change -= (price - 3) * 0.006 * (0.4 + rng());
+    }
+    if (regime !== 2 && price > 6 && rng() < 0.28) {
+      change = -Math.abs(change) - (0.02 + rng() * 0.05);
+      regime = -1;
+      regimeLeft = Math.max(regimeLeft, 3 + Math.floor(rng() * 5));
+    }
+    if (price > 18 && rng() < 0.4) {
+      change = -Math.abs(change) - (0.04 + rng() * 0.08);
     }
 
     price = Math.max(
@@ -376,7 +397,6 @@ export function generateContinuousRoundPath(
       t: (i * tickMs) / 1000,
     });
 
-    // Once rug is decided, only generate the liquidity-extension buffer.
     if (rugDecided && i >= rugTick) {
       const extendUntil = Math.min(
         CONTINUOUS_MAX_ROUND_TICKS + CONTINUOUS_PATH_EXTENSION_TICKS,

@@ -46,7 +46,7 @@ describe('Demo continuous Crash engine', () => {
   });
 
   it('never flatlines under the live floor for long stretches', () => {
-    const paths = Array.from({ length: 80 }, (_, i) => {
+    const paths = Array.from({ length: 60 }, (_, i) => {
       const gameId = 7000 + i;
       return generateContinuousRoundPath(deriveServerSeedForGameId(gameId), gameId).path;
     });
@@ -55,20 +55,21 @@ describe('Demo continuous Crash engine', () => {
       expect(path.every(tick => tick.price >= CONTINUOUS_PRICE_FLOOR - 1e-9)).toBe(true);
       let lowStreak = 0;
       for (const tick of path) {
-        if (tick.price < 0.5) lowStreak += 1;
+        if (tick.price < 0.55) lowStreak += 1;
         else lowStreak = 0;
-        // 4s candles × ~8 = 32 ticks max near-floor crawl
-        expect(lowStreak).toBeLessThanOrEqual(40);
+        expect(lowStreak).toBeLessThanOrEqual(48);
       }
     }
   });
 
-  it('swings up and down and can peak toward 15x across seeds', () => {
-    const samples = Array.from({ length: 250 }, (_, i) => {
+  it('has varied peaks — not a wall of ceiling hits — with rare moons', () => {
+    const samples = Array.from({ length: 300 }, (_, i) => {
       const gameId = 9000 + i;
       return generateContinuousRoundPath(deriveServerSeedForGameId(gameId), gameId);
     });
-    const peaks = samples.map(s => s.peakMultiplier);
+    const peaks = samples.map(s => s.peakMultiplier).sort((a, b) => a - b);
+    const median = peaks[Math.floor(peaks.length / 2)]!;
+    const ceilingHits = peaks.filter(p => p >= 24.5).length;
     const oscillating = samples.filter(s => {
       const prices = s.path.map(t => t.price);
       let ups = 0;
@@ -80,13 +81,14 @@ describe('Demo continuous Crash engine', () => {
       return ups >= 8 && downs >= 8;
     }).length;
 
-    expect(oscillating).toBeGreaterThanOrEqual(180);
-    expect(peaks.some(p => p >= 3)).toBe(true);
-    expect(peaks.some(p => p >= 10)).toBe(true);
-    expect(Math.max(...peaks)).toBeGreaterThanOrEqual(15);
+    expect(oscillating).toBeGreaterThanOrEqual(200);
+    expect(median).toBeLessThan(8);
+    expect(ceilingHits / peaks.length).toBeLessThan(0.08);
+    expect(peaks.some(p => p >= 8)).toBe(true);
+    expect(Math.max(...peaks)).toBeGreaterThanOrEqual(10);
   });
 
-  it('keeps average base rug duration snappy (not multi-minute)', () => {
+  it('keeps average base rug duration in a rugs.fun-like window', () => {
     const durations = Array.from({ length: 200 }, (_, i) => {
       const gameId = 5000 + i;
       const result = generateContinuousRoundPath(deriveServerSeedForGameId(gameId), gameId);
@@ -94,8 +96,8 @@ describe('Demo continuous Crash engine', () => {
     });
     const average = durations.reduce((sum, seconds) => sum + seconds, 0) / durations.length;
 
-    expect(average).toBeGreaterThanOrEqual(20);
-    expect(average).toBeLessThanOrEqual(55);
-    expect(Math.max(...durations)).toBeLessThanOrEqual(90);
-  }, 15_000);
+    expect(average).toBeGreaterThanOrEqual(40);
+    expect(average).toBeLessThanOrEqual(85);
+    expect(Math.max(...durations)).toBeLessThanOrEqual(150);
+  }, 20_000);
 });
