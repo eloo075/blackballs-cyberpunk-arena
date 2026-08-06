@@ -88,7 +88,7 @@ const CRASH_HOLD_SECONDS = 4;
 const MAX_CANDLES = 60;
 const MAX_HISTORY = 1000;
 const MAX_FEED = 40;
-const MAX_TAGS = 20;
+const MAX_TAGS = 80;
 
 function emptyPlayerState(balance = 0): PlayerState {
   return {
@@ -676,6 +676,8 @@ export class CrashManager {
         this.gameId++;
         this.round = this.newRound();
         this.resetBots();
+        this.tradeTags = [];
+        this.candles = [];
         this.emit();
       }
     }
@@ -1104,8 +1106,11 @@ export class CrashManager {
     if (this.mode !== 'continuous' || this.phase !== 'running') {
       return { ok: false, error: 'live entry unavailable' };
     }
-    if (player.hasPosition || player.pendingEntry) {
-      return { ok: false, error: 'already in position' };
+    if (player.pendingEntry) {
+      return { ok: false, error: 'pending entry still open' };
+    }
+    if (player.hasPosition && player.positionSide === 'sell') {
+      return { ok: false, error: 'close short before buying' };
     }
 
     const margin = Math.floor(amount * 1000) / 1000;
@@ -1121,22 +1126,38 @@ export class CrashManager {
       };
     }
 
+    const fillPrice = this.mult;
     player.balance = roundMoney(player.balance - totalDebit);
-    player.hasPosition = true;
-    player.positionSide = 'buy';
-    player.positionAmount = margin;
-    player.positionLeverage = leverage;
-    player.positionEntryPrice = this.mult;
+
+    if (player.hasPosition && player.positionSide === 'buy' && player.positionAmount > 0) {
+      // rugs.fun: stack buys — average entry, aggregate exposure
+      const oldAmt = player.positionAmount;
+      const oldEntry = player.positionEntryPrice;
+      const oldLev = player.positionLeverage;
+      const newAmt = oldAmt + margin;
+      player.positionEntryPrice =
+        (oldAmt * oldEntry + margin * fillPrice) / Math.max(0.0001, newAmt);
+      player.positionLeverage =
+        (oldAmt * oldLev + margin * leverage) / Math.max(0.0001, newAmt);
+      player.positionAmount = parseFloat(newAmt.toFixed(3));
+    } else {
+      player.hasPosition = true;
+      player.positionSide = 'buy';
+      player.positionAmount = margin;
+      player.positionLeverage = leverage;
+      player.positionEntryPrice = fillPrice;
+    }
+
     player.positionRoundId = this.round.id;
     player.pendingEntry = null;
 
     this.applyOrderFlow('buy', margin * leverage);
     const playerName = playerMarkerName(address);
-    this.pushFeed(playerName, 'buy', margin, this.mult, -totalDebit, {
+    this.pushFeed(playerName, 'buy', margin, fillPrice, -totalDebit, {
       leverage,
       side: 'buy',
     });
-    this.pushTag(playerName, 'buy', margin, this.mult);
+    this.pushTag(playerName, 'buy', margin, fillPrice);
     this.emit();
     mirrorCrashBalanceToFlip(address, player.balance);
     return { ok: true, balance: player.balance, action: 'open' };

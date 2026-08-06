@@ -205,7 +205,10 @@ export function CrashControls({
     entriesOpen &&
     !tradeBusy &&
     !entryCooldown &&
-    !hasPosition &&
+    // Continuous: allow stacking buys while live; classic: one entry only
+    (continuousDemo
+      ? !(entryPending && phase === 'waiting') && !(hasPosition && phase === 'waiting')
+      : !hasPosition) &&
     effectiveWager > 0 &&
     effectiveWager <= balance + 0.0005;
   const canOpenSell = continuousDemo ? false : canOpenBuy;
@@ -219,6 +222,9 @@ export function CrashControls({
   const stimmyLabel =
     holdBonuses.stimmy > 0 ? `+${Math.round(holdBonuses.stimmy * 100)}% stimmy` : null;
 
+  const canStackBuy =
+    continuousDemo && phase === 'running' && hasPosition && !entryPending && positionSide === 'buy';
+  const wagerLocked = hasPosition && !canStackBuy;
   const livePosition = hasLivePosition || (hasPosition && phase === 'running' && !entryPending);
   const showCashoutPanel =
     phase === 'running' && walletConnected && (livePosition || (hasPosition && pendingAction === 'cashout'));
@@ -230,11 +236,11 @@ export function CrashControls({
       setPendingAction(null);
       return;
     }
-    if ((pendingAction === 'buy' || pendingAction === 'sell') && hasPosition) {
+    if ((pendingAction === 'buy' || pendingAction === 'sell') && hasPosition && !continuousDemo) {
       setPendingAction(null);
       return;
     }
-  }, [pendingAction, hasPosition]);
+  }, [pendingAction, hasPosition, continuousDemo]);
 
   const canCashOut =
     walletConnected && streamConnected && phase === 'running' && livePosition && !cashoutBusy && !!onCashOut;
@@ -261,7 +267,9 @@ export function CrashControls({
   const tradeBlockReason = (() => {
     if (!walletConnected) return null;
     if (phase === 'running' && livePosition) {
-      return `LIVE @ ${mult.toFixed(2)}x — use CASH OUT or Auto TP. Partial: 25/50/75/100%.`;
+      return continuousDemo
+        ? `LIVE @ ${mult.toFixed(2)}x — BUY MORE anytime · SELL 25/50/75/100%.`
+        : `LIVE @ ${mult.toFixed(2)}x — use CASH OUT or Auto TP. Partial: 25/50/75/100%.`;
     }
     if (phase === 'running' || phase === 'crashed') {
       return livePosition
@@ -386,12 +394,15 @@ export function CrashControls({
       return;
     }
 
-    if (hasPosition && positionSide === side) {
+    // Continuous: allow stacking BUY while already long (average entry).
+    if (hasPosition && positionSide === side && !(continuousDemo && side === 'buy' && phase === 'running')) {
       setTradeError('Use the opposite side to close your position.');
       return;
     }
 
-    const closing = hasPosition && positionSide !== side;
+    const addingBuy =
+      continuousDemo && phase === 'running' && side === 'buy' && hasPosition && positionSide === 'buy';
+    const closing = hasPosition && positionSide !== side && !addingBuy;
     if (closing) {
       if (side === 'buy' && !canCloseBuy) {
         setTradeError('Cannot close short — wait for countdown or check position.');
@@ -401,7 +412,13 @@ export function CrashControls({
         setTradeError('Cannot close long — wait for countdown or check position.');
         return;
       }
-    } else if (side === 'buy' ? !canOpenBuy : !canOpenSell) {
+    } else if (!addingBuy && (side === 'buy' ? !canOpenBuy : !canOpenSell)) {
+      if (effectiveWager <= 0) setTradeError('Set a wager amount above 0.');
+      else if (effectiveWager > balance) setTradeError(`Insufficient balance (${balance.toFixed(3)} available).`);
+      return;
+    }
+
+    if (addingBuy && !canOpenBuy) {
       if (effectiveWager <= 0) setTradeError('Set a wager amount above 0.');
       else if (effectiveWager > balance) setTradeError(`Insufficient balance (${balance.toFixed(3)} available).`);
       return;
@@ -439,7 +456,11 @@ export function CrashControls({
       const wager = closing ? positionAmount : effectiveWager;
       const result = await onTrade(side, wager, closing ? positionLeverage : leverage);
       if (result.ok) {
-        showEntrySuccess(side, closing ? positionAmount : effectiveWager);
+        if (addingBuy) {
+          setEntryNotice(`Bought +${effectiveWager.toFixed(3)} ${CURRENCY_LABEL} @ ${mult.toFixed(2)}x`);
+        } else {
+          showEntrySuccess(side, closing ? positionAmount : effectiveWager);
+        }
       } else if (result.error) {
         const msg = result.error;
         setTradeError(msg === 'invalid amount' ? `Insufficient balance (${balance.toFixed(3)} available).` : msg);
@@ -506,7 +527,10 @@ export function CrashControls({
     }
 
     const noDemoAction =
-      continuousDemo && (isBuy ? hasPosition && !entryPending : !hasPosition || entryPending);
+      continuousDemo &&
+      (isBuy
+        ? entryPending && phase === 'waiting'
+        : !hasPosition || entryPending);
     const locked = entriesClosed || oppositePending || noDemoAction;
     const disabled = locked || tradeBusy;
 
@@ -546,14 +570,16 @@ export function CrashControls({
           <>
             {continuousDemo
               ? isBuy
-                ? 'BUY'
+                ? hasPosition && phase === 'running' && !entryPending
+                  ? 'BUY MORE'
+                  : 'BUY'
                 : hasPosition && !entryPending
                   ? `SELL ${Math.round(cashOutPct * 100)}%`
                   : 'SELL'
               : isBuy
                 ? 'BUY LONG'
                 : 'SELL SHORT'}
-            {isBuy && !hasPosition && stimmyLabel && (
+            {isBuy && stimmyLabel && (
               <span className="block text-[10px] font-extrabold text-amber-300 mt-0.5 normal-case tracking-normal">
                 {stimmyLabel}
               </span>
@@ -568,14 +594,17 @@ export function CrashControls({
                 Partial exit · pick % above
               </span>
             )}
-            {!hasPosition && (
-              <span className="block text-xs font-bold opacity-90 mt-0.5 normal-case tracking-normal">
-                {formatBetTokens(effectiveWager)} {CURRENCY_LABEL}
-                <span className="text-white/50"> · {formatBetUsd(tokensToUsd(effectiveWager, usdPerToken))}</span>
-                {leverage > 1 ? ` · ${leverage}x` : ''}
+            {continuousDemo && isBuy && hasPosition && phase === 'running' && !entryPending && (
+              <span className="block text-[10px] font-bold text-emerald-200/90 mt-0.5 normal-case tracking-normal">
+                Stack at live price · avg entry
               </span>
             )}
-            {!hasPosition && (
+            <span className="block text-xs font-bold opacity-90 mt-0.5 normal-case tracking-normal">
+              {formatBetTokens(effectiveWager)} {CURRENCY_LABEL}
+              <span className="text-white/50"> · {formatBetUsd(tokensToUsd(effectiveWager, usdPerToken))}</span>
+              {leverage > 1 ? ` · ${leverage}x` : ''}
+            </span>
+            {!(hasPosition && phase === 'running' && !isBuy) && (
               <span className="block text-[11px] font-bold opacity-70 normal-case tracking-normal">
                 {entryButtonSubtext(phase, waitLeft, entriesOpen, continuousDemo)}
               </span>
@@ -621,14 +650,14 @@ export function CrashControls({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div
             className={`rounded-xl border border-white/10 bg-[#1a1b20] px-2.5 py-2 ${
-              hasPosition ? 'opacity-50 pointer-events-none' : ''
+              wagerLocked ? 'opacity-50 pointer-events-none' : ''
             }`}
           >
             <WagerAmountPanel
-              amount={hasPosition ? clampBetToBalance(amount, balance) : effectiveWager}
+              amount={wagerLocked ? clampBetToBalance(amount, balance) : effectiveWager}
               onAmountChange={v => setAmount(clampBetToBalance(v, balance))}
               balance={balance}
-              disabled={hasPosition}
+              disabled={wagerLocked}
               percent={percent}
               onPercentChange={setPercent}
               showPercentButtons={false}
@@ -639,7 +668,7 @@ export function CrashControls({
 
           <div
             className={`rounded-xl border border-white/10 bg-[#1a1b20] px-2.5 py-2 ${
-              hasPosition ? 'opacity-50 pointer-events-none' : ''
+              wagerLocked ? 'opacity-50 pointer-events-none' : ''
             }`}
           >
             <div className="flex items-center justify-between gap-2 mb-1.5">
@@ -662,7 +691,7 @@ export function CrashControls({
                 step="0.5"
                 value={leverage}
                 onChange={e => setLeverage(parseFloat(e.target.value))}
-                disabled={hasPosition}
+                disabled={wagerLocked}
                 className="leverage-slider flex-1 h-2 cursor-pointer touch-manipulation disabled:opacity-30"
                 style={{
                   ['--lev-pct' as string]: `${((leverage - 1) / 4) * 100}%`,
@@ -677,7 +706,7 @@ export function CrashControls({
                     key={preset}
                     type="button"
                     onClick={() => setLeverage(preset)}
-                    disabled={hasPosition}
+                    disabled={wagerLocked}
                     className={`flex-1 min-h-[28px] rounded-lg text-[10px] font-extrabold touch-manipulation transition-all disabled:opacity-30 ${leveragePillClass(preset, active)}`}
                   >
                     {preset}x
@@ -691,7 +720,7 @@ export function CrashControls({
                   key={p}
                   type="button"
                   onClick={() => setPercent(p)}
-                  disabled={hasPosition}
+                  disabled={wagerLocked}
                   className={`flex-1 min-h-[30px] rounded-lg text-[10px] font-extrabold touch-manipulation disabled:opacity-30 ${
                     percent === p
                       ? 'bg-violet-500 text-white border-b-2 border-violet-700'
@@ -720,7 +749,7 @@ export function CrashControls({
                   {positionAmount.toFixed(3)}
                 </span>
                 <span className="text-[10px] text-white/45">
-                  ENTRY {positionEntryPrice.toFixed(2)}x
+                  {continuousDemo ? 'AVG ' : ''}ENTRY {positionEntryPrice.toFixed(2)}x
                   {phase === 'running' && ` · NOW ${mult.toFixed(2)}x`}
                 </span>
                 <span className={positionPnl >= 0 ? 'text-emerald-400 font-extrabold' : 'text-rose-400 font-extrabold'}>
