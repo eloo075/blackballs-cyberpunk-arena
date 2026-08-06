@@ -255,12 +255,22 @@ function seededPRNG(seed: string, gameId: number) {
   };
 }
 
-/** Correct 56-bit unit PRNG for the continuous engine (always in [0, 1)). */
+/** Fast deterministic unit PRNG (one HMAC seed, then xorshift — keeps path gen off the hot path). */
 function seededUnitPRNG(seed: string, gameId: number) {
-  let counter = 0;
+  const h = createHmac('sha256', seed).update(`continuous-v2:${gameId}`).digest();
+  let s0 = h.readUInt32BE(0) >>> 0;
+  let s1 = h.readUInt32BE(4) >>> 0;
+  if (s0 === 0) s0 = 0x9e3779b9;
+  if (s1 === 0) s1 = 0x6a09e667;
   return () => {
-    const h = createHmac('sha256', seed).update(`continuous:${gameId}:${counter++}`).digest();
-    return parseInt(h.subarray(0, 7).toString('hex'), 16) / Math.pow(2, 56);
+    let x = s0;
+    const y = s1;
+    s0 = y;
+    x ^= x << 23;
+    x ^= x >>> 17;
+    x ^= y ^ (y >>> 26);
+    s1 = x >>> 0;
+    return ((s0 + s1) >>> 0) / 4294967296;
   };
 }
 

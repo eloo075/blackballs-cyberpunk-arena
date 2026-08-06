@@ -450,7 +450,13 @@ export class CrashManager {
 
   start() {
     if (this.timer) return;
-    this.timer = setInterval(() => this.tick(), TICK_MS);
+    this.timer = setInterval(() => {
+      try {
+        this.tick();
+      } catch (err) {
+        console.error('[crash-manager] tick failed', err);
+      }
+    }, TICK_MS);
   }
 
   subscribe(address: string | null, fn: (s: FullState) => void): () => void {
@@ -609,7 +615,14 @@ export class CrashManager {
   private tick() {
     if (this.phase === 'waiting') {
       this.waitLeft -= TICK_MS / 1000;
-      if (this.waitLeft <= 0) this.beginRound();
+      if (this.waitLeft <= 0) {
+        try {
+          this.beginRound();
+        } catch (err) {
+          console.error('[crash-manager] beginRound failed', err);
+          this.waitLeft = 3;
+        }
+      }
       this.emit();
       return;
     }
@@ -674,7 +687,12 @@ export class CrashManager {
         this.phase = 'waiting';
         this.waitLeft = ROUND_WAIT_SECONDS;
         this.gameId++;
-        this.round = this.newRound();
+        try {
+          this.round = this.newRound();
+        } catch (err) {
+          console.error('[crash-manager] newRound failed', err);
+          this.round = this.newRound();
+        }
         this.resetBots();
         this.tradeTags = [];
         this.candles = [];
@@ -817,10 +835,10 @@ export class CrashManager {
       b.status = 'out';
       b.entryPrice = 1.0;
     });
-    // Continuous: seed some live buyers at 1.00x so the round opens busy
+    // Continuous: seed a few buyers at 1.00x (chart tags only — no spectator flood)
     if (this.mode === 'continuous') {
       for (const b of this.bots) {
-        if (Math.random() < 0.4) {
+        if (Math.random() < 0.28) {
           b.status = 'in';
           b.side = 'buy';
           b.entryPrice = 1.0;
@@ -830,6 +848,7 @@ export class CrashManager {
           this.pushFeed(b.name, 'buy', b.amount, 1.0, -b.amount, {
             leverage: b.leverage,
             side: 'buy',
+            silent: true,
           });
           this.pushTag(b.name, 'buy', b.amount, 1.0);
         }
@@ -946,8 +965,8 @@ export class CrashManager {
   private simulateBots() {
     this.bots.forEach(b => {
       if (b.status === 'out') {
-        // Continuous: frequent live buys at the current price (different entries).
-        const joinChance = this.mode === 'continuous' ? 0.16 : 0.08;
+        // Keep chart lively without flooding SSE / Supabase every tick
+        const joinChance = this.mode === 'continuous' ? 0.045 : 0.08;
         if (Math.random() < joinChance) {
           b.status = 'in';
           b.side = this.mode === 'continuous' || Math.random() < 0.55 ? 'buy' : 'sell';
@@ -959,6 +978,7 @@ export class CrashManager {
           this.pushFeed(b.name, b.side, b.amount, this.mult, -b.amount, {
             leverage: b.leverage,
             side: b.side,
+            silent: true,
           });
           this.pushTag(b.name, b.side, b.amount, this.mult);
         }
@@ -968,7 +988,6 @@ export class CrashManager {
         const stopLoss = pnlPct < -0.12;
         const shortTp = b.side === 'sell' && this.mult <= b.entryPrice * (0.85 + Math.random() * 0.1);
         const longTp = b.side === 'buy' && this.mult >= b.entryPrice * (1.1 + Math.random() * 0.3);
-        // Continuous bots hold longer so the chart stays busy with mixed entries
         const exitChance = this.mode === 'continuous' ? 0.55 : 1;
         if ((takeProfit || stopLoss || shortTp || longTp) && Math.random() < exitChance) {
           b.status = 'out';
@@ -978,6 +997,7 @@ export class CrashManager {
           this.pushFeed(b.name, closeSide, b.amount, this.mult, pnl, {
             leverage: b.leverage,
             side: b.side,
+            silent: true,
           });
           this.pushTag(b.name, closeSide, b.amount, this.mult);
         }
@@ -991,12 +1011,14 @@ export class CrashManager {
     amount: number,
     price: number,
     delta: number,
-    meta?: { leverage?: number; side?: 'buy' | 'sell' },
+    meta?: { leverage?: number; side?: 'buy' | 'sell'; silent?: boolean },
   ) {
     const id = this.feedId++;
     this.feed.unshift({ id, user, kind, amount, price, delta, t: Date.now() });
     if (this.feed.length > MAX_FEED) this.feed.pop();
-    this.emitSpectator(user, kind, amount, price, delta, id, meta);
+    if (!meta?.silent) {
+      this.emitSpectator(user, kind, amount, price, delta, id, meta);
+    }
   }
 
   private emitSpectator(

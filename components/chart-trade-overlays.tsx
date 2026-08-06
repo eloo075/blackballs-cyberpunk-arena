@@ -65,44 +65,63 @@ function tagPosition(
 
 /**
  * Permanent rugs.fun-style markers — one per BUY/SELL at the exact execution price.
- * Cleared when the round ends (server resets tradeTags).
+ * Positions are updated via DOM (no React setState per frame) so the live stream
+ * cannot freeze from a 60fps re-render loop.
  */
 export function ChartTradeMarkers({
   tradeTags,
   candles,
   layoutRef,
 }: ChartTradeOverlaysProps) {
-  const [, setTick] = useState(0);
+  const nodeRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const candlesRef = useRef(candles);
+  candlesRef.current = candles;
+  const tagsRef = useRef(tradeTags);
+  tagsRef.current = tradeTags;
 
-  // Re-render with the canvas RAF layout as candles scroll
   useEffect(() => {
     let raf = 0;
     const loop = () => {
-      setTick(t => (t + 1) % 1_000_000);
+      const layout = layoutRef.current;
+      const tags = tagsRef.current;
+      const candleSnap = candlesRef.current;
+      if (layout) {
+        for (const tag of tags) {
+          const el = nodeRefs.current.get(tag.id);
+          if (!el) continue;
+          const pos = tagPosition(layout, candleSnap, tag);
+          if (!pos) {
+            el.style.visibility = 'hidden';
+            continue;
+          }
+          el.style.visibility = 'visible';
+          el.style.left = `${pos.x}px`;
+          el.style.top = `${pos.y}px`;
+        }
+      }
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [layoutRef]);
 
-  const layout = layoutRef.current;
-  if (!layout || tradeTags.length === 0) return null;
+  if (tradeTags.length === 0) return null;
 
   return (
     <div className="absolute inset-0 z-[18] pointer-events-none overflow-hidden" aria-hidden>
-      {tradeTags.map(tag => {
-        const pos = tagPosition(layout, candles, tag);
-        if (!pos) return null;
-        return (
-          <div
-            key={tag.id}
-            className="absolute -translate-x-1/2 -translate-y-1/2"
-            style={{ left: pos.x, top: pos.y }}
-          >
-            <MarkerBadge tag={tag} />
-          </div>
-        );
-      })}
+      {tradeTags.map(tag => (
+        <div
+          key={tag.id}
+          ref={el => {
+            if (el) nodeRefs.current.set(tag.id, el);
+            else nodeRefs.current.delete(tag.id);
+          }}
+          className="absolute -translate-x-1/2 -translate-y-1/2"
+          style={{ left: 0, top: 0, visibility: 'hidden' }}
+        >
+          <MarkerBadge tag={tag} />
+        </div>
+      ))}
     </div>
   );
 }
@@ -129,9 +148,12 @@ export function ChartTradeOverlays({ tradeTags, candles, layoutRef }: ChartTrade
     timerRef.current = setTimeout(() => setFlashId(null), 900);
   }, [tradeTags]);
 
-  useEffect(() => () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    [],
+  );
 
   const layout = layoutRef.current;
   const tag = flashId != null ? tradeTags.find(t => t.id === flashId) : null;
