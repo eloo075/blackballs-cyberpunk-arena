@@ -269,15 +269,20 @@ export interface PriceTick {
   t: number;
 }
 
-/** ~0.45%/tick @ 250ms ≈ average ~55–75s before base rug. */
+/**
+ * rugs.fun Standard-style continuous path.
+ * Candle timeframe is 4s (16 x 250ms ticks) on the manager.
+ * Round length: ~6s to ~3min from a seeded mixture (short rugs common, long moons rarer).
+ * Price mean-reverts toward a slowly wandering target so candles balance up/down
+ * instead of one-way pumping into a ceiling.
+ */
+export const CONTINUOUS_MIN_ROUND_TICKS = 24; // 6s
+export const CONTINUOUS_MAX_ROUND_TICKS = 720; // 180s / 3 minutes
+export const CONTINUOUS_PATH_EXTENSION_TICKS = 120; // +30s liquidity buffer
+export const CONTINUOUS_PRICE_FLOOR = 0.4;
+export const CONTINUOUS_PRICE_CEIL = 80;
+/** @deprecated Prefer sampleContinuousRugTick — kept for imports/tests. */
 export const CONTINUOUS_RUG_CHANCE_PER_TICK = 0.0045;
-export const CONTINUOUS_MIN_ROUND_TICKS = 56; // 14s minimum
-export const CONTINUOUS_MAX_ROUND_TICKS = 600; // 150s hard cap
-/** Extra path after base rug so high-liquidity rounds can keep running a bit. */
-export const CONTINUOUS_PATH_EXTENSION_TICKS = 160; // +40s buffer
-export const CONTINUOUS_PRICE_FLOOR = 0.42;
-/** Soft technical cap — resistance makes hitting this rare. */
-export const CONTINUOUS_PRICE_CEIL = 40;
 
 export interface ContinuousRoundPath {
   path: PriceTick[];
@@ -286,10 +291,33 @@ export interface ContinuousRoundPath {
   rugTick: number;
 }
 
+/** Seeded duration mix: many short rugs, some mid, rare multi-minute charts. */
+export function sampleContinuousRugTick(rng: () => number): number {
+  const u = rng();
+  let seconds: number;
+  if (u < 0.22) {
+    // Instant / very short rugs (6–20s) — matches 6s chart popups
+    seconds = 6 + rng() * 14;
+  } else if (u < 0.55) {
+    // Typical (20–70s)
+    seconds = 20 + rng() * 50;
+  } else if (u < 0.85) {
+    // Extended (70–140s)
+    seconds = 70 + rng() * 70;
+  } else {
+    // Long moon charts (140–180s / up to ~3 min)
+    seconds = 140 + rng() * 40;
+  }
+  const ticks = Math.round((seconds * 1000) / 250);
+  return Math.max(
+    CONTINUOUS_MIN_ROUND_TICKS,
+    Math.min(CONTINUOUS_MAX_ROUND_TICKS, ticks),
+  );
+}
+
 /**
- * Demo Standard path: rugs.fun-style continuous drift that swings up and down
- * around 1x. Most rounds peak in the low/mid multiples; higher moons (10–15x+)
- * are uncommon. Hard bounce off the floor prevents 0.1x flatlines.
+ * Demo Standard path: smooth mean-reverting walk that keeps balancing like a
+ * live market, with occasional trend legs and rare moons (10x–50x+).
  */
 export function generateContinuousRoundPath(
   serverSeed: string,
@@ -297,120 +325,79 @@ export function generateContinuousRoundPath(
   tickMs = 250,
 ): ContinuousRoundPath {
   const rng = seededUnitPRNG(serverSeed, gameId);
+  const rugTick = sampleContinuousRugTick(rng);
+  const totalTicks = Math.min(
+    CONTINUOUS_MAX_ROUND_TICKS + CONTINUOUS_PATH_EXTENSION_TICKS,
+    rugTick + CONTINUOUS_PATH_EXTENSION_TICKS,
+  );
+
   const path: PriceTick[] = [{ price: 1, t: 0 }];
   let price = 1;
   let peakMultiplier = 1;
-  let rugTick = CONTINUOUS_MAX_ROUND_TICKS;
-  let rugDecided = false;
-  /** -1 dump / 0 chop / 1 pump */
-  let regime = 0;
-  let regimeLeft = 0;
+  // Wandering fair value the price keeps balancing around
+  let target = 1;
+  let moonLeft = 0;
 
-  const stepPrice = () => {
-    if (regimeLeft <= 0) {
-      const r = rng();
-      if (r < 0.04) {
-        // Rare moon run — can push into double digits
-        regime = 2;
-        regimeLeft = 8 + Math.floor(rng() * 14);
-      } else if (r < 0.22) {
-        regime = 1;
-        regimeLeft = 4 + Math.floor(rng() * 10);
-      } else if (r < 0.44) {
-        regime = -1;
-        regimeLeft = 4 + Math.floor(rng() * 9);
-      } else {
-        regime = 0;
-        regimeLeft = 4 + Math.floor(rng() * 10);
-      }
+  for (let i = 1; i <= totalTicks; i++) {
+    // Rare moon: lift the target for a stretch (can reach 10–50x on long rounds)
+    if (moonLeft <= 0 && i > 20 && i <= rugTick && rng() < 0.0045) {
+      moonLeft = 8 + Math.floor(rng() * 18);
+      target = Math.max(target, 1.8 + rng() * 4) * (1 + rng() * 0.5);
     }
-    regimeLeft -= 1;
-
-    let change: number;
-    if (regime === 2) {
-      let boost = 0.03 + rng() * 0.07;
-      if (price > 8) boost *= 0.7;
-      if (price > 15) boost *= 0.55;
-      change = boost;
-    } else if (regime === 1) {
-      // Mild pumps by default — high multiples need rare moon ticks
-      let boost = 0.012 + rng() * 0.03;
-      if (price > 2) boost *= 0.75;
-      if (price > 4) boost *= 0.6;
-      if (price > 8) boost *= 0.45;
-      if (rng() < 0.035 && price < 10) {
-        boost += 0.05 + rng() * 0.1;
-      }
-      change = boost;
-    } else if (regime === -1) {
-      const cut = price > 2.5 ? 0.03 + rng() * 0.1 : 0.02 + rng() * 0.055;
-      change = -cut;
+    if (moonLeft > 0) {
+      moonLeft -= 1;
+      target *= 1 + (0.008 + rng() * 0.03);
+      target = Math.min(55, target);
+    } else if (rng() < 0.11) {
+      // Jump the balance point — waves above AND below 1x like rugs.fun
+      const jump = (rng() - 0.52) * (0.12 + rng() * 0.32);
+      target = Math.max(0.48, Math.min(3.8, target * (1 + jump)));
+      target = target * 0.95 + 1 * 0.05;
     } else {
-      const amp = 0.022 + 0.018 * Math.min(2.5, Math.sqrt(Math.max(price, 0.45)));
-      change = (rng() - 0.5) * 2 * amp;
+      // Slow drift of the target
+      target *= 1 + (rng() - 0.52) * 0.02;
+      target = Math.max(0.48, Math.min(3.2, target * 0.993 + 1 * 0.007));
     }
 
-    // Bounce off the floor — never crawl near 0.1x
-    if (price < CONTINUOUS_PRICE_FLOOR + 0.1) {
-      change = Math.max(change, 0.04 + rng() * 0.1);
-      if (regime !== 2) {
-        regime = 1;
-        regimeLeft = Math.max(regimeLeft, 3 + Math.floor(rng() * 5));
-      }
-    } else if (price < 0.75) {
-      change += 0.015 + rng() * 0.04;
+    // Mean-revert price toward target + candle noise (smooth, not jumpy)
+    const pull = (target - price) * (0.055 + rng() * 0.04);
+    const noise = price * (0.01 + rng() * 0.02) * (2 * rng() - 1);
+    let change = pull + noise;
+
+    // Occasional sharper candle (wicky up/down) without locking a direction
+    if (rng() < 0.08) {
+      change += (rng() > 0.5 ? 1 : -1) * (0.02 + rng() * 0.05);
     }
 
-    // Growing resistance above mid multiples so history isn't a wall of 25.00x
-    if (regime !== 2 && price > 3) {
-      change -= (price - 3) * 0.006 * (0.4 + rng());
+    // Floor bounce — never crawl at 0.1x
+    if (price < CONTINUOUS_PRICE_FLOOR + 0.05) {
+      change = Math.max(change, 0.025 + rng() * 0.06);
+      target = Math.max(target, 0.7 + rng() * 0.35);
+    } else if (price < 0.55) {
+      change += 0.008 + rng() * 0.02;
     }
-    if (regime !== 2 && price > 6 && rng() < 0.28) {
-      change = -Math.abs(change) - (0.02 + rng() * 0.05);
-      regime = -1;
-      regimeLeft = Math.max(regimeLeft, 3 + Math.floor(rng() * 5));
+
+    // Resistance above mid multiples unless in an active moon
+    if (moonLeft <= 0 && price > 3.5) {
+      change -= (price - 3.5) * 0.01 * (0.3 + rng());
     }
-    if (price > 18 && rng() < 0.4) {
-      change = -Math.abs(change) - (0.04 + rng() * 0.08);
+    if (moonLeft <= 0 && price > 8 && rng() < 0.3) {
+      change = -Math.abs(change) - (0.025 + rng() * 0.05);
+      target = Math.min(target, 2 + rng() * 2);
     }
 
     price = Math.max(
       CONTINUOUS_PRICE_FLOOR,
       Math.min(CONTINUOUS_PRICE_CEIL, price * (1 + change)),
     );
-    peakMultiplier = Math.max(peakMultiplier, price);
-  };
-
-  for (let i = 1; i <= CONTINUOUS_MAX_ROUND_TICKS; i++) {
-    if (
-      !rugDecided &&
-      i >= CONTINUOUS_MIN_ROUND_TICKS &&
-      (rng() < CONTINUOUS_RUG_CHANCE_PER_TICK || i === CONTINUOUS_MAX_ROUND_TICKS)
-    ) {
-      rugTick = i;
-      rugDecided = true;
+    // Peak for history/seed verify = live window only (not liquidity extension)
+    if (i <= rugTick) {
+      peakMultiplier = Math.max(peakMultiplier, price);
     }
-
-    stepPrice();
     path.push({
       price: Math.round(price * 10_000) / 10_000,
       t: (i * tickMs) / 1000,
     });
-
-    if (rugDecided && i >= rugTick) {
-      const extendUntil = Math.min(
-        CONTINUOUS_MAX_ROUND_TICKS + CONTINUOUS_PATH_EXTENSION_TICKS,
-        rugTick + CONTINUOUS_PATH_EXTENSION_TICKS,
-      );
-      for (let j = i + 1; j <= extendUntil; j++) {
-        stepPrice();
-        path.push({
-          price: Math.round(price * 10_000) / 10_000,
-          t: (j * tickMs) / 1000,
-        });
-      }
-      break;
-    }
   }
 
   return {

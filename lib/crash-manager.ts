@@ -235,7 +235,7 @@ export class CrashManager {
    */
   private liquidityAdjustedRugTick(): number {
     const base = this.baseRugTick ?? this.round.rugTick ?? CONTINUOUS_MAX_ROUND_TICKS;
-    const delay = Math.min(100, Math.floor(this.roundBuyVolume * 2.2));
+    const delay = Math.min(140, Math.floor(this.roundBuyVolume * 2.2));
     const accel = Math.floor(this.roundSellVolume * 2.5);
     const maxTick =
       CONTINUOUS_MAX_ROUND_TICKS + CONTINUOUS_PATH_EXTENSION_TICKS - 1;
