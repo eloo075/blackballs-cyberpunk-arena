@@ -15,8 +15,10 @@ export interface TradeTag {
   amount: number;
   price: number;
   t: number;
-  /** Elapsed-time anchor of the candle when the trade fired (for chart X positioning). */
+  /** Open-time (`Candle.t`) of the forming candle when the trade fired. */
   candleT?: number;
+  /** Round elapsed seconds when the trade fired (sub-candle X within that bar). */
+  elapsed?: number;
 }
 
 export interface FeedEvent {
@@ -40,6 +42,16 @@ export interface RoundSummary {
   mode?: 'classic' | 'continuous';
   rugTick?: number;
   ts: number;
+  /** Compact close-price path for Last-100 mini chart thumbs. */
+  sparkline?: number[];
+}
+
+export interface PositionLot {
+  amount: number;
+  entry: number;
+  leverage: number;
+  /** Round elapsed seconds when this lot was filled (chart entry-line start). */
+  elapsed?: number;
 }
 
 export interface FullState {
@@ -77,6 +89,8 @@ export interface FullState {
   positionAmount: number;
   positionLeverage: number;
   positionEntryPrice: number;
+  /** Individual buy lots when stacked in continuous mode (precise multi-entry PnL). */
+  positionLots?: PositionLot[];
   balance: number;
   lastResult: { won: boolean; amount: number; price: number; bonusAmount?: number; frenzyProc?: boolean } | null;
   autoSell: number | null;

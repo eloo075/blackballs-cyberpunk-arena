@@ -3,33 +3,43 @@ import { MAX_DEMO_BALANCE, roundMoney } from '@/lib/crash-pnl';
 import type { FullState } from '@/lib/crash-types';
 import type { FlipFullState } from '@/lib/flip-types';
 
-/** Demo wallets (non-0x) never sync below refill amount on session boot. */
+/**
+ * Normalize a balance for session boot / explicit demo refill.
+ * Does NOT rewrite a true 0 mid-round — callers that sync enter/cashout must pass
+ * the real liquid balance (0 after all-in is valid).
+ */
 export function normalizeDemoSessionBalance(
   address: string,
   balance: number,
   isRealWallet = false,
+  opts?: { allowRefill?: boolean },
 ): number {
   const n = Number.isFinite(balance)
     ? roundMoney(Math.min(MAX_DEMO_BALANCE, Math.max(0, balance)))
     : 0;
   if (isRealWallet || address.startsWith('0x')) return n;
-  if (n < DEMO_MIN_BALANCE) return DEMO_REFILL_BB;
+  if (opts?.allowRefill !== false && n < DEMO_MIN_BALANCE) return DEMO_REFILL_BB;
   return n;
 }
 
-/** Client-side balance to push into game servers before betting. */
+/** Client-side balance to push into game servers. Preserves 0 (all-in / rug loss). */
 export function resolveClientSyncBalance(
   wallet: { connected: boolean; blackballsBalance: number; isRealWallet: boolean },
+  opts?: { allowRefill?: boolean },
 ): number {
   if (!wallet.connected) return 0;
   const n = Number.isFinite(wallet.blackballsBalance)
     ? roundMoney(Math.min(MAX_DEMO_BALANCE, Math.max(0, wallet.blackballsBalance)))
     : 0;
-  if (!wallet.isRealWallet && n < DEMO_MIN_BALANCE) return DEMO_REFILL_BB;
+  // Only bump empty demo wallets when explicitly allowed (boot / manual refill path).
+  if (!wallet.isRealWallet && opts?.allowRefill && n < DEMO_MIN_BALANCE) return DEMO_REFILL_BB;
   return n;
 }
 
-/** Balance shown in bet controls — never flash 0 for demo when wallet has credits. */
+/**
+ * Balance shown in bet controls.
+ * While connected, server liquid is authoritative — including 0 after open/rug.
+ */
 export function resolvePlayableBalance(
   wallet: { connected: boolean; blackballsBalance: number; isRealWallet: boolean },
   serverBalance?: number,
@@ -37,13 +47,9 @@ export function resolvePlayableBalance(
   const walletBal = resolveClientSyncBalance(wallet);
   if (!wallet.connected) return walletBal;
   if (serverBalance == null || !Number.isFinite(serverBalance)) return walletBal;
-  const s = roundMoney(
+  return roundMoney(
     Math.min(wallet.isRealWallet ? Number.MAX_SAFE_INTEGER : MAX_DEMO_BALANCE, Math.max(0, serverBalance)),
   );
-  if (!wallet.isRealWallet && s < DEMO_MIN_BALANCE && walletBal >= DEMO_MIN_BALANCE) {
-    return walletBal;
-  }
-  return s;
 }
 
 /** Ensure SSE payloads always expose a numeric balance and position flags. */
@@ -88,6 +94,7 @@ export function resetPlayerViewForNewRound(next: FullState): FullState {
     positionAmount: active ? next.positionAmount : 0,
     positionLeverage: active ? next.positionLeverage : 1,
     positionEntryPrice: active ? next.positionEntryPrice : 1.0,
+    positionLots: active ? next.positionLots ?? [] : [],
   };
 }
 
@@ -125,6 +132,7 @@ export function guardPendingEntryOnStream(prev: FullState | null, next: FullStat
     positionAmount: prev.positionAmount,
     positionLeverage: prev.positionLeverage,
     positionEntryPrice: prev.positionEntryPrice,
+    positionLots: prev.positionLots ?? [],
   };
 }
 
@@ -141,16 +149,13 @@ export function guardLivePositionOnStream(prev: FullState | null, next: FullStat
   const hadLive = prev.hasLivePosition || (prev.hasPosition && !prev.entryPending);
   if (!hadLive || !prev.hasPosition) return next;
 
+  // Server still shows an open live position — always trust it (incl. stacks / lots / debits).
   if (next.hasPosition) {
-    if (next.positionAmount <= prev.positionAmount + 0.001) return next;
     return {
       ...next,
-      positionAmount: prev.positionAmount,
-      positionSide: prev.positionSide,
-      positionLeverage: prev.positionLeverage,
-      positionEntryPrice: prev.positionEntryPrice,
       hasLivePosition: true,
       entryPending: false,
+      positionLots: Array.isArray(next.positionLots) ? next.positionLots : prev.positionLots ?? [],
     };
   }
 
@@ -168,6 +173,9 @@ export function guardLivePositionOnStream(prev: FullState | null, next: FullStat
     positionAmount: prev.positionAmount,
     positionLeverage: prev.positionLeverage,
     positionEntryPrice: prev.positionEntryPrice,
+    positionLots: prev.positionLots ?? [],
+    // Keep the lower liquid balance if server already deducted (stack buy).
+    balance: Math.min(next.balance, prev.balance),
   };
 }
 
@@ -198,6 +206,7 @@ export function guardCancelledPositionOnStream(
     positionAmount: 0,
     positionLeverage: 1,
     positionEntryPrice: 1.0,
+    positionLots: [],
   };
 }
 
@@ -228,10 +237,14 @@ export function guardRecentEntryOnStream(
     positionAmount: prev.positionAmount,
     positionLeverage: prev.positionLeverage,
     positionEntryPrice: prev.positionEntryPrice,
+    positionLots: prev.positionLots ?? next.positionLots ?? [],
   };
 }
 
-/** After cashout succeeds, ignore stale SSE that restores a closed position briefly. */
+/**
+ * After cashout succeeds, ignore stale SSE that restores a closed position briefly.
+ * Never Math.max balance — that undid BUY debits and stack opens during suppress.
+ */
 export function guardCashoutOnStream(
   prev: FullState | null,
   next: FullState,
@@ -252,6 +265,8 @@ export function guardCashoutOnStream(
       positionAmount: 0,
       positionLeverage: 1,
       positionEntryPrice: 1.0,
+      positionLots: [],
+      // Keep the cashed balance (higher after win) if stale frame is lower.
       balance: Math.max(next.balance, prev.balance),
     };
   }
@@ -261,24 +276,34 @@ export function guardCashoutOnStream(
 
   const balanceUp = next.balance > prev.balance + 0.0005;
   const sizeDown = next.positionAmount < prev.positionAmount - 0.0005;
+  const sizeUp = next.positionAmount > prev.positionAmount + 0.001;
+  const balanceDown = next.balance < prev.balance - 0.0005;
 
-  // Partial cash-out — position stays open with smaller (or same) size
+  // Stack buy during/after cashout suppress — trust server debit + larger size.
+  if (next.hasPosition && !next.entryPending && sizeUp && balanceDown) {
+    return {
+      ...next,
+      hasLivePosition: true,
+      entryPending: false,
+      positionLots: Array.isArray(next.positionLots) ? next.positionLots : prev.positionLots ?? [],
+    };
+  }
+
+  // Partial cash-out — position stays open with smaller size / higher balance.
   if (next.hasPosition && !next.entryPending && (balanceUp || sizeDown)) {
     return {
       ...next,
       hasLivePosition: true,
       entryPending: false,
       positionAmount: sizeDown ? Math.min(prev.positionAmount, next.positionAmount) : next.positionAmount,
-      balance: Math.max(next.balance, prev.balance),
+      positionLots: Array.isArray(next.positionLots) ? next.positionLots : prev.positionLots ?? [],
+      // Trust server balance (may be higher after sell). Do not Math.max over a later BUY debit.
+      balance: next.balance,
     };
   }
 
   // Stale SSE with full size after client already reduced — keep smaller amount
-  if (
-    next.hasPosition &&
-    !next.entryPending &&
-    next.positionAmount > prev.positionAmount + 0.001
-  ) {
+  if (next.hasPosition && !next.entryPending && sizeUp) {
     return {
       ...next,
       hasLivePosition: true,
@@ -287,7 +312,9 @@ export function guardCashoutOnStream(
       positionSide: prev.positionSide,
       positionLeverage: prev.positionLeverage,
       positionEntryPrice: prev.positionEntryPrice,
-      balance: Math.max(next.balance, prev.balance),
+      positionLots: prev.positionLots ?? [],
+      // Prefer lower liquid if client already spent on another buy.
+      balance: Math.min(next.balance, prev.balance),
     };
   }
 
@@ -304,17 +331,13 @@ export function guardCashoutOnStream(
       positionAmount: prev.positionAmount,
       positionLeverage: prev.positionLeverage,
       positionEntryPrice: prev.positionEntryPrice,
-      balance: Math.max(next.balance, prev.balance),
+      positionLots: prev.positionLots ?? [],
+      balance: prev.balance,
     };
   }
 
-  // Steady state — same position, same balance. Trust the server frame.
-  // (This used to fall through to a "clear position" branch, which made the UI
-  // flicker position/no-position on every other frame after a partial cash-out.)
-  return {
-    ...next,
-    balance: Math.max(next.balance, prev.balance),
-  };
+  // Steady state — trust the server frame completely (incl. balance decreases).
+  return next;
 }
 
 /** Ensure flip SSE player view always has a numeric balance. */
@@ -339,16 +362,14 @@ export function normalizeFlipStreamState(
   };
 }
 
-/** Never let SSE overwrite a higher known wallet balance (prevents 0-balance race). */
+/**
+ * Apply authoritative server balance to the wallet.
+ * Always accept server liquid — including 0 after open / rug / all-in.
+ */
 export function shouldApplyServerBalance(
   serverBalance: number,
-  walletBalance: number,
-  isDemo = false,
+  _walletBalance: number,
+  _isDemo = false,
 ): boolean {
-  if (isDemo && serverBalance < DEMO_MIN_BALANCE && walletBalance >= DEMO_MIN_BALANCE) {
-    return false;
-  }
-  if (serverBalance >= walletBalance - 0.001) return true;
-  // Server may legitimately be lower when margin is reserved — allow small gaps only.
-  return serverBalance > 0 && walletBalance - serverBalance < 50;
+  return Number.isFinite(serverBalance);
 }

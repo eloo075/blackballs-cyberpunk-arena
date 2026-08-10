@@ -44,7 +44,7 @@ export function SmoothMultiplier({
       return;
     }
 
-    const LERP_PER_SEC = 12;
+    const LERP_PER_SEC = 16;
     let last = performance.now();
     let raf = 0;
     const loop = (now: number) => {

@@ -10,8 +10,11 @@ export interface MarketListing {
 }
 
 export function formatPrice(p: number): string {
-  if (p >= 1) return `$${p.toFixed(4)}`;
-  if (p >= 0.01) return `$${p.toFixed(5)}`;
+  if (p >= 1000) {
+    return `$${p.toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
+  }
+  if (p >= 1) return `$${p.toFixed(2)}`;
+  if (p >= 0.01) return `$${p.toFixed(4)}`;
   if (p >= 0.0001) return `$${p.toFixed(6)}`;
   if (p > 0) return `$${p.toExponential(2)}`;
   return '$0.00';

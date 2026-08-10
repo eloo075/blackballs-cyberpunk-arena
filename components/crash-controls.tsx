@@ -3,17 +3,27 @@
 import { useEffect, useRef, useState } from 'react';
 import { WagerAmountPanel } from '@/components/wager-amount-panel';
 import { CURRENCY_LABEL } from '@/lib/format-currency';
-import { affordableBetAmount, clampBetToBalance, formatBetTokens, formatBetUsd, tokensToUsd } from '@/lib/bet-sizing';
+import {
+  MIN_BET_BB,
+  clampBetToBalance,
+  formatBetTokens,
+  formatBetUsd,
+  isBuyableWagerDraft,
+  tokensToUsd,
+} from '@/lib/bet-sizing';
 import { useTokenUsd } from '@/hooks/use-token-usd';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { HoldBonuses } from '@/lib/hold-bonuses';
 import {
-  calcPositionPct,
-  calcPositionPnl,
+  calcLotsPnl,
+  calcLotsPnlBreakdown,
+  calcLotsPositionPct,
   formatLivePnl,
   leveragedOpenFee,
   maxAffordableMargin,
+  minExitMultiplierRatio,
 } from '@/lib/crash-pnl';
+import type { PositionLot } from '@/lib/crash-types';
 
 interface CrashControlsProps {
   phase: 'waiting' | 'running' | 'crashed';
@@ -26,6 +36,7 @@ interface CrashControlsProps {
   positionAmount: number;
   positionLeverage: number;
   positionEntryPrice: number;
+  positionLots?: PositionLot[];
   waitLeft: number;
   gameId?: number;
   roundEpoch?: number;
@@ -52,6 +63,38 @@ const LEVERAGE_PRESETS = [1, 1.5, 2, 3, 5] as const;
 const WAIT_FOR_ROUND_MSG = 'Wait for the next round — BUY/SELL open during the countdown.';
 /** Block entries in the last second — server may already be in the live round. */
 const COUNTDOWN_ENTRY_BUFFER_SEC = 1.0;
+const WAGER_STORAGE_KEY = 'bb_crash_wager_v1';
+
+function loadStoredWager(): { amount: number; draft: string } {
+  if (typeof window === 'undefined') return { amount: 0, draft: '0' };
+  try {
+    const raw = localStorage.getItem(WAGER_STORAGE_KEY);
+    if (!raw) return { amount: 0, draft: '0' };
+    const parsed = JSON.parse(raw) as { amount?: unknown; draft?: unknown };
+    const amount =
+      typeof parsed.amount === 'number' && Number.isFinite(parsed.amount) && parsed.amount >= 0
+        ? parsed.amount
+        : 0;
+    const draft =
+      typeof parsed.draft === 'string' && parsed.draft.length > 0
+        ? parsed.draft
+        : amount > 0
+          ? String(amount)
+          : '0';
+    return { amount, draft };
+  } catch {
+    return { amount: 0, draft: '0' };
+  }
+}
+
+function saveStoredWager(amount: number, draft: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(WAGER_STORAGE_KEY, JSON.stringify({ amount, draft }));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
 
 function entryButtonSubtext(
   phase: 'waiting' | 'running' | 'crashed',
@@ -84,17 +127,17 @@ function leveragePillClass(preset: number, active: boolean): string {
 }
 
 const ARCADE_BTN_BUY =
-  'bg-emerald-500 hover:bg-emerald-400 text-white font-black uppercase tracking-wider rounded-xl border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all';
+  'crash-trade-btn bg-emerald-500 hover:bg-emerald-400 text-white font-black uppercase tracking-wider rounded-xl border-b-[3px] sm:border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 active:scale-[0.98] transition-all duration-150 shadow-[0_0_24px_rgba(16,185,129,0.25)]';
 const ARCADE_BTN_SELL =
-  'bg-rose-500 hover:bg-rose-400 text-white font-black uppercase tracking-wider rounded-xl border-b-4 border-rose-700 active:border-b-0 active:translate-y-1 transition-all';
+  'crash-trade-btn bg-rose-500 hover:bg-rose-400 text-white font-black uppercase tracking-wider rounded-xl border-b-[3px] sm:border-b-4 border-rose-700 active:border-b-0 active:translate-y-1 active:scale-[0.98] transition-all duration-150 shadow-[0_0_24px_rgba(244,63,94,0.22)]';
 const ARCADE_BTN_LOCKED =
-  'bg-[#2a2c33] text-white/35 font-black uppercase tracking-wider rounded-xl border border-white/10 cursor-not-allowed';
+  'bg-[#1e2028] text-white/30 font-black uppercase tracking-wider rounded-xl border border-white/8 cursor-not-allowed';
 const ARCADE_BTN_CANCEL_SHORT =
-  'bg-amber-400 hover:bg-amber-300 text-black font-black uppercase tracking-wider rounded-xl border-b-4 border-rose-600 active:border-b-0 active:translate-y-1 transition-all';
+  'crash-trade-btn bg-amber-400 hover:bg-amber-300 text-black font-black uppercase tracking-wider rounded-xl border-b-[3px] sm:border-b-4 border-rose-600 active:border-b-0 active:translate-y-1 active:scale-[0.98] transition-all duration-150';
 const ARCADE_BTN_CANCEL_LONG =
-  'bg-amber-400 hover:bg-amber-300 text-black font-black uppercase tracking-wider rounded-xl border-b-4 border-emerald-600 active:border-b-0 active:translate-y-1 transition-all';
+  'crash-trade-btn bg-amber-400 hover:bg-amber-300 text-black font-black uppercase tracking-wider rounded-xl border-b-[3px] sm:border-b-4 border-emerald-600 active:border-b-0 active:translate-y-1 active:scale-[0.98] transition-all duration-150';
 const TRADE_BTN =
-  'touch-manipulation min-h-[48px] sm:min-h-[52px] py-2 sm:py-2.5 px-2 sm:px-3 text-sm sm:text-base font-black uppercase tracking-wider';
+  'touch-manipulation min-h-[44px] sm:min-h-[56px] py-2 sm:py-3 px-2 sm:px-3 text-[13px] sm:text-base font-black uppercase tracking-wider';
 
 function TradeSpinner() {
   return (
@@ -116,6 +159,7 @@ export function CrashControls({
   positionAmount,
   positionLeverage,
   positionEntryPrice,
+  positionLots,
   waitLeft,
   gameId,
   roundEpoch = 0,
@@ -137,7 +181,9 @@ export function CrashControls({
 }: CrashControlsProps) {
   void _onSetAutoSell;
   const { usdPerToken } = useTokenUsd();
-  const [amount, setAmount] = useState(0.01);
+  const [amount, setAmount] = useState(0);
+  const [wagerDraft, setWagerDraft] = useState('0');
+  const [wagerReady, setWagerReady] = useState(false);
   const [percent, setPercent] = useState(0);
   const [cashOutPct, setCashOutPct] = useState(0.5);
   const [leverage, setLeverage] = useState(1);
@@ -149,33 +195,66 @@ export function CrashControls({
   const [entryCooldown, setEntryCooldown] = useState(false);
   const [cancelNotice, setCancelNotice] = useState<string | null>(null);
   const [entryNotice, setEntryNotice] = useState<string | null>(null);
+  const [cashoutFlash, setCashoutFlash] = useState<{
+    pct: number;
+    sold: number;
+    exitMult: number;
+    fullExit: boolean;
+  } | null>(null);
   const cancelToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const entryCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cashoutFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  void holdBonuses;
   const continuousDemo = continuousMode ?? isDemoWallet;
   const entriesOpen =
     (phase === 'waiting' && waitLeft > COUNTDOWN_ENTRY_BUFFER_SEC) ||
     (continuousDemo && phase === 'running');
-  const rawWager = percent > 0
-    ? parseFloat((balance * percent / 100).toFixed(4))
-    : clampBetToBalance(amount, balance);
+  const requestedWager =
+    Number.isFinite(amount) && amount > 0 ? Math.floor(amount * 1000) / 1000 : 0;
   const affordableMargin = maxAffordableMargin(balance, leverage);
-  const safeAmount = clampWager(rawWager, affordableMargin);
-  const effectiveWager =
-    !hasPosition && balance > 0 && safeAmount <= 0
-      ? clampWager(affordableBetAmount(usdPerToken, balance), affordableMargin)
-      : safeAmount;
+  const safeAmount = clampWager(requestedWager, affordableMargin);
+  /** Trade uses the player's set stake — never silently rewrite it to MAX/balance. */
+  const effectiveWager = safeAmount;
+  const wagerDraftForGate = wagerDraft;
+  const wagerBuyable =
+    isBuyableWagerDraft(wagerDraftForGate, requestedWager) &&
+    requestedWager <= balance + 0.0005 &&
+    requestedWager <= affordableMargin + 0.0005;
   const notionalExposure = parseFloat((effectiveWager * leverage).toFixed(4));
   const openFee = leveragedOpenFee(effectiveWager, leverage);
 
   const liveMult = hasPosition && phase === 'waiting' ? 1.0 : mult;
   const positionPct = hasPosition
-    ? calcPositionPct(positionSide, positionLeverage, positionEntryPrice, liveMult)
+    ? calcLotsPositionPct(positionSide, positionLots, liveMult, {
+        margin: positionAmount,
+        leverage: positionLeverage,
+        entry: positionEntryPrice,
+      })
     : 0;
   const positionPnl = hasPosition
-    ? calcPositionPnl(positionSide, positionAmount, positionLeverage, positionEntryPrice, liveMult)
+    ? calcLotsPnl(positionSide, positionLots, liveMult, {
+        margin: positionAmount,
+        leverage: positionLeverage,
+        entry: positionEntryPrice,
+      })
     : 0;
-  const pnlDisplay = hasPosition ? formatLivePnl(positionPnl, positionPct) : { text: '0.00', pct: '0.0' };
+  const pnlDisplay = hasPosition ? formatLivePnl(positionPnl, positionPct) : { text: '0.000', pct: '0.0' };
+  const lotCount = positionLots?.length ?? 0;
+  const lotBreakdown =
+    lotCount > 1 ? calcLotsPnlBreakdown(positionSide, positionLots, liveMult) : [];
+
+  useEffect(() => {
+    const stored = loadStoredWager();
+    setAmount(stored.amount);
+    setWagerDraft(stored.draft);
+    setWagerReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!wagerReady) return;
+    saveStoredWager(amount, wagerDraft);
+  }, [amount, wagerDraft, wagerReady]);
 
   /** Wipe local UI locks when a new countdown round begins (crashed → waiting / new gameId). */
   useEffect(() => {
@@ -185,9 +264,14 @@ export function CrashControls({
     setCashOutError(null);
     setCancelNotice(null);
     setEntryNotice(null);
+    setCashoutFlash(null);
     if (entryCooldownTimerRef.current) {
       clearTimeout(entryCooldownTimerRef.current);
       entryCooldownTimerRef.current = null;
+    }
+    if (cashoutFlashTimerRef.current) {
+      clearTimeout(cashoutFlashTimerRef.current);
+      cashoutFlashTimerRef.current = null;
     }
   }, [phase, gameId, roundEpoch]);
 
@@ -195,8 +279,25 @@ export function CrashControls({
     return () => {
       if (cancelToastTimerRef.current) clearTimeout(cancelToastTimerRef.current);
       if (entryCooldownTimerRef.current) clearTimeout(entryCooldownTimerRef.current);
+      if (cashoutFlashTimerRef.current) clearTimeout(cashoutFlashTimerRef.current);
     };
   }, []);
+
+  const showCashoutFlash = (pct: number, sold: number, exitMult: number) => {
+    setCashoutFlash({
+      pct,
+      sold,
+      exitMult,
+      fullExit: pct >= 0.999,
+    });
+    setEntryNotice(null);
+    setTradeError(null);
+    if (cashoutFlashTimerRef.current) clearTimeout(cashoutFlashTimerRef.current);
+    cashoutFlashTimerRef.current = setTimeout(() => {
+      setCashoutFlash(null);
+      cashoutFlashTimerRef.current = null;
+    }, 2800);
+  };
 
   const canOpenBuy =
     walletConnected &&
@@ -209,7 +310,8 @@ export function CrashControls({
     (continuousDemo
       ? !(entryPending && phase === 'waiting') && !(hasPosition && phase === 'waiting')
       : !hasPosition) &&
-    effectiveWager > 0 &&
+    wagerBuyable &&
+    effectiveWager >= MIN_BET_BB &&
     effectiveWager <= balance + 0.0005;
   const canOpenSell = continuousDemo ? false : canOpenBuy;
 
@@ -218,9 +320,6 @@ export function CrashControls({
     walletConnected && sessionReady && streamConnected && entriesOpen && !tradeBusy && hasPosition && positionSide === 'sell' && !entryPending;
   const canCloseSell =
     walletConnected && sessionReady && streamConnected && entriesOpen && !tradeBusy && hasPosition && positionSide === 'buy' && !entryPending;
-
-  const stimmyLabel =
-    holdBonuses.stimmy > 0 ? `+${Math.round(holdBonuses.stimmy * 100)}% stimmy` : null;
 
   const canStackBuy =
     continuousDemo && phase === 'running' && hasPosition && !entryPending && positionSide === 'buy';
@@ -252,7 +351,11 @@ export function CrashControls({
     setPendingAction('cashout');
     const result = await onCashOut(cashOutPct);
     setPendingAction(null);
-    if (!result.ok && result.error) {
+    if (result.ok) {
+      const sold = parseFloat((positionAmount * cashOutPct).toFixed(3));
+      const exitMult = result.exitPrice ?? mult;
+      showCashoutFlash(cashOutPct, sold, exitMult);
+    } else if (result.error) {
       setCashOutError(result.error);
       setTradeError(result.error);
     }
@@ -291,8 +394,8 @@ export function CrashControls({
     if (!hasPosition && effectiveWager > balance + 0.0005) {
       return `Wager (${effectiveWager.toFixed(3)}) exceeds balance (${balance.toFixed(3)}). Lower amount or use MAX.`;
     }
-    if (!hasPosition && effectiveWager <= 0) {
-      return 'Set a wager amount above 0.';
+    if (!hasPosition && !wagerBuyable) {
+      return 'Place your amount — wager cannot be 0.';
     }
     if (entriesOpen && !hasPosition) {
       return `${waitLeft.toFixed(1)}s left to enter before round starts @ 1.00x`;
@@ -301,25 +404,18 @@ export function CrashControls({
   })();
 
   useEffect(() => {
-    if (hasPosition || balance <= 0) return;
-    if (percent > 0) {
-      if (safeAmount <= 0) setPercent(0);
-      return;
-    }
-    setAmount(prev => {
-      if (prev > 0 && prev <= balance) return prev;
-      return affordableBetAmount(usdPerToken, balance);
-    });
-  }, [hasPosition, balance, usdPerToken, percent, safeAmount, gameId, roundEpoch]);
+    // Clear stale percent mode only — never rewrite the typed wager.
+    if (percent > 0 && safeAmount <= 0) setPercent(0);
+  }, [percent, safeAmount]);
 
   const prevHasPositionRef = useRef(false);
   useEffect(() => {
-    if (prevHasPositionRef.current && !hasPosition && balance > 0) {
+    // After a position closes, keep the same wager the player set (do not auto MAX / refill).
+    if (prevHasPositionRef.current && !hasPosition) {
       setPercent(0);
-      setAmount(affordableBetAmount(usdPerToken, balance));
     }
     prevHasPositionRef.current = hasPosition;
-  }, [hasPosition, balance, usdPerToken]);
+  }, [hasPosition]);
 
   const showEntrySuccess = (side: 'buy' | 'sell', wager: number) => {
     setEntryNotice(
@@ -383,6 +479,15 @@ export function CrashControls({
       return;
     }
 
+    const stackingBuy =
+      continuousDemo && phase === 'running' && side === 'buy' && hasPosition && positionSide === 'buy';
+    const closingTrade =
+      hasPosition && positionSide !== side && !stackingBuy;
+    if (!closingTrade && (!wagerBuyable || effectiveWager < MIN_BET_BB)) {
+      setTradeError('Place your amount — wager cannot be 0.');
+      return;
+    }
+
     if (phase === 'crashed' || (phase === 'running' && !continuousDemo)) {
       setTradeError(WAIT_FOR_ROUND_MSG);
       return;
@@ -413,14 +518,20 @@ export function CrashControls({
         return;
       }
     } else if (!addingBuy && (side === 'buy' ? !canOpenBuy : !canOpenSell)) {
-      if (effectiveWager <= 0) setTradeError('Set a wager amount above 0.');
-      else if (effectiveWager > balance) setTradeError(`Insufficient balance (${balance.toFixed(3)} available).`);
+      if (!wagerBuyable) {
+        setTradeError('Wager cannot start with 0 — enter a valid amount (base entry 1000).');
+      } else if (effectiveWager > balance) {
+        setTradeError(`Insufficient balance (${balance.toFixed(3)} available).`);
+      }
       return;
     }
 
     if (addingBuy && !canOpenBuy) {
-      if (effectiveWager <= 0) setTradeError('Set a wager amount above 0.');
-      else if (effectiveWager > balance) setTradeError(`Insufficient balance (${balance.toFixed(3)} available).`);
+      if (!wagerBuyable) {
+        setTradeError('Wager cannot start with 0 — enter a valid amount (base entry 1000).');
+      } else if (effectiveWager > balance) {
+        setTradeError(`Insufficient balance (${balance.toFixed(3)} available).`);
+      }
       return;
     }
 
@@ -434,11 +545,8 @@ export function CrashControls({
         setPendingAction(null);
         if (result.ok) {
           const sold = parseFloat((positionAmount * cashOutPct).toFixed(3));
-          setEntryNotice(
-            cashOutPct >= 0.999
-              ? `Sold ${positionAmount.toFixed(3)} ${CURRENCY_LABEL} @ ${mult.toFixed(2)}x`
-              : `Cashed out ${Math.round(cashOutPct * 100)}% (${sold.toFixed(3)} ${CURRENCY_LABEL}) @ ${mult.toFixed(2)}x`,
-          );
+          const exitMult = result.exitPrice ?? mult;
+          showCashoutFlash(cashOutPct, sold, exitMult);
         } else if (result.error) {
           setCashOutError(result.error);
           setTradeError(result.error);
@@ -532,7 +640,13 @@ export function CrashControls({
         ? entryPending && phase === 'waiting'
         : !hasPosition || entryPending);
     const locked = entriesClosed || oppositePending || noDemoAction;
-    const disabled = locked || tradeBusy;
+    const isClosingAction =
+      hasPosition &&
+      positionSide !== side &&
+      !(continuousDemo && isBuy && phase === 'running' && positionSide === 'buy');
+    const openBlocked = !isClosingAction && (isBuy ? !canOpenBuy : !canOpenSell);
+    const needsAmount = openBlocked && !wagerBuyable;
+    const disabled = locked || tradeBusy || openBlocked;
 
     return (
       <button
@@ -540,10 +654,21 @@ export function CrashControls({
         onClick={() => handleTrade(side)}
         disabled={disabled}
         className={`${TRADE_BTN} ${
-          locked || oppositePending ? ARCADE_BTN_LOCKED : isBuy ? ARCADE_BTN_BUY : ARCADE_BTN_SELL
+          locked || oppositePending || openBlocked
+            ? ARCADE_BTN_LOCKED
+            : isBuy
+              ? ARCADE_BTN_BUY
+              : ARCADE_BTN_SELL
         } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
       >
-        {locked || oppositePending ? (
+        {needsAmount && !locked && !oppositePending ? (
+          <>
+            {isBuy ? 'BUY' : 'SELL'}
+            <span className="block text-[10px] font-bold normal-case tracking-normal opacity-80 mt-0.5">
+              Place your amount
+            </span>
+          </>
+        ) : locked || oppositePending ? (
           <>
             {continuousDemo
               ? isBuy
@@ -579,11 +704,6 @@ export function CrashControls({
               : isBuy
                 ? 'BUY LONG'
                 : 'SELL SHORT'}
-            {isBuy && stimmyLabel && (
-              <span className="block text-[10px] font-extrabold text-amber-300 mt-0.5 normal-case tracking-normal">
-                {stimmyLabel}
-              </span>
-            )}
             {!isBuy && !hasPosition && !continuousDemo && (
               <span className="block text-[10px] font-bold text-rose-200/80 mt-0.5 normal-case tracking-normal">
                 Shorts love rugs
@@ -616,9 +736,9 @@ export function CrashControls({
   };
 
   return (
-    <div className="cp-panel p-0 font-arcade relative safe-bottom">
+    <div className="rounded-lg sm:rounded-2xl border border-white/[0.06] bg-[#12141a] p-0 font-arcade relative max-sm:pb-[env(safe-area-inset-bottom,0px)] sm:safe-bottom overflow-hidden">
       {!walletConnected && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[#141518]/90 backdrop-blur-sm px-4 rounded-2xl">
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[#141518]/90 backdrop-blur-sm px-4 rounded-lg sm:rounded-2xl">
           <span className="text-sm font-extrabold text-white/70 text-center">
             Connect to trade
           </span>
@@ -645,29 +765,72 @@ export function CrashControls({
         </div>
       )}
 
-      <div className="flex flex-col gap-1.5 p-2 sm:p-2.5">
-        {/* rugs.fun-style: wager | leverage/% in two separate rectangles */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="flex flex-col gap-1 sm:gap-2 p-1.5 sm:p-3">
+        {/* Wager — hide on mobile while in a position so cashout stays on-screen */}
+        <div
+          className={`grid grid-cols-1 ${continuousDemo ? '' : 'sm:grid-cols-2'} gap-1 sm:gap-2 ${
+            wagerLocked ? 'max-sm:hidden' : ''
+          }`}
+        >
           <div
-            className={`rounded-xl border border-white/10 bg-[#1a1b20] px-2.5 py-2 ${
+            className={`rounded-lg sm:rounded-xl border border-white/[0.07] bg-[#0e1015] px-2 py-1 sm:px-3 sm:py-2.5 ${
               wagerLocked ? 'opacity-50 pointer-events-none' : ''
             }`}
           >
             <WagerAmountPanel
-              amount={wagerLocked ? clampBetToBalance(amount, balance) : effectiveWager}
-              onAmountChange={v => setAmount(clampBetToBalance(v, balance))}
+              amount={amount}
+              onAmountChange={v => {
+                setPercent(0);
+                setAmount(Number.isFinite(v) && v > 0 ? v : 0);
+              }}
+              onDraftChange={setWagerDraft}
               balance={balance}
               disabled={wagerLocked}
+              invalid={!wagerLocked && !wagerBuyable}
+              invalidMessage="Place your amount"
               percent={percent}
-              onPercentChange={setPercent}
+              onPercentChange={p => {
+                setPercent(0);
+                const next = clampBetToBalance(parseFloat(((balance * p) / 100).toFixed(4)), balance);
+                setAmount(next);
+                setWagerDraft(next > 0 ? String(Math.floor(next)) : '0');
+              }}
               showPercentButtons={false}
               showBalanceHint
-              inputClassName="flex-1 min-w-0 bg-transparent text-lg sm:text-2xl font-extrabold text-white outline-none disabled:opacity-50 tabular-nums placeholder:text-white/20"
+              inputClassName="flex-1 min-w-0 bg-transparent text-sm sm:text-2xl font-extrabold text-white outline-none disabled:opacity-50 tabular-nums placeholder:text-white/20"
             />
+            {continuousDemo && (
+              <div className="flex gap-1 mt-1 sm:mt-2">
+                {[10, 25, 50, 100].map(p => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => {
+                      const next = clampBetToBalance(
+                        parseFloat(((balance * p) / 100).toFixed(4)),
+                        balance,
+                      );
+                      setPercent(0);
+                      setAmount(next);
+                      setWagerDraft(next > 0 ? String(Math.floor(next)) : '0');
+                    }}
+                    disabled={wagerLocked}
+                    className={`flex-1 min-h-[26px] sm:min-h-[30px] rounded-md sm:rounded-lg text-[10px] font-extrabold touch-manipulation disabled:opacity-30 transition-colors ${
+                      Math.abs(amount - (balance * p) / 100) < 0.001 && amount > 0
+                        ? 'bg-emerald-500/90 text-white'
+                        : 'bg-[#1a1d24] text-white/50 border border-white/8 hover:bg-[#22252e]'
+                    }`}
+                  >
+                    {p}%
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
+          {!continuousDemo && (
           <div
-            className={`rounded-xl border border-white/10 bg-[#1a1b20] px-2.5 py-2 ${
+            className={`rounded-xl border border-white/[0.07] bg-[#0e1015] px-2.5 py-2 ${
               wagerLocked ? 'opacity-50 pointer-events-none' : ''
             }`}
           >
@@ -678,6 +841,15 @@ export function CrashControls({
                 {openFee > 0 && <span className="text-rose-300"> · {openFee.toFixed(3)} fee</span>}
               </span>
             </div>
+            {leverage > 1 && (
+              <div className="mb-1.5 text-[10px] font-bold text-amber-200/80 leading-snug">
+                Anti-scalp: cash out from{' '}
+                <span className="text-amber-300 font-extrabold">
+                  {minExitMultiplierRatio(leverage).toFixed(2)}x
+                </span>{' '}
+                · 2% open fee on notional
+              </div>
+            )}
             <div className="flex items-center gap-2 mb-1.5">
               <div className="shrink-0 min-w-[48px] text-center px-2 py-1 rounded-lg bg-amber-400 text-black border-b-2 border-amber-600">
                 <div className="text-lg font-extrabold leading-none tabular-nums">
@@ -732,6 +904,7 @@ export function CrashControls({
               ))}
             </div>
           </div>
+          )}
         </div>
 
         <AnimatePresence initial={false}>
@@ -741,34 +914,80 @@ export function CrashControls({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
-              className="rounded-xl border border-white/10 bg-[#1a1b20] px-2.5 py-1.5"
+              className="rounded-lg sm:rounded-xl border border-white/[0.07] bg-[#0e1015] px-2 py-1 sm:px-3 sm:py-2.5"
             >
-              <div className="flex items-center justify-between text-xs gap-2">
-                <span className={positionSide === 'buy' ? 'text-emerald-400 font-extrabold' : 'text-rose-400 font-extrabold'}>
-                  {continuousDemo ? 'POSITION' : positionSide === 'buy' ? 'LONG' : 'SHORT'} ·{' '}
-                  {positionAmount.toFixed(3)}
-                </span>
-                <span className="text-[10px] text-white/45">
-                  {continuousDemo ? 'AVG ' : ''}ENTRY {positionEntryPrice.toFixed(2)}x
-                  {phase === 'running' && ` · NOW ${mult.toFixed(2)}x`}
-                </span>
-                <span className={positionPnl >= 0 ? 'text-emerald-400 font-extrabold' : 'text-rose-400 font-extrabold'}>
-                  {pnlDisplay.text} ({pnlDisplay.pct}%)
-                </span>
+              <div className="flex items-center justify-between gap-2 sm:gap-3">
+                <div className="min-w-0">
+                  <div
+                    className={
+                      positionSide === 'buy'
+                        ? 'text-emerald-400 font-extrabold text-[10px] sm:text-xs'
+                        : 'text-rose-400 font-extrabold text-[10px] sm:text-xs'
+                    }
+                  >
+                    {continuousDemo ? 'POS' : positionSide === 'buy' ? 'LONG' : 'SHORT'} ·{' '}
+                    {positionAmount.toFixed(2)}
+                    {lotCount > 1 ? (
+                      <span className="text-white/40 font-bold"> · {lotCount}</span>
+                    ) : null}
+                    <span className="text-white/40 font-bold">
+                      {' '}
+                      @ {positionEntryPrice.toFixed(2)}x
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-white/45 mt-0.5 hidden sm:block">
+                    {lotCount > 1 ? 'Σ ' : ''}ENTRY {positionEntryPrice.toFixed(3)}x
+                    {phase === 'running' && ` · NOW ${mult.toFixed(3)}x`}
+                  </div>
+                  {lotBreakdown.length > 0 && (
+                    <div className="mt-1.5 space-y-0.5 border-t border-white/[0.06] pt-1.5 hidden sm:block">
+                      {lotBreakdown.map((lot, i) => (
+                        <div
+                          key={`${lot.entry}-${i}`}
+                          className="flex items-center justify-between gap-2 text-[10px] tabular-nums"
+                        >
+                          <span className="text-white/40">
+                            {lot.amount.toFixed(3)} @ {lot.entry.toFixed(3)}x
+                          </span>
+                          <span
+                            className={
+                              lot.pnl >= 0 ? 'text-emerald-400/90 font-bold' : 'text-rose-400/90 font-bold'
+                            }
+                          >
+                            {lot.pnl >= 0 ? '+' : ''}
+                            {lot.pnl.toFixed(3)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div
+                  className={`text-right shrink-0 transition-colors duration-200 ${
+                    positionPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                  }`}
+                >
+                  <div className="text-base sm:text-2xl font-black tabular-nums leading-none tracking-tight">
+                    {pnlDisplay.text}
+                  </div>
+                  <div className="text-[10px] sm:text-xs font-extrabold tabular-nums opacity-85 mt-0.5 sm:mt-1">
+                    {pnlDisplay.pct}%
+                  </div>
+                </div>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
         {showCashoutPanel && (
-          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-2">
-            <div className="flex items-center gap-1.5 mb-1.5">
+          <div className="rounded-lg sm:rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-1 sm:px-2.5 sm:py-2">
+            <div className="flex items-center gap-1 sm:gap-1.5">
               {CASH_OUT_PCTS.map(p => (
                 <button
                   key={p}
                   type="button"
                   onClick={() => setCashOutPct(p)}
-                  className={`flex-1 min-h-[34px] rounded-lg text-[11px] font-extrabold touch-manipulation ${
+                  className={`flex-1 min-h-[28px] sm:min-h-[34px] rounded-md sm:rounded-lg text-[10px] sm:text-[11px] font-extrabold touch-manipulation ${
                     cashOutPct === p
                       ? 'bg-emerald-500 text-white border-b-2 border-emerald-700'
                       : 'bg-[#2a2c33] text-white/55 border border-white/10'
@@ -781,7 +1000,7 @@ export function CrashControls({
                 type="button"
                 onClick={handleCashOut}
                 disabled={!canCashOut}
-                className={`flex-[1.4] min-h-[34px] rounded-lg text-[11px] font-black touch-manipulation ${
+                className={`flex-[1.5] min-h-[28px] sm:min-h-[34px] rounded-md sm:rounded-lg text-[10px] sm:text-[11px] font-black touch-manipulation ${
                   canCashOut
                     ? 'bg-emerald-500 text-white border-b-2 border-emerald-700'
                     : 'bg-[#2a2c33] text-white/40 border border-white/10'
@@ -791,21 +1010,67 @@ export function CrashControls({
               </button>
             </div>
             {cashOutError && (
-              <div className="text-[10px] font-bold text-rose-200">{cashOutError}</div>
+              <div className="text-[10px] font-bold text-rose-200 mt-1">{cashOutError}</div>
             )}
           </div>
         )}
 
         {(entryNotice || cancelNotice || tradeError || (tradeBlockReason && !hasPosition && phase !== 'running')) &&
           walletConnected &&
-          !pendingAction && (
-            <div className="px-1 text-[10px] font-bold text-amber-200/90 leading-snug">
+          !pendingAction &&
+          !cashoutFlash && (
+            <div className="px-1 text-[10px] font-bold text-amber-200/90 leading-snug line-clamp-1 sm:line-clamp-none hidden sm:block">
               {tradeError ?? entryNotice ?? cancelNotice ?? tradeBlockReason}
             </div>
           )}
 
-        {/* BUY / SELL — always visible under chart, no scroll required */}
-        <div className="grid grid-cols-2 gap-2">
+        <AnimatePresence>
+          {cashoutFlash && (
+            <motion.div
+              key={`cashout-${cashoutFlash.exitMult}-${cashoutFlash.sold}`}
+              initial={{ opacity: 0, y: 12, scale: 0.92 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.96 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 26 }}
+              className="relative overflow-hidden rounded-xl border border-emerald-400/40 bg-gradient-to-r from-emerald-500/20 via-emerald-400/10 to-sky-500/15 px-2.5 py-2 sm:px-3 sm:py-3 shadow-[0_0_28px_rgba(16,185,129,0.28)] hidden sm:block"
+            >
+              <motion.div
+                className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent"
+                initial={{ x: '-120%' }}
+                animate={{ x: '120%' }}
+                transition={{ duration: 0.85, ease: 'easeOut' }}
+                aria-hidden
+              />
+              <div className="relative flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-emerald-300/90">
+                    {cashoutFlash.fullExit ? 'Position closed' : 'Partial cashout'}
+                  </div>
+                  <div className="mt-0.5 text-sm sm:text-base font-black text-white tracking-tight">
+                    {cashoutFlash.fullExit
+                      ? `Sold ${cashoutFlash.sold.toFixed(3)} ${CURRENCY_LABEL}`
+                      : `Out ${Math.round(cashoutFlash.pct * 100)}% · ${cashoutFlash.sold.toFixed(3)} ${CURRENCY_LABEL}`}
+                  </div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <motion.div
+                    initial={{ scale: 0.7, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ delay: 0.08, type: 'spring', stiffness: 500, damping: 22 }}
+                    className="text-xl sm:text-2xl font-black tabular-nums text-emerald-300"
+                    style={{ textShadow: '0 0 18px rgba(52,211,153,0.45)' }}
+                  >
+                    {cashoutFlash.exitMult.toFixed(2)}x
+                  </motion.div>
+                  <div className="text-[10px] font-bold text-white/45 mt-0.5">exit price</div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* BUY / SELL */}
+        <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
           {renderTradeButton('buy')}
           {renderTradeButton('sell')}
         </div>
@@ -817,11 +1082,11 @@ export function CrashControls({
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className={`mx-2 mb-2 p-2 text-center text-xs font-extrabold rounded-xl ${lastResult.won ? 'text-emerald-300 bg-emerald-500/15 border border-emerald-500/25' : 'text-rose-300 bg-rose-500/15 border border-rose-500/25'}`}
+            className={`mx-2 mb-2 p-2 text-center text-xs font-extrabold rounded-xl hidden sm:block ${lastResult.won ? 'text-emerald-300 bg-emerald-500/15 border border-emerald-500/25' : 'text-rose-300 bg-rose-500/15 border border-rose-500/25'}`}
           >
             {lastResult.won
-              ? `+${lastResult.amount.toFixed(3)} ${CURRENCY_LABEL} @ ${lastResult.price.toFixed(2)}x${lastResult.bonusAmount ? ` (+${lastResult.bonusAmount.toFixed(3)} bonus)` : ''}${lastResult.frenzyProc ? ' · FRENZY!' : ''}`
-              : `${lastResult.amount >= 0 ? '+' : ''}${lastResult.amount.toFixed(3)} ${CURRENCY_LABEL} @ ${lastResult.price.toFixed(2)}x`}
+              ? `+${lastResult.amount.toFixed(3)} ${CURRENCY_LABEL} @ ${lastResult.price.toFixed(2)}x${lastResult.bonusAmount ? ` (+${lastResult.bonusAmount.toFixed(3)} bonus)` : ''}`
+              : `LOST ${Math.abs(lastResult.amount).toFixed(3)} ${CURRENCY_LABEL} — full stake @ rug`}
           </motion.div>
         )}
       </AnimatePresence>

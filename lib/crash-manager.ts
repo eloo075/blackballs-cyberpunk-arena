@@ -1,21 +1,23 @@
 import {
   calcCrashSettlement,
+  calcLotsPnl,
   calcPositionPnl,
+  clampLeverage,
   clampRate,
+  isLeveragedExitAllowed,
   isLiquidated,
   leveragedOpenFee,
   MAX_DEMO_BALANCE,
   MAX_FRENZY_RATE,
   MAX_LEVERAGE,
   MAX_STIMMY_RATE,
+  minExitPrice,
   MIN_LEVERAGE,
   roundMoney,
 } from './crash-pnl';
 import { splitPartialCashout } from './crash-position-math';
 import {
   CONTINUOUS_MAX_ROUND_TICKS,
-  CONTINUOUS_MIN_ROUND_TICKS,
-  CONTINUOUS_PATH_EXTENSION_TICKS,
   CONTINUOUS_PRICE_CEIL,
   CONTINUOUS_PRICE_FLOOR,
   computeCrashPoint,
@@ -27,12 +29,15 @@ import {
   hashServerSeed,
   roundCrashPoint,
 } from './crash-engine';
-import type { Candle, FeedEvent, FullState, Phase, RoundSummary, TradeTag } from './crash-types';
+import type { Candle, FeedEvent, FullState, Phase, PositionLot, RoundSummary, TradeTag } from './crash-types';
+import { downsampleCandlesToSpark } from './round-sparkline';
 import { dispatchSettlement, type SettlementAction } from './chain/crash-vault-client';
 import { broadcastCrashEvent } from './supabase/broadcast-crash-event';
 import type { CrashSpectatorEventType } from './crash-spectator-types';
+import { MIN_BET_BB } from './bet-sizing';
 import { DEMO_MIN_BALANCE } from './demo-credits';
 import { mirrorCrashBalanceToFlip } from './mirror-session-balance';
+import { playerMarkerName } from './player-marker-name';
 
 interface BotPlayer {
   name: string;
@@ -65,6 +70,8 @@ interface PlayerState {
   positionAmount: number;
   positionLeverage: number;
   positionEntryPrice: number;
+  /** Stacked continuous buys — used for precise multi-entry PnL. */
+  positionLots: PositionLot[];
   positionRoundId: number | null;
   /** Countdown-phase bet — cleared when round starts or ends. */
   pendingEntry: {
@@ -72,6 +79,8 @@ interface PlayerState {
     amount: number;
     leverage: number;
     roundId: number;
+    /** Prepaid open fee locked with the pending margin (refunded on cancel). */
+    openFee?: number;
   } | null;
   autoSell: number | null;
   lastResult: { won: boolean; amount: number; price: number; bonusAmount?: number; frenzyProc?: boolean } | null;
@@ -86,7 +95,8 @@ const CLASSIC_CANDLE_TICKS = 3;
 const ROUND_WAIT_SECONDS = 12;
 const CRASH_HOLD_SECONDS = 4;
 const MAX_CANDLES = 60;
-const MAX_HISTORY = 1000;
+/** Keep enough for Last-100 + stats; larger histories were freezing the live stream. */
+const MAX_HISTORY = 120;
 const MAX_FEED = 40;
 const MAX_TAGS = 80;
 
@@ -98,6 +108,7 @@ function emptyPlayerState(balance = 0): PlayerState {
     positionAmount: 0,
     positionLeverage: 1,
     positionEntryPrice: 1.0,
+    positionLots: [],
     positionRoundId: null,
     pendingEntry: null,
     autoSell: null,
@@ -113,13 +124,49 @@ function randName(): string {
   return `${pre[Math.floor(Math.random() * pre.length)]}...${suf[Math.floor(Math.random() * suf.length)]}`;
 }
 
-function playerMarkerName(address: string): string {
-  if (!address) return 'PLAYER';
-  if (address.startsWith('0x') && address.length > 10) {
-    return `${address.slice(0, 6)}…${address.slice(-4)}`;
+function syncPositionAggregates(player: PlayerState) {
+  const lots = player.positionLots;
+  if (!lots.length) {
+    player.positionAmount = 0;
+    player.positionLeverage = 1;
+    player.positionEntryPrice = 1.0;
+    return;
   }
-  const clean = address.replace(/^demo[-_:]?/i, '');
-  return clean.length > 12 ? `${clean.slice(0, 10)}…` : clean || 'PLAYER';
+  let amount = 0;
+  let entryWeight = 0;
+  let levWeight = 0;
+  for (const lot of lots) {
+    amount += lot.amount;
+    entryWeight += lot.amount * lot.entry;
+    levWeight += lot.amount * lot.leverage;
+  }
+  player.positionAmount = roundMoney(amount);
+  // Keep full float avg for chart / display — do not early-round entry
+  player.positionEntryPrice = entryWeight / Math.max(1e-12, amount);
+  player.positionLeverage = levWeight / Math.max(1e-12, amount);
+}
+
+/** Reduce lots by margin (FIFO) after a partial cashout. */
+function reducePositionLots(player: PlayerState, closeMargin: number) {
+  let remaining = closeMargin;
+  const next: PositionLot[] = [];
+  for (const lot of player.positionLots) {
+    if (remaining <= 0.00005) {
+      next.push(lot);
+      continue;
+    }
+    if (lot.amount <= remaining + 0.00005) {
+      remaining -= lot.amount;
+      continue;
+    }
+    next.push({
+      ...lot,
+      amount: parseFloat((lot.amount - remaining).toFixed(3)),
+    });
+    remaining = 0;
+  }
+  player.positionLots = next;
+  syncPositionAggregates(player);
 }
 
 export class CrashManager {
@@ -213,6 +260,13 @@ export class CrashManager {
   }
 
   private applyOrderFlow(side: 'buy' | 'sell', notional: number) {
+    // Continuous rugs.fun Standard: path is 100% pre-determined.
+    // Buys/sells update volume stats only — zero price impact.
+    if (this.mode === 'continuous') {
+      if (side === 'buy') this.roundBuyVolume += notional;
+      else this.roundSellVolume += notional;
+      return;
+    }
     const impact = Math.min(0.08, Math.max(0.002, notional * 0.004));
     if (side === 'buy') {
       this.pressureOffset += impact;
@@ -229,20 +283,9 @@ export class CrashManager {
     }
   }
 
-  /**
-   * More presale/live buy liquidity delays the rug briefly. Heavy selling
-   * pulls it forward. Delay is hard-capped so rounds never crawl for minutes.
-   */
+  /** Continuous rugs are pre-determined — never shift the rug tick from volume. */
   private liquidityAdjustedRugTick(): number {
-    const base = this.baseRugTick ?? this.round.rugTick ?? CONTINUOUS_MAX_ROUND_TICKS;
-    const delay = Math.min(140, Math.floor(this.roundBuyVolume * 2.2));
-    const accel = Math.floor(this.roundSellVolume * 2.5);
-    const maxTick =
-      CONTINUOUS_MAX_ROUND_TICKS + CONTINUOUS_PATH_EXTENSION_TICKS - 1;
-    return Math.max(
-      CONTINUOUS_MIN_ROUND_TICKS,
-      Math.min(maxTick, base + delay - accel),
-    );
+    return this.baseRugTick ?? this.round.rugTick ?? CONTINUOUS_MAX_ROUND_TICKS;
   }
 
   private getPlayer(address: string): PlayerState {
@@ -263,13 +306,18 @@ export class CrashManager {
     player.positionAmount = 0;
     player.positionLeverage = 1;
     player.positionEntryPrice = 1.0;
+    player.positionLots = [];
     player.positionRoundId = null;
   }
 
   private clearPendingEntry(player: PlayerState, refund: boolean) {
     if (!player.pendingEntry) return;
     if (refund && player.pendingEntry.amount > 0) {
-      player.balance = parseFloat((player.balance + player.pendingEntry.amount).toFixed(3));
+      const fee =
+        Number.isFinite(player.pendingEntry.openFee) && (player.pendingEntry.openFee ?? 0) > 0
+          ? (player.pendingEntry.openFee as number)
+          : leveragedOpenFee(player.pendingEntry.amount, player.pendingEntry.leverage);
+      player.balance = roundMoney(player.balance + player.pendingEntry.amount + fee);
     }
     player.pendingEntry = null;
   }
@@ -348,7 +396,8 @@ export class CrashManager {
     }
 
     if (this.phase === 'crashed' && player.pendingEntry) {
-      this.clearPendingEntry(player, true);
+      // Never refund during crashed — crash() already settled; refund would mint free BB.
+      this.clearPendingEntry(player, false);
       cleared = 'cleared pending (crashed phase)';
     }
 
@@ -386,7 +435,10 @@ export class CrashManager {
       positionAmount: snap.positionAmount,
       positionLeverage: snap.positionLeverage,
       positionEntryPrice: snap.positionEntryPrice,
+      // Authoritative lots — client must replace optimistic stacks with this.
+      positionLots: snap.positionLots ?? [],
       balance: snap.balance,
+      lastResult: snap.lastResult,
     };
   }
 
@@ -418,6 +470,10 @@ export class CrashManager {
       ? roundMoney(Math.min(maxBalance, Math.max(0, balance)))
       : player.balance;
 
+    const locked =
+      player.hasPosition ||
+      (player.pendingEntry != null && player.pendingEntry.roundId === this.round.id);
+
     if (options?.boot) {
       const inCurrentRound =
         (player.hasPosition && player.positionRoundId === this.round.id) ||
@@ -425,18 +481,19 @@ export class CrashManager {
       if (!inCurrentRound) {
         this.clearAllBettingState(player, true);
       }
-      if (!player.hasPosition && !player.pendingEntry) {
-        player.balance = clientBalance;
-      } else if (isDemo && clientBalance >= DEMO_MIN_BALANCE && player.balance < DEMO_MIN_BALANCE) {
-        player.balance = clientBalance;
-      }
-    } else if (!player.hasPosition && !player.pendingEntry) {
-      if (clientBalance <= player.balance + 0.001) {
-        player.balance = clientBalance;
-      } else if (isDemo && clientBalance >= DEMO_MIN_BALANCE && player.balance < DEMO_MIN_BALANCE) {
+    }
+
+    // rugs.fun: liquid balance only moves on open / sell / rug.
+    // Never mint demo credits while margin is locked — that undid all-in losses mid-round.
+    if (locked) {
+      // Allow client to LOWER liquid (never raise) while a position is open.
+      if (clientBalance < player.balance - 0.0005) {
         player.balance = clientBalance;
       }
+    } else if (options?.boot || clientBalance <= player.balance + 0.001) {
+      player.balance = clientBalance;
     } else if (isDemo && clientBalance >= DEMO_MIN_BALANCE && player.balance < DEMO_MIN_BALANCE) {
+      // Idle demo refill only (explicit +100 Demo / post-round idle).
       player.balance = clientBalance;
     }
 
@@ -492,6 +549,7 @@ export class CrashManager {
     | 'positionAmount'
     | 'positionLeverage'
     | 'positionEntryPrice'
+    | 'positionLots'
     | 'balance'
     | 'lastResult'
     | 'autoSell'
@@ -505,6 +563,7 @@ export class CrashManager {
         positionAmount: 0,
         positionLeverage: 1,
         positionEntryPrice: 1.0,
+        positionLots: [],
         balance: 0,
         lastResult: null,
         autoSell: null,
@@ -514,6 +573,22 @@ export class CrashManager {
     const pending =
       player.pendingEntry?.roundId === this.round.id ? player.pendingEntry : null;
     const showPending = pending != null && this.phase === 'waiting';
+    const liveLots = player.hasPosition
+      ? player.positionLots.map(l => ({ ...l }))
+      : [];
+    // Presale: expose a synthetic 1.00x lot so chart + PnL treat it like a real entry
+    const pendingLots =
+      showPending && pending
+        ? [
+            {
+              amount: pending.amount,
+              entry: 1.0,
+              leverage: pending.leverage,
+              elapsed: 0,
+            },
+          ]
+        : [];
+    const positionLots = liveLots.length > 0 ? liveLots : pendingLots;
     return {
       hasPosition: player.hasPosition || showPending,
       hasLivePosition: player.hasPosition,
@@ -521,7 +596,8 @@ export class CrashManager {
       positionSide: player.hasPosition ? player.positionSide : pending?.side ?? player.positionSide,
       positionAmount: player.hasPosition ? player.positionAmount : pending?.amount ?? 0,
       positionLeverage: player.hasPosition ? player.positionLeverage : pending?.leverage ?? 1,
-      positionEntryPrice: player.hasPosition ? player.positionEntryPrice : 1.0,
+      positionEntryPrice: player.hasPosition ? player.positionEntryPrice : showPending ? 1.0 : 1.0,
+      positionLots,
       balance: player.balance,
       lastResult: player.lastResult,
       autoSell: player.autoSell,
@@ -567,13 +643,17 @@ export class CrashManager {
     };
   }
 
-  /** Lightweight snapshot for SSE — omits heavy seed fields from history. */
+  /**
+   * Lightweight snapshot for SSE / state.
+   * Cap history at 100 — shipping 1000 rounds every tick (~4Hz) hung the Fly VM.
+   */
   snapshotForStream(address: string | null = null): FullState {
     const full = this.snapshot(address);
     // Only a short smoothing window ahead, padded to CONSTANT length with a
     // plausible continuation — a longer/shrinking window would let anyone reading
     // the raw SSE payload see exactly when the round crashes and exit perfectly.
     const AHEAD_TICKS = 8;
+    const STREAM_HISTORY = 100;
     let pathAhead: number[] | undefined;
     if (this.phase === 'running' && this.round.path.length > 0) {
       if (this.mode === 'continuous') {
@@ -599,7 +679,7 @@ export class CrashManager {
       ...full,
       serverNow: Date.now(),
       pathAhead,
-      history: full.history.map(h => ({
+      history: full.history.slice(0, STREAM_HISTORY).map(h => ({
         id: h.id,
         crashPoint: h.crashPoint,
         ts: h.ts,
@@ -608,6 +688,7 @@ export class CrashManager {
         rugTick: h.rugTick,
         serverSeedHash: h.serverSeedHash.slice(0, 16),
         serverSeed: null,
+        sparkline: h.sparkline,
       })),
     };
   }
@@ -635,14 +716,17 @@ export class CrashManager {
         ? this.round.path[Math.min(this.tickIdx, this.round.path.length - 1)]
         : { price: 0.01, t: this.elapsed };
       const baseMult = pathTick.price;
-      this.pressureOffset *= 0.9;
-      this.orderPressure *= 0.96;
-      const maxWiggle = Math.max(0.02, baseMult * 0.04);
-      this.pressureOffset = Math.max(-maxWiggle, Math.min(maxWiggle, this.pressureOffset));
-      const flowMult = baseMult + this.pressureOffset;
       if (this.mode === 'continuous') {
-        this.mult = Math.max(CONTINUOUS_PRICE_FLOOR, Math.min(CONTINUOUS_PRICE_CEIL, flowMult));
+        // Pure playback of the pre-generated seed path — no order-flow wiggle.
+        this.mult = Math.max(CONTINUOUS_PRICE_FLOOR, Math.min(CONTINUOUS_PRICE_CEIL, baseMult));
+        this.orderPressure = 0;
+        this.pressureOffset = 0;
       } else {
+        this.pressureOffset *= 0.9;
+        this.orderPressure *= 0.96;
+        const maxWiggle = Math.max(0.02, baseMult * 0.04);
+        this.pressureOffset = Math.max(-maxWiggle, Math.min(maxWiggle, this.pressureOffset));
+        const flowMult = baseMult + this.pressureOffset;
         const ceiling = Math.max(1.01, this.round.crashPoint - 0.01);
         this.mult = Math.max(1.0, Math.min(ceiling, flowMult));
       }
@@ -660,11 +744,13 @@ export class CrashManager {
 
       this.simulateBots();
       this.checkAutoSellForAllPlayers();
-      this.checkLiquidationsForAllPlayers();
+      if (this.mode !== 'continuous') {
+        this.checkLiquidationsForAllPlayers();
+      }
 
       if (this.mode === 'continuous') {
-        if (this.tickIdx >= this.liquidityAdjustedRugTick()) {
-          this.round.rugTick = this.tickIdx;
+        const rugAt = this.round.rugTick ?? this.liquidityAdjustedRugTick();
+        if (this.tickIdx >= rugAt) {
           this.crash();
           return;
         }
@@ -680,7 +766,9 @@ export class CrashManager {
     if (this.phase === 'crashed') {
       this.waitLeft -= TICK_MS / 1000;
       if (this.waitLeft <= 0) {
-        this.forceClearAllPlayers(true, 'new-countdown');
+        // Never refund here — crash() already settled losses, and a stale client
+        // reconcile must not recreate a pending bet that then gets "refunded" as free money.
+        this.forceClearAllPlayers(false, 'new-countdown');
         for (const player of this.players.values()) {
           player.lastResult = null;
         }
@@ -723,12 +811,14 @@ export class CrashManager {
     const margin = player.positionAmount;
     const leverage = player.positionLeverage;
     const side = player.positionSide;
+    const playerName = playerMarkerName(address);
     player.lastResult = {
       won: false,
       amount: -margin,
       price: this.mult,
     };
-    this.pushFeed(playerMarkerName(address), 'rug', margin, this.mult, -margin, { leverage, side });
+    this.pushFeed(playerName, 'rug', margin, this.mult, -margin, { leverage, side });
+    this.clearPlayerTradeTags(playerName, ['buy']);
     this.clearPlayerPosition(player);
     dispatchSettlement({
       type: 'loss',
@@ -736,6 +826,8 @@ export class CrashManager {
       amount: margin,
       reason: 'LIQUIDATED',
     });
+    // Margin already deducted at open — keep the loss; sync peers downward.
+    mirrorCrashBalanceToFlip(address, player.balance);
     this.emit();
   }
 
@@ -746,12 +838,22 @@ export class CrashManager {
         player.positionSide === 'buy'
           ? player.positionEntryPrice * player.autoSell
           : player.positionEntryPrice * (2 - player.autoSell);
-      if (
+      const hit =
         (player.positionSide === 'buy' && this.mult >= target) ||
-        (player.positionSide === 'sell' && this.mult <= target)
+        (player.positionSide === 'sell' && this.mult <= target);
+      if (!hit) continue;
+      // Respect anti-scalp floor — don't force a blocked early TP
+      if (
+        !isLeveragedExitAllowed(
+          player.positionSide,
+          player.positionLeverage,
+          player.positionEntryPrice,
+          this.mult,
+        )
       ) {
-        this.closePosition(address);
+        continue;
       }
+      this.closePosition(address);
     }
   }
 
@@ -794,16 +896,24 @@ export class CrashManager {
   }
 
   private beginRound() {
-    for (const player of this.players.values()) {
+    const promoted: { address: string; side: 'buy' | 'sell'; amount: number }[] = [];
+    for (const [address, player] of this.players.entries()) {
       const pending = player.pendingEntry;
       if (pending && pending.roundId === this.round.id) {
         player.hasPosition = true;
         player.positionSide = pending.side;
-        player.positionAmount = pending.amount;
-        player.positionLeverage = pending.leverage;
-        player.positionEntryPrice = 1.0;
+        player.positionLots = [
+          {
+            amount: pending.amount,
+            entry: 1.0,
+            leverage: this.mode === 'continuous' ? 1 : pending.leverage,
+            elapsed: 0,
+          },
+        ];
+        syncPositionAggregates(player);
         player.positionRoundId = this.round.id;
         player.pendingEntry = null;
+        promoted.push({ address, side: pending.side, amount: pending.amount });
       } else if (pending) {
         this.clearPendingEntry(player, true);
       }
@@ -825,7 +935,7 @@ export class CrashManager {
     this.roundBuyVolume = 0;
     this.roundSellVolume = 0;
     this.baseRugTick = this.round.rugTick;
-    // Presale liquidity counts toward delaying the rug.
+    // Volume stats only (continuous path ignores volume for price / rug timing).
     for (const player of this.players.values()) {
       if (player.hasPosition && player.positionRoundId === this.round.id) {
         this.roundBuyVolume += player.positionAmount * Math.max(1, player.positionLeverage);
@@ -853,6 +963,11 @@ export class CrashManager {
           this.pushTag(b.name, 'buy', b.amount, 1.0);
         }
       }
+    }
+    // Presale buys: chart markers only appear once the round is live @ 1.00x
+    for (const entry of promoted) {
+      const name = playerMarkerName(entry.address);
+      this.pushTag(name, entry.side, entry.amount, 1.0);
     }
     this.emit();
   }
@@ -885,39 +1000,30 @@ export class CrashManager {
     for (const [address, player] of this.players.entries()) {
       if (!player.hasPosition) continue;
       const margin = player.positionAmount;
-      const settlement = calcCrashSettlement({
-        side: player.positionSide,
-        margin,
-        leverage: player.positionLeverage,
-        entry: player.positionEntryPrice,
-        exit: exitMult,
-        stimmy: player.stimmy,
-        frenzy: player.frenzy,
-      });
-      const { pnl } = settlement;
-      if (pnl > 0) {
-        const maxBalance = address.startsWith('0x') ? Number.MAX_SAFE_INTEGER : MAX_DEMO_BALANCE;
-        player.balance = Math.min(maxBalance, roundMoney(player.balance + settlement.returnAmount));
-        mirrorCrashBalanceToFlip(address, player.balance);
-        dispatchSettlement({
-          type: 'payout',
-          player: address,
-          amount: settlement.returnAmount,
-        });
-      } else {
-        dispatchSettlement({
-          type: 'loss',
-          player: address,
-          amount: margin,
-          reason: 'RUG',
-        });
+      if (!player.positionLots.length) {
+        player.positionLots = [
+          {
+            amount: player.positionAmount,
+            entry: player.positionEntryPrice,
+            leverage: player.positionLeverage,
+            elapsed: 0,
+          },
+        ];
       }
+
+      // rugs.fun: any remaining open position on rug = 100% loss of locked stake.
+      // Balance must NEVER increase here — margin was already deducted at open.
+      dispatchSettlement({
+        type: 'loss',
+        player: address,
+        amount: margin,
+        reason: 'RUG',
+      });
+      mirrorCrashBalanceToFlip(address, player.balance);
       player.lastResult = {
-        won: pnl > 0.0001,
-        amount: pnl,
+        won: false,
+        amount: -margin,
         price: exitMult,
-        bonusAmount: settlement.bonus > 0 ? settlement.bonus : undefined,
-        frenzyProc: settlement.frenzyProc || undefined,
       };
       this.clearPlayerPosition(player);
     }
@@ -951,6 +1057,7 @@ export class CrashManager {
       instantRug: this.round.instantRug,
       mode: this.round.mode,
       rugTick: this.round.rugTick ?? undefined,
+      sparkline: downsampleCandlesToSpark(this.candles),
       ts: Date.now(),
     });
     if (this.history.length > MAX_HISTORY) this.history.pop();
@@ -966,7 +1073,7 @@ export class CrashManager {
     this.bots.forEach(b => {
       if (b.status === 'out') {
         // Keep chart lively without flooding SSE / Supabase every tick
-        const joinChance = this.mode === 'continuous' ? 0.045 : 0.08;
+        const joinChance = this.mode === 'continuous' ? 0.012 : 0.08;
         if (Math.random() < joinChance) {
           b.status = 'in';
           b.side = this.mode === 'continuous' || Math.random() < 0.55 ? 'buy' : 'sell';
@@ -1053,6 +1160,9 @@ export class CrashManager {
   }
 
   private pushTag(user: string, side: 'buy' | 'sell', amount: number, price: number) {
+    // Always bind to the live candle object — candleStartTime can briefly drift
+    // from candles[last].t around commit boundaries.
+    const live = this.candles[this.candles.length - 1];
     this.tradeTags.push({
       id: this.tagId++,
       user,
@@ -1060,9 +1170,22 @@ export class CrashManager {
       amount,
       price,
       t: Date.now(),
-      candleT: this.candleStartTime,
+      candleT: live?.t ?? this.candleStartTime,
+      elapsed: this.elapsed,
     });
     if (this.tradeTags.length > MAX_TAGS) this.tradeTags.shift();
+  }
+
+  /** Remove chart markers for a player (e.g. full cash-out clears old buy logos). */
+  private clearPlayerTradeTags(
+    user: string,
+    sides: Array<'buy' | 'sell'> | null = null,
+  ) {
+    this.tradeTags = this.tradeTags.filter(tag => {
+      if (tag.user !== user) return true;
+      if (!sides || sides.length === 0) return false;
+      return !sides.includes(tag.side);
+    });
   }
 
   private placePendingEntry(
@@ -1094,10 +1217,12 @@ export class CrashManager {
     }
 
     const margin = Math.floor(amount * 1000) / 1000;
-    if (!Number.isFinite(margin) || margin <= 0) {
+    if (!Number.isFinite(margin) || margin < MIN_BET_BB) {
       return { ok: false, error: 'invalid amount' };
     }
-    const openFee = leveragedOpenFee(margin, leverage);
+    const safeSide = this.mode === 'continuous' ? 'buy' : side;
+    const safeLeverage = this.mode === 'continuous' ? 1 : clampLeverage(leverage);
+    const openFee = leveragedOpenFee(margin, safeLeverage);
     const totalDebit = roundMoney(margin + openFee);
     if (!Number.isFinite(totalDebit) || totalDebit > player.balance + 0.0005) {
       return {
@@ -1107,13 +1232,22 @@ export class CrashManager {
     }
 
     player.balance = roundMoney(player.balance - totalDebit);
-    player.pendingEntry = { side, amount: margin, leverage, roundId: this.round.id };
+    player.pendingEntry = {
+      side: safeSide,
+      amount: margin,
+      leverage: safeLeverage,
+      roundId: this.round.id,
+      openFee,
+    };
 
-    const notional = margin * leverage;
-    this.applyOrderFlow(side, notional);
+    const notional = margin * safeLeverage;
+    this.applyOrderFlow(safeSide, notional);
     const playerName = playerMarkerName(address);
-    this.pushFeed(playerName, side, margin, 1.0, -margin, { leverage, side });
-    this.pushTag(playerName, side, margin, 1.0);
+    this.pushFeed(playerName, safeSide, margin, 1.0, -margin, {
+      leverage: safeLeverage,
+      side: safeSide,
+    });
+    // No chart marker during countdown — beginRound pushes the tag when live @ 1.00x
     this.emit();
     mirrorCrashBalanceToFlip(address, player.balance);
     return { ok: true, balance: player.balance, action: 'open' };
@@ -1135,11 +1269,14 @@ export class CrashManager {
       return { ok: false, error: 'close short before buying' };
     }
 
+    // Continuous Demo: rugs.fun Standard — 1x long only.
+    // Profit = Amount × (exit / entry − 1); leverage does not amplify.
+    const safeLeverage = this.mode === 'continuous' ? 1 : clampLeverage(leverage);
     const margin = Math.floor(amount * 1000) / 1000;
-    if (!Number.isFinite(margin) || margin <= 0) {
+    if (!Number.isFinite(margin) || margin < MIN_BET_BB) {
       return { ok: false, error: 'invalid amount' };
     }
-    const openFee = leveragedOpenFee(margin, leverage);
+    const openFee = leveragedOpenFee(margin, safeLeverage);
     const totalDebit = roundMoney(margin + openFee);
     if (!Number.isFinite(totalDebit) || totalDebit > player.balance + 0.0005) {
       return {
@@ -1149,34 +1286,34 @@ export class CrashManager {
     }
 
     const fillPrice = this.mult;
+    const fillElapsed = this.elapsed;
     player.balance = roundMoney(player.balance - totalDebit);
 
     if (player.hasPosition && player.positionSide === 'buy' && player.positionAmount > 0) {
-      // rugs.fun: stack buys — average entry, aggregate exposure
-      const oldAmt = player.positionAmount;
-      const oldEntry = player.positionEntryPrice;
-      const oldLev = player.positionLeverage;
-      const newAmt = oldAmt + margin;
-      player.positionEntryPrice =
-        (oldAmt * oldEntry + margin * fillPrice) / Math.max(0.0001, newAmt);
-      player.positionLeverage =
-        (oldAmt * oldLev + margin * leverage) / Math.max(0.0001, newAmt);
-      player.positionAmount = parseFloat(newAmt.toFixed(3));
+      // rugs.fun: stack buys — keep lots for precise PnL, sync avg entry for UI
+      player.positionLots.push({
+        amount: margin,
+        entry: fillPrice,
+        leverage: safeLeverage,
+        elapsed: fillElapsed,
+      });
+      syncPositionAggregates(player);
     } else {
       player.hasPosition = true;
       player.positionSide = 'buy';
-      player.positionAmount = margin;
-      player.positionLeverage = leverage;
-      player.positionEntryPrice = fillPrice;
+      player.positionLots = [
+        { amount: margin, entry: fillPrice, leverage: safeLeverage, elapsed: fillElapsed },
+      ];
+      syncPositionAggregates(player);
     }
 
     player.positionRoundId = this.round.id;
     player.pendingEntry = null;
 
-    this.applyOrderFlow('buy', margin * leverage);
+    this.applyOrderFlow('buy', margin * safeLeverage);
     const playerName = playerMarkerName(address);
     this.pushFeed(playerName, 'buy', margin, fillPrice, -totalDebit, {
-      leverage,
+      leverage: safeLeverage,
       side: 'buy',
     });
     this.pushTag(playerName, 'buy', margin, fillPrice);
@@ -1212,10 +1349,13 @@ export class CrashManager {
       return { ok: false, error: 'no pending entry' };
     }
     const closeSide = pending.side === 'buy' ? 'sell' : 'buy';
-    this.pushFeed(playerMarkerName(address), closeSide, pending.amount, 1.0, 0, {
+    const playerName = playerMarkerName(address);
+    this.pushFeed(playerName, closeSide, pending.amount, 1.0, 0, {
       leverage: pending.leverage,
       side: pending.side,
     });
+    // Presale cancel — drop any stray countdown buy markers for this player.
+    this.clearPlayerTradeTags(playerName, ['buy']);
     this.clearPendingEntry(player, true);
     this.emit();
     mirrorCrashBalanceToFlip(address, player.balance);
@@ -1223,16 +1363,29 @@ export class CrashManager {
   }
 
   private ensureLivePosition(player: PlayerState): boolean {
-    if (player.hasPosition && player.positionAmount > 0) return true;
+    if (player.hasPosition && player.positionAmount > 0) {
+      if (!player.positionLots.length) {
+        player.positionLots = [
+          {
+            amount: player.positionAmount,
+            entry: player.positionEntryPrice,
+            leverage: player.positionLeverage,
+            elapsed: 0,
+          },
+        ];
+      }
+      return true;
+    }
 
     const pending =
       player.pendingEntry?.roundId === this.round.id ? player.pendingEntry : null;
     if (this.phase === 'running' && pending) {
       player.hasPosition = true;
       player.positionSide = pending.side;
-      player.positionAmount = pending.amount;
-      player.positionLeverage = pending.leverage;
-      player.positionEntryPrice = 1.0;
+      player.positionLots = [
+        { amount: pending.amount, entry: 1.0, leverage: pending.leverage, elapsed: 0 },
+      ];
+      syncPositionAggregates(player);
       player.positionRoundId = this.round.id;
       player.pendingEntry = null;
       return true;
@@ -1272,10 +1425,14 @@ export class CrashManager {
       const closeSide = player.positionSide === 'buy' ? 'sell' : 'buy';
       const leverage = player.positionLeverage;
       const side = player.positionSide;
-      player.balance += margin;
-      this.pushFeed(playerMarkerName(address), closeSide, margin, 1.0, 0, { leverage, side });
+      // Waiting-phase "position" is a locked countdown bet — refund margin only once.
+      const playerName = playerMarkerName(address);
+      player.balance = roundMoney(player.balance + margin);
+      this.pushFeed(playerName, closeSide, margin, 1.0, 0, { leverage, side });
+      this.clearPlayerTradeTags(playerName, ['buy']);
       this.clearPlayerPosition(player);
       this.emit();
+      mirrorCrashBalanceToFlip(address, player.balance);
       return { ok: true, balance: player.balance, action: 'close' };
     }
 
@@ -1295,21 +1452,71 @@ export class CrashManager {
     const closeMargin = split.closeMargin;
     if (closeMargin <= 0) return { ok: false, error: 'invalid amount' };
 
-    const leverage = player.positionLeverage;
+    if (!player.positionLots.length) {
+      player.positionLots = [
+        {
+          amount: player.positionAmount,
+          entry: player.positionEntryPrice,
+          leverage: player.positionLeverage,
+          elapsed: 0,
+        },
+      ];
+    }
+
+    // FIFO lot slice for the closed margin — precise multi-entry PnL
+    const closedLots: PositionLot[] = [];
+    let need = closeMargin;
+    for (const lot of player.positionLots) {
+      if (need <= 0.00005) break;
+      const take = Math.min(lot.amount, need);
+      closedLots.push({
+        amount: take,
+        entry: lot.entry,
+        leverage: lot.leverage,
+        elapsed: lot.elapsed,
+      });
+      need -= take;
+    }
+
     const side = player.positionSide;
-    const entry = player.positionEntryPrice;
     const exit = this.mult;
-    const settlementResult = calcCrashSettlement({
-      side: player.positionSide,
-      margin: closeMargin,
-      leverage,
-      entry,
-      exit,
-      stimmy: player.stimmy,
-      frenzy: player.frenzy,
-    });
-    const { pnl, returnAmount, frenzyProc } = settlementResult;
-    const bonusAmount = settlementResult.bonus;
+    const leverage =
+      closedLots.reduce((s, l) => s + l.amount * l.leverage, 0) /
+      Math.max(1e-12, closedLots.reduce((s, l) => s + l.amount, 0));
+
+    // Anti-scalp: each closed lot must clear its own min exit (not just the average)
+    for (const lot of closedLots) {
+      if (!isLeveragedExitAllowed(side, lot.leverage, lot.entry, exit)) {
+        const bound = minExitPrice(side, lot.entry, lot.leverage);
+        return {
+          ok: false,
+          error:
+            side === 'buy'
+              ? `anti-scalp: ${lot.leverage}x lot @ ${lot.entry.toFixed(2)}x needs ${bound?.toFixed(2)}x (now ${exit.toFixed(2)}x)`
+              : `anti-scalp: ${lot.leverage}x short @ ${lot.entry.toFixed(2)}x needs ≤${bound?.toFixed(2)}x (now ${exit.toFixed(2)}x)`,
+        };
+      }
+    }
+
+    const lotPnl = calcLotsPnl(side, closedLots, exit);
+    // Bonuses summed per lot so multi-entry never over/under-pays vs a single avg entry
+    let stimmyBonus = 0;
+    let frenzyProc = false;
+    for (const lot of closedLots) {
+      const settlementResult = calcCrashSettlement({
+        side,
+        margin: lot.amount,
+        leverage: lot.leverage,
+        entry: lot.entry,
+        exit,
+        stimmy: player.stimmy,
+        frenzy: player.frenzy,
+      });
+      stimmyBonus = roundMoney(stimmyBonus + settlementResult.bonus);
+      if (settlementResult.frenzyProc) frenzyProc = true;
+    }
+    const pnl = lotPnl;
+    const returnAmount = roundMoney(Math.max(0, closeMargin + pnl) + stimmyBonus);
     const maxBalance = address.startsWith('0x') ? Number.MAX_SAFE_INTEGER : MAX_DEMO_BALANCE;
     const nextBalance = roundMoney(player.balance + returnAmount);
     if (!Number.isFinite(nextBalance) || nextBalance < 0) {
@@ -1327,23 +1534,27 @@ export class CrashManager {
         won: pnl > 0.0001,
         amount: pnl,
         price: exit,
-        bonusAmount: bonusAmount && bonusAmount > 0 ? bonusAmount : undefined,
+        bonusAmount: stimmyBonus && stimmyBonus > 0 ? stimmyBonus : undefined,
         frenzyProc: frenzyProc || undefined,
       };
       this.clearPlayerPosition(player);
     } else {
-      player.positionAmount = parseFloat(remaining.toFixed(3));
+      reducePositionLots(player, closeMargin);
       player.lastResult = {
         won: pnl > 0.0001,
         amount: pnl,
         price: exit,
-        bonusAmount: bonusAmount && bonusAmount > 0 ? bonusAmount : undefined,
+        bonusAmount: stimmyBonus && stimmyBonus > 0 ? stimmyBonus : undefined,
         frenzyProc: frenzyProc || undefined,
       };
     }
 
     const playerName = playerMarkerName(address);
     this.pushFeed(playerName, 'cashout', closeMargin, exit, pnl, { leverage, side });
+    if (fullClose) {
+      // Drop prior buy logos for this player — chart must not keep closed entries.
+      this.clearPlayerTradeTags(playerName, ['buy']);
+    }
     this.pushTag(playerName, closeSide, closeMargin, exit);
     this.emit();
     mirrorCrashBalanceToFlip(address, player.balance);
@@ -1668,11 +1879,25 @@ export class CrashManager {
       player.positionAmount = row.positionAmount;
       player.positionLeverage = row.positionLeverage;
       player.positionEntryPrice = row.positionEntryPrice;
+      player.positionLots = [
+        {
+          amount: row.positionAmount,
+          entry: row.positionEntryPrice,
+          leverage: row.positionLeverage,
+          elapsed: 0,
+        },
+      ];
       player.positionRoundId = row.positionRoundId;
       player.pendingEntry = null;
     }
   }
 
+  /**
+   * Cold-start recovery from a Demo client view.
+   * CRITICAL: never recreate a pending/live position without locking margin again,
+   * and never raise liquid balance from a stale client snapshot (that printed free
+   * money after rug/cancel when a refund ran on a ghost entry).
+   */
   reconcilePlayerFromClient(
     address: string,
     view: {
@@ -1689,6 +1914,9 @@ export class CrashManager {
     },
   ): boolean {
     if (view.gameId != null && view.gameId !== this.gameId) return false;
+    // Settled / crashed rounds must not be rehydrated into free positions.
+    if (this.phase === 'crashed') return false;
+    if (view.gameId != null && view.gameId <= this.lastSettledRoundId) return false;
 
     const player = this.getPlayer(address);
     const localActive =
@@ -1696,12 +1924,24 @@ export class CrashManager {
       (player.pendingEntry != null && player.pendingEntry.roundId === this.round.id);
     if (localActive) return true;
 
-    if (typeof view.balance === 'number' && Number.isFinite(view.balance)) {
-      player.balance = roundMoney(Math.min(MAX_DEMO_BALANCE, Math.max(0, view.balance)));
+    // Never recreate a LIVE running position from optimistic clientView.
+    // Enter already opens via placeLiveEntry — rehydrating here then trading
+    // duplicated lots (UI "2 buys" for one click) and double-debited margin.
+    if (
+      this.phase === 'running' &&
+      (view.hasLivePosition || (view.hasPosition && !view.entryPending))
+    ) {
+      return false;
     }
 
-    // Never trust client-supplied leverage/entry price — clamp to server rules
-    // (entries always open @ 1.00x, leverage capped at MAX_LEVERAGE).
+    // Only allow client balance to LOWER the server (never inflate after a loss).
+    if (typeof view.balance === 'number' && Number.isFinite(view.balance)) {
+      const clientBal = roundMoney(Math.min(MAX_DEMO_BALANCE, Math.max(0, view.balance)));
+      if (clientBal < player.balance - 0.0005) {
+        player.balance = clientBal;
+      }
+    }
+
     const rawLeverage = view.positionLeverage ?? 1;
     const safeLeverage = Number.isFinite(rawLeverage)
       ? Math.min(MAX_LEVERAGE, Math.max(MIN_LEVERAGE, rawLeverage))
@@ -1711,38 +1951,40 @@ export class CrashManager {
       Number.isFinite(rawAmount) && rawAmount > 0
         ? roundMoney(Math.min(MAX_DEMO_BALANCE, rawAmount))
         : 0;
+    if (safeAmount <= 0) return false;
+
+    const openFee = leveragedOpenFee(safeAmount, safeLeverage);
+    const totalDebit = roundMoney(safeAmount + openFee);
+    if (totalDebit > player.balance + 0.0005) {
+      // Client thinks it has a position, but liquid balance can't cover a re-lock —
+      // refuse rather than mint a ghost entry that cancel/rug could refund.
+      return false;
+    }
 
     if (view.entryPending && this.phase === 'waiting') {
+      player.balance = roundMoney(player.balance - totalDebit);
       player.pendingEntry = {
         side: this.mode === 'continuous' ? 'buy' : view.positionSide ?? 'buy',
         amount: safeAmount,
         leverage: safeLeverage,
         roundId: this.round.id,
+        openFee,
       };
-      return Boolean(player.pendingEntry.amount > 0);
-    }
-
-    if ((view.hasLivePosition || view.hasPosition) && this.phase === 'running') {
-      player.hasPosition = true;
-      player.positionSide = this.mode === 'continuous' ? 'buy' : view.positionSide ?? 'buy';
-      player.positionAmount = safeAmount;
-      player.positionLeverage = safeLeverage;
-      // A reconnecting Demo client cannot choose a favorable entry. Continuous
-      // recovery resumes at the current authoritative server price.
-      player.positionEntryPrice = this.mode === 'continuous' ? this.mult : 1.0;
-      player.positionRoundId = this.round.id;
-      player.pendingEntry = null;
-      return player.positionAmount > 0;
+      mirrorCrashBalanceToFlip(address, player.balance);
+      return true;
     }
 
     if ((view.hasLivePosition || view.hasPosition) && this.phase === 'waiting') {
+      player.balance = roundMoney(player.balance - totalDebit);
       player.pendingEntry = {
         side: this.mode === 'continuous' ? 'buy' : view.positionSide ?? 'buy',
         amount: safeAmount,
         leverage: safeLeverage,
         roundId: this.round.id,
+        openFee,
       };
-      return player.pendingEntry.amount > 0;
+      mirrorCrashBalanceToFlip(address, player.balance);
+      return true;
     }
 
     return false;

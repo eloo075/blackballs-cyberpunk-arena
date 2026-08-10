@@ -60,13 +60,15 @@ export async function handleStream(req: NextRequest) {
         }, 1000);
       }
 
+      // Tiny keepalive only — full snapshots already flow via manager.subscribe on each tick.
+      // Re-sending the whole state every 4s doubled JSON work and helped hang the VM.
       const ka = setInterval(() => {
         try {
-          send(manager.snapshotForStream(address));
+          controller.enqueue(encoder.encode(`: ka\n\n`));
         } catch {
           /* closed */
         }
-      }, 4000);
+      }, 15000);
       req.signal.addEventListener('abort', () => {
         clearInterval(ka);
         if (hydrateTimer) clearInterval(hydrateTimer);
@@ -123,7 +125,10 @@ export async function handleSession(req: NextRequest) {
   } else if (!Number.isFinite(balance) || balance < 0) {
     return NextResponse.json({ ok: false, error: 'invalid balance' }, { status: 400 });
   } else {
-    syncedBalance = normalizeDemoSessionBalance(address, syncedBalance, isRealWallet);
+    // Boot / idle session may refill empty demo wallets; mid-round sync must keep 0.
+    syncedBalance = normalizeDemoSessionBalance(address, syncedBalance, isRealWallet, {
+      allowRefill: boot === true,
+    });
   }
 
   const manager = getManager(address);
@@ -181,7 +186,8 @@ export async function handleEnter(req: NextRequest) {
   if (Number.isFinite(clientBalance) && clientBalance >= 0) {
     manager.syncPlayer(
       address,
-      normalizeDemoSessionBalance(address, clientBalance, isRealWallet),
+      // Never rewrite a true 0 into 100 on enter — that undid all-in / post-buy liquid.
+      normalizeDemoSessionBalance(address, clientBalance, isRealWallet, { allowRefill: false }),
       undefined,
       { boot: false },
     );
@@ -197,6 +203,9 @@ export async function handleEnter(req: NextRequest) {
 
   if (!Number.isFinite(leverage)) {
     return NextResponse.json({ ok: false, error: 'invalid leverage' }, { status: 400 });
+  }
+  if (leverage < 1 || leverage > 5) {
+    return NextResponse.json({ ok: false, error: 'leverage must be 1–5x' }, { status: 400 });
   }
 
   const snapshot = manager.getFullState(address);
@@ -228,7 +237,11 @@ export async function handleEnter(req: NextRequest) {
     debugAfterPrepare.positionRoundId === debugAfterPrepare.currentRoundId &&
     debugAfterPrepare.positionSide === side;
 
-  if (sameSidePending || sameSidePosition) {
+  // Continuous live: same-side BUY stacks (average entry) — do not short-circuit.
+  const continuousStackBuy =
+    liveContinuous && side === 'buy' && sameSidePosition && !sameSidePending;
+
+  if ((sameSidePending || sameSidePosition) && !continuousStackBuy) {
     const view = manager.clientPlayerView(address);
     console.info('[crash/enter] already entered (idempotent ok)', {
       address,
@@ -335,10 +348,8 @@ export async function handleCancel(req: NextRequest) {
 
   let result = manager.cancelCountdownEntry(address);
 
-  if (!result.ok && clientView && !address.startsWith('0x')) {
-    manager.reconcilePlayerFromClient(address, clientView);
-    result = manager.cancelCountdownEntry(address);
-  }
+  // Do NOT reconcile-then-retry cancel: recreating a ghost pending from a stale
+  // clientView and refunding it was minting free BlackBalls after rug/cancel.
 
   if (!result.ok) {
     const view = manager.clientPlayerView(address);
@@ -395,12 +406,10 @@ export async function handleCashout(req: NextRequest) {
   await ensureCrashStateSynced(manager, address, clientView);
 
   const before = manager.getPositionDebug(address);
-  let result = manager.cashOut(address, percent);
+  const result = manager.cashOut(address, percent);
 
-  if (!result.ok && clientView && !address.startsWith('0x')) {
-    manager.reconcilePlayerFromClient(address, clientView);
-    result = manager.cashOut(address, percent);
-  }
+  // No reconcile-then-retry: ghost rehydrate + cashout could credit returnAmount
+  // without a real prepaid margin lock.
 
   if (!result.ok) {
     console.warn('[crash/cashout] rejected', {

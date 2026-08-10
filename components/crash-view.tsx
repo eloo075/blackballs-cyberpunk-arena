@@ -4,16 +4,14 @@ import { useEffect, useRef, useState } from 'react';
 import { useCrashStream } from '@/hooks/use-crash-stream';
 import { useCompetitive } from '@/hooks/use-competitive';
 import { useWallet } from '@/lib/wallet-context';
-import { ChartCanvas } from '@/components/chart-canvas';
+import { ChartCanvas, buildEntryLevels } from '@/components/chart-canvas';
 import { CrashControls } from '@/components/crash-controls';
-import { HoldBonusBar } from '@/components/hold-bonus-bar';
 import { LiveActivityFeed } from '@/components/LiveActivityFeed';
 import { LastHundred } from '@/components/last-hundred';
 import { MarketListings } from '@/components/market-listings';
 import { CrashStatsPanel } from '@/components/crash-stats-panel';
 import { VerifyRoundButton } from '@/components/verify-round-button';
 import { HallOfFameToday } from '@/components/hall-of-fame-today';
-import { LoginStreakBanner } from '@/components/login-streak-banner';
 import { ResultFeedback } from '@/components/result-feedback';
 import { useResultFeedback } from '@/hooks/use-result-feedback';
 import { recordHallOfFame } from '@/lib/player-retention';
@@ -23,7 +21,7 @@ import { CrashMobileHeader } from '@/components/crash-mobile-header';
 import { syncGameSessionBalances } from '@/lib/sync-game-sessions';
 import { useGameTabFocus } from '@/lib/use-game-tab-focus';
 import { useExtrapolatedCrashDisplay } from '@/hooks/use-extrapolated-crash-display';
-import { SmoothMultiplier } from '@/components/smooth-multiplier';
+import { playerMarkerName } from '@/lib/player-marker-name';
 
 const RUG_PARTICLES = Array.from({ length: 20 }, (_, i) => ({
   x: 50 + (((i * 17) % 100) - 50),
@@ -132,7 +130,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
   );
   const showPosition = state.hasPosition && state.phase !== 'crashed';
   const showLivePosition = state.hasLivePosition && state.phase === 'running';
-  const liveMult = showPosition && state.phase === 'waiting' ? 1.0 : display.mult;
+  const showEntryLines = showLivePosition && state.phase === 'running';
   const continuousRound = state.currentRound.mode === 'continuous';
   const chartMult =
     state.phase === 'crashed' && state.currentRound.crashPoint != null && !continuousRound
@@ -142,14 +140,27 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
     state.phase === 'crashed' && state.currentRound.crashPoint != null
       ? Math.max(state.peakMult, state.currentRound.crashPoint)
       : display.peakMult;
-  const entryPrice = showLivePosition ? state.positionEntryPrice : null;
-  const aboveEntry =
-    entryPrice != null && entryPrice > 0 && chartMult >= entryPrice - 1e-9;
+  const entryLevels = showEntryLines ? buildEntryLevels(state.positionLots) : [];
+  const entryPrice =
+    entryLevels.length === 1
+      ? entryLevels[0].price
+      : showEntryLines
+        ? state.positionEntryPrice
+        : null;
+  const entryInProfit =
+    entryPrice != null && entryPrice > 0
+      ? state.positionSide === 'sell'
+        ? chartMult <= entryPrice + 1e-9
+        : chartMult >= entryPrice - 1e-9
+      : true;
+  const viewerName = wallet.connected && wallet.address ? playerMarkerName(wallet.address) : null;
+  const publicTradeTags = state.tradeTags ?? [];
+  // Frame follows live PnL vs entry: green when in profit, red when underwater.
   const chartCadreClass =
-    showLivePosition && state.phase === 'running'
-      ? aboveEntry
-        ? 'ring-2 ring-inset ring-emerald-500 shadow-[inset_0_0_28px_rgba(34,197,94,0.18)]'
-        : 'ring-2 ring-inset ring-rose-500 shadow-[inset_0_0_28px_rgba(239,68,68,0.2)]'
+    showLivePosition && state.phase === 'running' && entryPrice != null && entryPrice > 0
+      ? entryInProfit
+        ? 'ring-2 ring-inset ring-emerald-500 shadow-[inset_0_0_28px_rgba(34,197,94,0.22)]'
+        : 'ring-2 ring-inset ring-rose-500 shadow-[inset_0_0_28px_rgba(239,68,68,0.24)]'
       : '';
 
   if (mobileFull) {
@@ -177,9 +188,12 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
             mult={chartMult}
             peakMult={chartPeak}
             elapsed={display.elapsed}
-            tradeTags={state.tradeTags}
+            tradeTags={publicTradeTags}
             entryPrice={entryPrice}
-            entryInProfit={aboveEntry}
+            entryLevels={entryLevels}
+            positionSide={state.positionSide}
+            entryInProfit={entryInProfit}
+            viewerName={viewerName}
           />
         </div>
       </motion.div>
@@ -190,8 +204,9 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
   return (
     <>
       <ResultFeedback event={resultEvent} onComplete={dismissResult} />
-    <div className="flex flex-col lg:flex-row gap-2 sm:gap-3 p-2 sm:p-3 max-w-[1700px] mx-auto w-full">
-      <div className="flex-1 flex flex-col gap-2 sm:gap-3 min-w-0">
+    <div className="flex flex-col lg:flex-row gap-1 sm:gap-3 p-1 sm:p-3 max-w-[1700px] mx-auto w-full max-sm:h-full max-sm:max-h-full max-sm:min-h-0 max-sm:overflow-hidden">
+      {/* Mobile: locked one-screen shell (chart fills leftover; controls docked). Desktop unchanged. */}
+      <div className="flex flex-col gap-1 sm:gap-3 min-w-0 flex-1 max-sm:h-full max-sm:min-h-0 max-sm:overflow-hidden">
         <CrashMobileHeader
           blackballsBalance={playableBalance}
           solBalance={wallet.solBalance}
@@ -245,9 +260,19 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
           </div>
         </div>
 
-        {/* chart + trade dock — same screen, no scroll for BUY/SELL */}
-        <div className="flex flex-col gap-1.5 shrink-0 flex-none min-w-0">
-        <div className={`relative cp-panel overflow-visible w-full min-h-[min(32vh,260px)] h-[min(32vh,260px)] sm:min-h-[420px] sm:h-[52vh] sm:max-h-none ${chartCadreClass}`}>
+        {/* chart + trade dock — mobile: chart flexes; BUY/SELL always on-screen */}
+        <div className="flex flex-col gap-1 sm:gap-2 min-w-0 max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-hidden sm:shrink-0 sm:flex-none">
+        <div
+          className={`relative overflow-hidden w-full max-sm:flex-1 max-sm:min-h-0 sm:min-h-[440px] sm:h-[54vh] sm:max-h-none rounded-lg sm:rounded-2xl border border-white/[0.06] bg-[#0c0e12] ${chartCadreClass}`}
+        >
+          <div
+            className="pointer-events-none absolute inset-0 opacity-40"
+            style={{
+              background:
+                'radial-gradient(ellipse 80% 55% at 50% 0%, rgba(16,185,129,0.07), transparent 55%), radial-gradient(ellipse 60% 40% at 80% 100%, rgba(56,189,248,0.04), transparent 50%)',
+            }}
+            aria-hidden
+          />
           <ChartCanvas
             key={`crash-chart-${state.gameId}`}
             active={visible}
@@ -256,43 +281,28 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
             mult={chartMult}
             peakMult={chartPeak}
             elapsed={display.elapsed}
-            tradeTags={state.tradeTags}
+            tradeTags={publicTradeTags}
             entryPrice={entryPrice}
-            entryInProfit={aboveEntry}
+            entryLevels={entryLevels}
+            positionSide={state.positionSide}
+            entryInProfit={entryInProfit}
+            viewerName={viewerName}
           />
 
           {(reconnecting && !connected) && (
-            <div className="absolute inset-0 z-[15] flex items-center justify-center bg-[#141518]/70 backdrop-blur-[2px] pointer-events-none">
+            <div className="absolute inset-0 z-[15] flex items-center justify-center bg-[#0c0e12]/75 backdrop-blur-[2px] pointer-events-none">
               <div className="text-center px-4">
                 <div className="text-sm font-extrabold text-amber-300 uppercase tracking-wider">
-                  Reconnecting to Crash…
+                  Reconnecting…
                 </div>
-                <div className="text-[11px] text-white/45 mt-1">Syncing latest round state</div>
+                <div className="text-[11px] text-white/40 mt-1">Syncing round state</div>
               </div>
-            </div>
-          )}
-
-          {(state.phase === 'running' ||
-            (state.phase === 'crashed' && state.currentRound.crashPoint == null)) && (
-            <div
-              className="pointer-events-none absolute inset-x-0 top-[12%] sm:top-[10%] flex justify-center z-[5]"
-              aria-hidden
-            >
-              <SmoothMultiplier
-                value={display.mult}
-                running={state.phase === 'running'}
-                active={visible}
-                className={`font-extrabold tabular-nums text-center ${
-                  state.phase === 'crashed' ? 'text-rose-400' : 'text-emerald-400'
-                } text-5xl sm:text-6xl`}
-                style={{ textShadow: '0 4px 24px rgba(0,0,0,0.55)' }}
-              />
             </div>
           )}
 
           <button
             onClick={() => setMobileFull(true)}
-            className="sm:hidden absolute top-3 right-3 z-20 touch-target touch-manipulation bg-[#2a2c33] border border-white/10 px-3 py-2 rounded-xl text-xs font-extrabold text-white"
+            className="sm:hidden absolute top-1.5 right-1.5 z-20 touch-manipulation bg-[#2a2c33]/85 border border-white/10 px-2 py-1 rounded-md text-[9px] font-extrabold text-white/80"
           >
             Full
           </button>
@@ -354,7 +364,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="absolute inset-0 z-10 bg-rose-950/50"
+                className="absolute inset-0 z-10 bg-rose-950/50 crash-rug-flash"
               >
                 <motion.div
                   initial={{ scale: 0.3, opacity: 0, rotate: -10 }}
@@ -420,6 +430,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
           </AnimatePresence>
         </div>
 
+        <div className="shrink-0">
         <CrashControls
           phase={state.phase}
           mult={display.mult}
@@ -432,6 +443,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
           positionAmount={state.positionAmount}
           positionLeverage={state.positionLeverage}
           positionEntryPrice={state.positionEntryPrice}
+          positionLots={state.positionLots}
           waitLeft={display.waitLeft}
           gameId={state.gameId}
           roundEpoch={roundEpoch}
@@ -452,31 +464,28 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
           onSetAutoSell={setAutoSell}
         />
         </div>
-
-        {holdBonuses.active.length > 0 && (
-          <HoldBonusBar active={holdBonuses.active} compact className="sm:hidden" />
-        )}
+        </div>
 
         {state.phase === 'crashed' && (
-          <VerifyRoundButton round={state.currentRound} />
+          <div className="hidden sm:block">
+            <VerifyRoundButton round={state.currentRound} />
+          </div>
         )}
       </div>
 
-      <div className="w-full lg:w-[280px] shrink-0 flex flex-col gap-2 sm:gap-3">
-        <LoginStreakBanner />
-        <HoldBonusBar active={holdBonuses.active} className="hidden sm:block" />
+      <div className="w-full lg:w-[300px] shrink-0 flex flex-col gap-2.5 max-sm:hidden">
+        <MarketListings />
+        <CrashStatsPanel history={state.history} />
         {compState.crashWinStreak >= 2 && (
-          <div className="hidden sm:block cp-panel px-3 py-2 text-xs text-emerald-400 font-bold">
-            📈 Crash win streak: <span className="font-extrabold">{compState.crashWinStreak}</span> — keep the momentum
+          <div className="hidden sm:block rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-400 font-bold">
+            Win streak <span className="font-extrabold">{compState.crashWinStreak}</span>
           </div>
         )}
-        <CrashStatsPanel history={state.history} />
-        <HallOfFameToday />
         <LastHundred history={state.history.slice(0, 100)} />
-        <div className="cp-panel min-h-[140px] sm:min-h-[180px] sm:flex-1 overflow-hidden">
+        <div className="rounded-2xl border border-white/[0.06] bg-[#12141a] min-h-[140px] sm:min-h-[200px] sm:flex-1 overflow-hidden">
           <LiveActivityFeed fallbackFeed={state.feed} />
         </div>
-        <MarketListings />
+        <HallOfFameToday />
       </div>
     </div>
     </>

@@ -29,7 +29,7 @@ afterEach(() => {
 });
 
 describe('continuous Crash manager actions', () => {
-  it('rejects 10x and charges the 2% notional fee exactly once', () => {
+  it('continuous live buy deducts stake at 1x with no open fee', () => {
     const game = manager();
     const address = 'demo-manager-fee';
     game.syncPlayer(address, 200, undefined, { boot: true });
@@ -40,15 +40,16 @@ describe('continuous Crash manager actions', () => {
       ok: false,
       error: 'invalid leverage',
     });
-    expect(game.trade(address, 'buy', 100, 5)).toMatchObject({
+    expect(game.trade(address, 'buy', 100, 1)).toMatchObject({
       ok: true,
       action: 'open',
-      balance: 90,
+      balance: 100,
     });
 
     const view = game.clientPlayerView(address);
     expect(view.positionSide).toBe('buy');
     expect(view.positionEntryPrice).toBe(1.2);
+    expect(view.positionLeverage).toBe(1);
   });
 
   it('allows a live SELL and settles from the recorded entry without exponential growth', () => {
@@ -57,12 +58,14 @@ describe('continuous Crash manager actions', () => {
     game.syncPlayer(address, 200, undefined, { boot: true });
     game.phase = 'running';
     game.mult = 1.2;
-    expect(game.trade(address, 'buy', 100, 5).ok).toBe(true);
+    expect(game.trade(address, 'buy', 100, 1).ok).toBe(true);
+    expect(game.clientPlayerView(address).balance).toBe(100);
 
     game.mult = 1.21;
-    const sold = game.trade(address, 'sell', 100, 5);
+    const sold = game.trade(address, 'sell', 100, 1);
     expect(sold).toMatchObject({ ok: true, action: 'close' });
-    expect(sold.balance).toBe(194.167);
+    // 1x long: pnl = 100 * (1.21/1.2 - 1) ≈ 0.833 → balance 100 + 100 + 0.833
+    expect(sold.balance).toBeCloseTo(200.833, 2);
     expect(game.clientPlayerView(address).hasPosition).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { CURRENCY_LABEL } from '@/lib/format-currency';
 import { computeHistoryStats } from '@/lib/crash-engine';
 import type { RoundSummary } from '@/lib/crash-types';
@@ -10,38 +10,17 @@ interface CrashStatsPanelProps {
 }
 
 export function CrashStatsPanel({ history }: CrashStatsPanelProps) {
-  const [window, setWindow] = useState<100 | 1000>(100);
-
-  const stats = useMemo(() => {
-    const slice = history.slice(0, window);
-    return computeHistoryStats(slice);
-  }, [history, window]);
+  const stats = useMemo(() => computeHistoryStats(history.slice(0, 100)), [history]);
 
   const volumeEst = useMemo(() => {
-    const slice = history.slice(0, window);
-    return slice.reduce((s, r) => s + r.crashPoint * 12.5, 0);
-  }, [history, window]);
+    return history.slice(0, 100).reduce((s, r) => s + r.crashPoint * 12.5, 0);
+  }, [history]);
 
   return (
     <div className="cp-panel p-3 font-arcade">
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="text-sm font-extrabold text-white/80">Public Stats</div>
-        <div className="flex gap-1">
-          {([100, 1000] as const).map(w => (
-            <button
-              key={w}
-              type="button"
-              onClick={() => setWindow(w)}
-              className={`px-2 py-0.5 text-[10px] font-extrabold rounded-lg ${
-                window === w
-                  ? 'bg-sky-500 text-white border-b-2 border-sky-700'
-                  : 'bg-[#2a2c33] text-white/50 border border-white/10'
-              }`}
-            >
-              Last {w}
-            </button>
-          ))}
-        </div>
+        <div className="text-[10px] font-extrabold text-sky-400/80 uppercase tracking-wide">Last 100</div>
       </div>
       {stats.count === 0 ? (
         <div className="text-xs text-white/35 font-bold">Collecting rounds…</div>

@@ -9,6 +9,7 @@ import { teardownEventSource } from '@/lib/crash-event-source';
 import { fetchJsonWithTimeout, actionErrorMessage } from '@/lib/action-timeout';
 import { notifyDemoRefresh, subscribeDemoTabMessages } from '@/lib/demo-tab-coordinator';
 import { splitPartialCashout } from '@/lib/crash-position-math';
+import { playerMarkerName } from '@/lib/player-marker-name';
 import { isLikelyMobileDevice } from '@/hooks/use-page-visibility';
 
 async function syncCrashSession(
@@ -63,6 +64,7 @@ type CrashClientView = {
   positionAmount?: number;
   positionLeverage?: number;
   positionEntryPrice?: number;
+  positionLots?: FullState['positionLots'];
   balance?: number;
 };
 
@@ -80,6 +82,7 @@ function mergeCrashClientView(prev: FullState | null, view?: CrashClientView | n
     ...(view.positionAmount != null ? { positionAmount: view.positionAmount } : {}),
     ...(view.positionLeverage != null ? { positionLeverage: view.positionLeverage } : {}),
     ...(view.positionEntryPrice != null ? { positionEntryPrice: view.positionEntryPrice } : {}),
+    ...(view.positionLots != null ? { positionLots: view.positionLots } : {}),
     ...(view.balance != null ? { balance: view.balance } : {}),
   };
 }
@@ -102,6 +105,7 @@ function clientViewFromState(state: FullState | null): CrashClientView | undefin
     positionAmount: state.positionAmount,
     positionLeverage: state.positionLeverage,
     positionEntryPrice: state.positionEntryPrice,
+    positionLots: state.positionLots,
     balance: state.balance,
   };
 }
@@ -596,14 +600,25 @@ export function useCrashStream() {
       if (wager <= 0) return { ok: false, error: 'invalid amount' };
 
       const live = stateRef.current;
-      if (
-        live &&
-        (live.phase !== 'waiting' || live.waitLeft <= COUNTDOWN_ENTRY_BUFFER_SEC)
-      ) {
-        return {
-          ok: false,
-          error: 'Wait for the next round — entries open during countdown (not in the last second).',
-        };
+      const continuousMode = live?.currentRound?.mode === 'continuous';
+      // Classic: countdown entries only. Continuous (rugs.fun Standard): BUY anytime
+      // during waiting or live running; SELL handled via cash-out / opposite side.
+      if (live) {
+        if (live.phase === 'crashed') {
+          return {
+            ok: false,
+            error: 'Round ended — wait for the next countdown.',
+          };
+        }
+        if (!continuousMode) {
+          if (live.phase !== 'waiting' || live.waitLeft <= COUNTDOWN_ENTRY_BUFFER_SEC) {
+            return {
+              ok: false,
+              error:
+                'Wait for the next round — entries open during countdown (not in the last second).',
+            };
+          }
+        }
       }
       if (live?.hasPosition && live.entryPending && live.positionSide === side) {
         return {
@@ -622,10 +637,44 @@ export function useCrashStream() {
       const closing =
         Boolean(live?.hasPosition && live.positionSide !== side && !live.entryPending);
 
-      // Instant UI: show countdown entry while the API runs (reverted on failure).
+      // Snapshot BEFORE optimistic UI — enter must not rehydrate the optimistic lot.
+      const preOptimisticView = clientViewFromState(stateRef.current);
+
+      // Instant UI: countdown pending OR continuous live stack
       if (!closing) {
         setState(prev => {
-          if (!prev || prev.phase !== 'waiting' || prev.hasPosition) return prev;
+          if (!prev) return prev;
+          if (prev.phase === 'running' && continuousMode && side === 'buy') {
+            const fill = prev.mult > 0 ? prev.mult : 1;
+            const oldAmt = prev.hasPosition ? prev.positionAmount : 0;
+            const oldEntry = prev.hasPosition ? prev.positionEntryPrice : fill;
+            const newAmt = oldAmt + wager;
+            const avgEntry =
+              oldAmt > 0
+                ? (oldAmt * oldEntry + wager * fill) / Math.max(0.0001, newAmt)
+                : fill;
+            const prevLots = prev.positionLots ?? [];
+            const nextBal = Math.max(0, parseFloat((prev.balance - wager).toFixed(3)));
+            const next = {
+              ...prev,
+              hasPosition: true,
+              hasLivePosition: true,
+              entryPending: false,
+              positionSide: 'buy' as const,
+              positionAmount: parseFloat(newAmt.toFixed(3)),
+              positionLeverage: 1,
+              positionEntryPrice: avgEntry,
+              positionLots: [
+                ...prevLots,
+                { amount: wager, entry: fill, leverage: 1 },
+              ],
+              balance: nextBal,
+            };
+            stateRef.current = next;
+            return next;
+          }
+          if (prev.phase !== 'waiting' || prev.hasPosition) return prev;
+          const nextBal = Math.max(0, parseFloat((prev.balance - wager).toFixed(3)));
           const next = {
             ...prev,
             hasPosition: true,
@@ -635,6 +684,10 @@ export function useCrashStream() {
             positionAmount: wager,
             positionLeverage: leverage,
             positionEntryPrice: 1.0,
+            positionLots: [
+              { amount: wager, entry: 1.0, leverage, elapsed: 0 },
+            ],
+            balance: nextBal,
           };
           stateRef.current = next;
           return next;
@@ -653,7 +706,9 @@ export function useCrashStream() {
             await sleep(50 * attempt);
           }
 
-          const clientView = clientViewFromState(stateRef.current);
+          // Retries use live state; first attempt uses pre-optimistic view.
+          const clientView =
+            attempt === 0 ? preOptimisticView : clientViewFromState(stateRef.current);
 
           const res = await fetchJsonWithTimeout(
             '/api/crash/enter',
@@ -721,7 +776,11 @@ export function useCrashStream() {
           setState(prev => {
             if (!prev) return prev;
             const bal = typeof data.balance === 'number' ? data.balance : prev.balance;
-            if (data.action === 'close') {
+            if (data.action === 'close' || data.action === 'partial') {
+              if (data.action === 'partial' || (typeof data.remainingAmount === 'number' && data.remainingAmount > 0)) {
+                void refreshGameState();
+                return { ...prev, balance: bal };
+              }
               return {
                 ...prev,
                 hasPosition: false,
@@ -729,6 +788,7 @@ export function useCrashStream() {
                 entryPending: false,
                 positionAmount: 0,
                 positionLeverage: 1,
+                positionLots: [],
                 balance: bal,
               };
             }
@@ -743,6 +803,24 @@ export function useCrashStream() {
                 positionLeverage: leverage,
                 positionEntryPrice: 1.0,
                 balance: bal,
+              };
+            }
+            if (data.action === 'open' && prev.phase === 'running') {
+              const view = data.view as CrashClientView | undefined;
+              void refreshGameState();
+              return {
+                ...prev,
+                hasPosition: true,
+                hasLivePosition: true,
+                entryPending: false,
+                positionSide: 'buy',
+                balance: bal,
+                // Prefer server lots so optimistic + SSE never leave a duplicated stack.
+                ...(view?.positionAmount != null ? { positionAmount: view.positionAmount } : {}),
+                ...(view?.positionEntryPrice != null
+                  ? { positionEntryPrice: view.positionEntryPrice }
+                  : {}),
+                ...(view?.positionLots != null ? { positionLots: view.positionLots } : {}),
               };
             }
             return { ...prev, balance: bal };
@@ -858,7 +936,17 @@ export function useCrashStream() {
 
           if (data.view) {
             setState(prev => {
-              const next = mergeCrashClientView(prev, data.view as CrashClientView);
+              let next = mergeCrashClientView(prev, data.view as CrashClientView);
+              if (fullClose && next && address) {
+                const mine = playerMarkerName(address);
+                next = {
+                  ...next,
+                  tradeTags: (next.tradeTags ?? []).filter(
+                    t => !(t.user === mine && t.side === 'buy'),
+                  ),
+                  positionLots: [],
+                };
+              }
               stateRef.current = next;
               return next;
             });
@@ -867,6 +955,7 @@ export function useCrashStream() {
               if (!prev) return prev;
               const bal = typeof data.balance === 'number' ? data.balance : prev.balance;
               if (fullClose) {
+                const mine = address ? playerMarkerName(address) : null;
                 const next = {
                   ...prev,
                   hasPosition: false,
@@ -874,7 +963,11 @@ export function useCrashStream() {
                   entryPending: false,
                   positionAmount: 0,
                   positionLeverage: 1,
+                  positionLots: [],
                   balance: bal,
+                  tradeTags: mine
+                    ? (prev.tradeTags ?? []).filter(t => !(t.user === mine && t.side === 'buy'))
+                    : prev.tradeTags,
                 };
                 stateRef.current = next;
                 return next;

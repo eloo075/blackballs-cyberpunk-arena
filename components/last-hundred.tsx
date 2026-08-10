@@ -1,6 +1,7 @@
 'use client';
 import { motion } from 'framer-motion';
-import { CRASH_TIER_COLOR, crashTier } from '@/lib/crash-engine';
+import { CRASH_TIER_COLOR } from '@/lib/crash-engine';
+import { RoundSparkThumb } from '@/components/round-spark-thumb';
 import type { RoundSummary } from '@/lib/crash-types';
 
 export function LastHundred({ history }: { history: RoundSummary[] }) {
@@ -12,37 +13,35 @@ export function LastHundred({ history }: { history: RoundSummary[] }) {
   const rugs = history.filter(r => r.crashPoint <= 1.01).length;
 
   return (
-    <div className="cp-panel p-3 font-arcade">
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <div className="text-sm font-extrabold text-white/80">Last 100</div>
+    <div className="rounded-2xl border border-white/[0.06] bg-[#12141a] p-3 font-arcade">
+      <div className="flex items-center justify-between gap-2 mb-2.5">
+        <div className="text-[11px] font-extrabold uppercase tracking-wider text-white/70">
+          Last 100
+        </div>
         {history.length > 0 && (
-          <div className="text-[11px] text-white/40 flex gap-2 font-bold">
+          <div className="text-[10px] text-white/35 flex gap-2 font-bold">
             <span>avg {avg.toFixed(2)}x</span>
             <span className="text-rose-400">{rugs} rugs</span>
             <span className="text-violet-400">{moons} moon</span>
           </div>
         )}
       </div>
-      <div className="flex flex-wrap gap-1.5 max-h-[88px] overflow-y-auto">
-        {history.length === 0 && <div className="text-xs text-white/35 font-bold">No rounds yet</div>}
-        {history.map(r => {
-          const tier = crashTier(r.crashPoint);
-          const color = CRASH_TIER_COLOR[tier];
-          return (
-            <motion.div
-              key={`${r.id}-${r.ts}`}
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="px-2 py-1 text-[11px] font-extrabold rounded-full shrink-0 bg-[#2a2c33]"
-              style={{ color }}
-              title={`Round #${r.id} · ${r.crashPoint.toFixed(2)}x · ${tier.toUpperCase()}`}
-            >
-              {r.crashPoint.toFixed(2)}x
-            </motion.div>
-          );
-        })}
+      <div className="flex flex-wrap gap-1.5 max-h-[148px] overflow-y-auto pr-0.5">
+        {history.length === 0 && (
+          <div className="text-xs text-white/35 font-bold py-4 w-full text-center">No rounds yet</div>
+        )}
+        {history.map(r => (
+          <motion.div
+            key={`${r.id}-${r.ts}`}
+            initial={{ opacity: 0, scale: 0.85 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.2 }}
+          >
+            <RoundSparkThumb round={r} />
+          </motion.div>
+        ))}
       </div>
-      <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-white/35 font-bold">
+      <div className="mt-2.5 flex flex-wrap gap-2 text-[9px] text-white/30 font-bold uppercase tracking-wide">
         <span style={{ color: CRASH_TIER_COLOR.rug }}>≤1x</span>
         <span style={{ color: CRASH_TIER_COLOR.low }}>1-3x</span>
         <span style={{ color: CRASH_TIER_COLOR.mid }}>3-9x</span>

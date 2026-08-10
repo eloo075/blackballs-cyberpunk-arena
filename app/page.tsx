@@ -30,12 +30,24 @@ function GameHome() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#141518] flex flex-col font-arcade">
+    <div
+      className={`bg-[#141518] flex flex-col font-arcade ${
+        mobile && tab === 'crash' ? 'h-dvh max-h-dvh overflow-hidden' : 'min-h-screen'
+      }`}
+    >
       <Nav activeTab={tab} onTabChange={setTab} />
-      <main className="flex-1">
+      <main
+        className={`flex-1 min-h-0 ${
+          mobile && tab === 'crash' ? 'overflow-hidden flex flex-col' : ''
+        }`}
+      >
         {mobile ? (
           <>
-            {tab === 'crash' && <CrashView visible />}
+            {tab === 'crash' && (
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <CrashView visible />
+              </div>
+            )}
             {tab === 'flip' && <FlipView visible />}
           </>
         ) : (
@@ -62,7 +74,11 @@ function GameHome() {
           )}
         </AnimatePresence>
       </main>
-      <footer className="text-center text-[10px] text-white/30 py-3 px-3 border-t border-white/5 safe-bottom">
+      <footer
+        className={`text-center text-[10px] text-white/30 py-3 px-3 border-t border-white/5 safe-bottom ${
+          mobile && tab === 'crash' ? 'hidden' : ''
+        }`}
+      >
         $BlackBalls · Degen Arcade ·{' '}
         <Link href="/guide" className="text-sky-400/70 hover:text-sky-300">
           Player Guide

@@ -21,7 +21,6 @@ import { DEMO_REFILL_BB, DEMO_MIN_BALANCE } from '@/lib/demo-credits';
 import {
   bootGameSessionsForWallet,
   clearGameSessionBoot,
-  syncGameSessionBalances,
 } from '@/lib/sync-game-sessions';
 import { resolveClientSyncBalance } from '@/lib/session-balance';
 import {
@@ -182,7 +181,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     const bonuses = computeHoldBonuses(walletHoldings(wallet));
     const holdsBb = bonuses.active.some(b => b.token === 'BLACKBALLS');
-    const balance = resolveClientSyncBalance(wallet);
+    const balance = resolveClientSyncBalance(wallet, { allowRefill: true });
     void bootGameSessionsForWallet(
       wallet.address,
       balance,
@@ -212,14 +211,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     });
   }, [hydrated, wallet.connected, wallet.address, wallet.isRealWallet]);
 
-  useEffect(() => {
-    if (!hydrated || !wallet.connected || wallet.isRealWallet || !wallet.address) return;
-    if (wallet.blackballsBalance >= 1) return;
-    const balance = refillDemoCredits();
-    const bonuses = computeHoldBonuses(walletHoldings({ ...wallet, blackballsBalance: balance }));
-    const holdsBb = bonuses.active.some(b => b.token === 'BLACKBALLS');
-    void syncGameSessionBalances(wallet.address, balance, bonuses.stimmy, bonuses.frenzy, holdsBb, wallet.isRealWallet);
-  }, [hydrated, wallet.connected, wallet.isRealWallet, wallet.address, wallet.blackballsBalance, refillDemoCredits, wallet]);
+  // No auto-refill to 100 when balance hits 0 — that minted free BB after all-in / rug.
+  // Demo top-up is explicit via the "+100 Demo" button only.
 
   const connect = useCallback(() => {
     const next = makeDemoWallet();

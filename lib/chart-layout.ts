@@ -1,7 +1,10 @@
 import type { Candle } from '@/lib/crash-types';
 
 export function chartVisibleCount(cssW: number): number {
-  return cssW < 640 ? 18 : 24;
+  // Mobile: fewer candles → thicker, clearer bodies (rugs.fun-like).
+  if (cssW < 420) return 10;
+  if (cssW < 640) return 12;
+  return 24;
 }
 
 export function chartSlotOffset(visibleCount: number, sliceLength: number): number {
@@ -57,7 +60,7 @@ export function priceToY(price: number, layout: ChartLayoutFrame): number {
   return padTop + chartH - ((price - minPrice) / (maxPrice - minPrice)) * chartH;
 }
 
-/** Resolve which visible candle slot a trade belongs to. */
+/** Resolve which visible candle slot a trade belongs to. -1 = scrolled off left. */
 export function resolveCandleIndex(
   candles: Candle[],
   visibleStartIdx: number,
@@ -67,29 +70,80 @@ export function resolveCandleIndex(
   const slice = candles.slice(visibleStartIdx);
   if (slice.length === 0) return 0;
 
-  if (candleT != null) {
-    const byTime = slice.findIndex(c => c.t === candleT);
-    if (byTime >= 0) return byTime;
-  }
+  const lastGlobal = candles.length - 1;
+  const last = candles[lastGlobal];
 
-  let best = slice.length - 1;
-  let bestDist = Infinity;
-  slice.forEach((c, i) => {
-    if (price + 0.02 >= c.l && price - 0.02 <= c.h) {
-      const dist = Math.min(Math.abs(c.c - price), Math.abs(c.o - price));
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = i;
+  if (candleT != null && last != null) {
+    // Exact / near-exact match on candle open time
+    const globalIdx = candles.findIndex(c => Math.abs(c.t - candleT) < 1e-4);
+    if (globalIdx >= 0) {
+      if (globalIdx < visibleStartIdx) return -1;
+      return globalIdx - visibleStartIdx;
+    }
+
+    // Tag belongs to the still-forming live bar (open time >= last open)
+    if (candleT + 1e-9 >= last.t) {
+      if (lastGlobal < visibleStartIdx) return -1;
+      return lastGlobal - visibleStartIdx;
+    }
+
+    // Nearest prior candle by open time (float drift / pruned history)
+    let nearestGlobal = 0;
+    let nearestDist = Infinity;
+    for (let i = 0; i < candles.length; i++) {
+      if (candles[i].t > candleT + 1e-9) break;
+      const dist = Math.abs(candles[i].t - candleT);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearestGlobal = i;
       }
     }
-  });
-  return best;
+    if (nearestGlobal < visibleStartIdx) return -1;
+    return nearestGlobal - visibleStartIdx;
+  }
+
+  // No candleT — prefer live candle, else nearest body by price
+  if (last) {
+    if (lastGlobal < visibleStartIdx) return -1;
+    return lastGlobal - visibleStartIdx;
+  }
+
+  void price;
+  return Math.max(0, slice.length - 1);
 }
 
 export function markerXForCandle(layout: ChartLayoutFrame, candleIndexInSlice: number): number {
   return (
     layout.padLeft +
     (layout.slotOffset + candleIndexInSlice + 0.5) * layout.slotW +
+    layout.shiftPx
+  );
+}
+
+/**
+ * X inside the candle body at the moment of the trade.
+ * `frac` 0 = left of slot, 1 = right; live trades sit near the growing edge.
+ */
+export function markerXForTrade(
+  layout: ChartLayoutFrame,
+  candleIndexInSlice: number,
+  candleT: number | undefined,
+  tradeElapsed: number | undefined,
+  candleDurationSec: number,
+): number {
+  const slotCenterFrac = 0.5;
+  let frac = slotCenterFrac;
+  if (
+    candleT != null &&
+    tradeElapsed != null &&
+    Number.isFinite(candleDurationSec) &&
+    candleDurationSec > 0
+  ) {
+    frac = Math.min(0.92, Math.max(0.08, (tradeElapsed - candleT) / candleDurationSec));
+  }
+  return (
+    layout.padLeft +
+    (layout.slotOffset + candleIndexInSlice + frac) * layout.slotW +
     layout.shiftPx
   );
 }
@@ -106,10 +160,11 @@ export function computeChartLayout(
   minPriceOverride?: number,
   maxPriceOverride?: number,
 ): ChartLayoutFrame {
-  const padLeft = 12;
-  const padRight = 58;
-  const padTop = 24;
-  const padBottom = 22;
+  const isMobile = cssW < 640;
+  const padLeft = isMobile ? 26 : 12;
+  const padRight = isMobile ? 8 : 58;
+  const padTop = isMobile ? 8 : 24;
+  const padBottom = isMobile ? 4 : 22;
   const chartW = cssW - padLeft - padRight;
   const chartH = cssH - padTop - padBottom;
 

@@ -5,7 +5,7 @@ import { xpProgress } from '@/lib/arena-rewards';
 import { useWallet } from '@/lib/wallet-context';
 
 interface PlayerXpCounterProps {
-  variant?: 'compact' | 'full';
+  variant?: 'compact' | 'full' | 'nav';
   className?: string;
 }
 
@@ -23,29 +23,51 @@ export function PlayerXpCounter({ variant = 'full', className = '' }: PlayerXpCo
   const prog = xpProgress(wallet.xp);
   const pct = Math.round(prog.progress * 100);
 
-  if (variant === 'compact') {
+  if (variant === 'nav') {
     return (
       <div
-        className={`bg-[#1f2025] border border-white/10 rounded-xl px-3 py-1.5 flex items-center gap-3 min-w-0 shrink-0 ${className}`}
+        className={`nav-xp-chip flex items-center gap-2.5 min-w-0 shrink-0 ${className}`}
         title={`${prog.xpToNextRank.toLocaleString()} XP to ${prog.isMaxRank ? 'max rank' : prog.nextRankTitle}`}
       >
-        <span className="text-sm leading-none shrink-0 self-center" aria-hidden>
-          ⭐
-        </span>
         <div className="flex flex-col gap-1 min-w-0">
-          <span className="text-xs font-bold text-white tracking-wide whitespace-nowrap">
-            {wallet.xp.toLocaleString('en-US')} XP
+          <span className="text-[12px] font-black text-white tracking-wide whitespace-nowrap tabular-nums leading-none">
+            {wallet.xp.toLocaleString('en-US')}{' '}
+            <span className="text-amber-300/80 text-[10px] font-extrabold">XP</span>
           </span>
-          <div className="w-24 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+          <div className="w-[72px] h-1 bg-black/40 rounded-full overflow-hidden border border-white/[0.06]">
             <motion.div
-              className="h-full bg-gradient-to-r from-amber-500 to-yellow-400 rounded-full"
+              className="h-full bg-gradient-to-r from-amber-500 to-amber-300 rounded-full shadow-[0_0_8px_rgba(251,191,36,0.55)]"
               initial={false}
               animate={{ width: `${pct}%` }}
               transition={{ duration: 0.4, ease: 'easeOut' }}
             />
           </div>
         </div>
-        <span className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md tracking-wider shrink-0">
+        <span className="nav-rank-badge shrink-0">{prog.rankTitle}</span>
+      </div>
+    );
+  }
+
+  if (variant === 'compact') {
+    return (
+      <div
+        className={`bg-[#0e1015] border border-white/[0.08] rounded-lg px-2.5 py-1.5 flex items-center gap-2.5 min-w-0 shrink-0 ${className}`}
+        title={`${prog.xpToNextRank.toLocaleString()} XP to ${prog.isMaxRank ? 'max rank' : prog.nextRankTitle}`}
+      >
+        <div className="flex flex-col gap-1 min-w-0">
+          <span className="text-[11px] font-extrabold text-white/85 tracking-wide whitespace-nowrap tabular-nums">
+            {wallet.xp.toLocaleString('en-US')} XP
+          </span>
+          <div className="w-20 h-1 bg-white/[0.06] rounded-full overflow-hidden">
+            <motion.div
+              className="h-full bg-gradient-to-r from-amber-500 to-amber-300 rounded-full"
+              initial={false}
+              animate={{ width: `${pct}%` }}
+              transition={{ duration: 0.4, ease: 'easeOut' }}
+            />
+          </div>
+        </div>
+        <span className="bg-sky-500/10 text-sky-300 border border-sky-500/25 text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded tracking-wider shrink-0">
           {prog.rankTitle}
         </span>
       </div>
