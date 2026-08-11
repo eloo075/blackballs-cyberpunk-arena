@@ -37,6 +37,17 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
   const { event: resultEvent, trigger: triggerResult, dismiss: dismissResult } = useResultFeedback();
   const display = useExtrapolatedCrashDisplay(state, visible);
   const [mobileFull, setMobileFull] = useState(false);
+  /** Last round with a revealed seed — stream history strips seeds, so cache on rug. */
+  const [lastFinishedRound, setLastFinishedRound] = useState<{
+    id: number;
+    serverSeedHash: string;
+    serverSeed: string | null;
+    clientSeed: string;
+    nonce: number;
+    crashPoint: number | null;
+    mode?: 'classic' | 'continuous';
+    rugTick?: number | null;
+  } | null>(null);
   const processedResultRef = useRef<string | null>(null);
   const vaultEnabled = isVaultConfigured();
 
@@ -72,6 +83,36 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
       wallet.isRealWallet,
     );
   };
+
+  useEffect(() => {
+    if (!state) return;
+    if (
+      state.phase === 'crashed' &&
+      state.currentRound.serverSeed &&
+      state.currentRound.crashPoint != null
+    ) {
+      setLastFinishedRound({
+        id: state.currentRound.id,
+        serverSeedHash: state.currentRound.serverSeedHash,
+        serverSeed: state.currentRound.serverSeed,
+        clientSeed: state.currentRound.clientSeed,
+        nonce: state.currentRound.nonce,
+        crashPoint: state.currentRound.crashPoint,
+        mode: state.currentRound.mode,
+        rugTick: state.currentRound.rugTick ?? null,
+      });
+    }
+  }, [
+    state?.phase,
+    state?.currentRound.id,
+    state?.currentRound.serverSeed,
+    state?.currentRound.crashPoint,
+    state?.currentRound.serverSeedHash,
+    state?.currentRound.clientSeed,
+    state?.currentRound.nonce,
+    state?.currentRound.mode,
+    state?.currentRound.rugTick,
+  ]);
 
   useEffect(() => {
     const lr = state?.lastResult;
@@ -149,35 +190,40 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
       : showEntryLines
         ? state.positionEntryPrice
         : null;
-  const entryInProfit =
-    entryPrice != null && entryPrice > 0
-      ? state.positionSide === 'sell'
-        ? chartMult <= entryPrice + 1e-9
-        : chartMult >= entryPrice - 1e-9
-      : true;
   const viewerName = wallet.connected && wallet.address ? playerMarkerName(wallet.address) : null;
   // Hide buy/sell logos after the round ends (rug / waiting).
   const publicTradeTags =
     state.phase === 'running' ? (state.tradeTags ?? []) : [];
-  // Frame follows live PnL vs entry: green in profit, red when underwater.
+
+  // Cadre uses the live display mult (updates ~10Hz) vs average entry while in a live position.
+  const inLiveTrade =
+    state.phase === 'running' &&
+    (state.hasLivePosition || (state.hasPosition && !state.entryPending));
   const liveEntry =
-    state.phase === 'running' && state.hasLivePosition
-      ? state.positionEntryPrice > 0
-        ? state.positionEntryPrice
-        : entryPrice
+    inLiveTrade && Number.isFinite(state.positionEntryPrice) && state.positionEntryPrice > 0
+      ? state.positionEntryPrice
       : null;
+  const liveMult = display.mult;
   const cadreInProfit =
-    liveEntry != null && liveEntry > 0
-      ? state.positionSide === 'sell'
-        ? chartMult <= liveEntry + 1e-9
-        : chartMult >= liveEntry - 1e-9
-      : true;
-  const chartCadreClass =
     liveEntry != null
-      ? cadreInProfit
-        ? 'ring-2 ring-inset ring-emerald-500 shadow-[inset_0_0_28px_rgba(34,197,94,0.22)]'
-        : 'ring-2 ring-inset ring-rose-500 shadow-[inset_0_0_28px_rgba(239,68,68,0.24)]'
-      : '';
+      ? state.positionSide === 'sell'
+        ? liveMult <= liveEntry + 1e-9
+        : liveMult >= liveEntry - 1e-9
+      : true;
+  const entryInProfit = liveEntry != null ? cadreInProfit : true;
+  const chartCadreClass = liveEntry != null
+    ? cadreInProfit
+      ? 'border-emerald-500/70 ring-2 ring-inset ring-emerald-500 shadow-[inset_0_0_32px_rgba(16,185,129,0.28)]'
+      : 'border-rose-500/70 ring-2 ring-inset ring-rose-500 shadow-[inset_0_0_32px_rgba(239,68,68,0.3)]'
+    : 'border-white/[0.06]';
+
+  // Seed verify for the last finished round (revealed on rug; cached because stream history strips seeds).
+  const verifyRound =
+    state.phase === 'crashed' &&
+    state.currentRound.crashPoint != null &&
+    state.currentRound.serverSeed
+      ? state.currentRound
+      : lastFinishedRound;
 
   if (mobileFull) {
     return (
@@ -189,7 +235,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
         exit={{ opacity: 0 }}
         className="fixed inset-0 z-50 bg-[#141518]/95 safe-bottom"
       >
-        <div className={`relative h-full w-full ${chartCadreClass}`}>
+        <div className={`relative h-full w-full border bg-[#06070a] transition-[box-shadow,border-color] duration-200 ${chartCadreClass}`}>
           <button
             onClick={() => setMobileFull(false)}
             className="absolute top-3 right-3 z-50 touch-target touch-manipulation px-4 py-2 text-sm font-extrabold bg-[#2a2c33] text-white rounded-xl border border-white/10"
@@ -281,7 +327,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
         {/* Primary mobile cadre: chart + BUY/SELL stay in first viewport (non-scrolling frame). */}
         <div className="flex flex-col gap-1 sm:gap-2 min-w-0 shrink-0 max-md:max-h-[85vh] md:flex-none">
         <div
-          className={`relative overflow-hidden w-full h-[37vh] min-h-[200px] max-h-[38vh] md:min-h-[440px] md:h-[54vh] md:max-h-none rounded-lg sm:rounded-2xl border border-white/[0.06] bg-[#06070a] ${chartCadreClass}`}
+          className={`relative overflow-hidden w-full h-[37vh] min-h-[200px] max-h-[38vh] md:min-h-[440px] md:h-[54vh] md:max-h-none rounded-lg sm:rounded-2xl border bg-[#06070a] transition-[box-shadow,border-color] duration-200 ${chartCadreClass}`}
         >
           <div
             className="pointer-events-none absolute inset-0 opacity-40"
@@ -493,9 +539,9 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
           buyersIn={state.buyersIn}
         />
 
-        {state.phase === 'crashed' && (
-          <div className="hidden sm:block">
-            <VerifyRoundButton round={state.currentRound} />
+        {verifyRound && (
+          <div className="shrink-0 px-1 sm:px-0">
+            <VerifyRoundButton round={verifyRound} />
           </div>
         )}
       </div>
