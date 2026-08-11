@@ -51,8 +51,9 @@ const CANDLE_UP = '#22c55e';
 const CANDLE_DOWN = '#ef4444';
 const CASHOUT_GREEN = '#10B981';
 const LIVE_Y_DAMP = 0.15;
-/** Mobile public trade toasts — match desktop FOMO markers, 1.5s lifetime. */
-const MOBILE_TRADE_MARKER_MS = 1500;
+/** Mobile public trade toasts — one at a time, short lifetime. */
+const MOBILE_TRADE_MARKER_MS = 1100;
+const MOBILE_TRADE_GAP_MS = 80;
 const DEFAULT_CANDLE_DURATION_SEC = 4;
 
 interface LiveTradeOverlay {
@@ -215,8 +216,8 @@ function candleDurationSec(candles: Candle[], visibleStartIdx: number, candleIdx
 }
 
 function truncateUser(name: string): string {
-  if (name.length <= 12) return name;
-  return `${name.slice(0, 4)}…${name.slice(-4)}`;
+  if (name.length <= 9) return name;
+  return `${name.slice(0, 3)}…${name.slice(-3)}`;
 }
 
 function formatTradeAmt(amount: number): string {
@@ -236,66 +237,65 @@ function drawMobileTradeMarker(
   bearImg: HTMLImageElement | null,
 ) {
   const isBuy = m.type === 'BUY';
-  const iconR = 7.5 * dpr;
+  // Compact mobile FOMO chip — ~11px icon, ~7–8px type.
+  const iconR = 5.5 * dpr;
   const iconD = iconR * 2;
   const age = Date.now() - m.timestamp;
   const life = Math.max(0, 1 - age / MOBILE_TRADE_MARKER_MS);
-  const alpha = life > 0.25 ? 1 : life / 0.25;
+  const alpha = life > 0.2 ? 1 : life / 0.2;
 
   ctx.save();
   ctx.globalAlpha = alpha;
 
-  // Icon disc
   ctx.beginPath();
-  ctx.arc(x, y, iconR + 1.2 * dpr, 0, Math.PI * 2);
+  ctx.arc(x, y, iconR + 0.8 * dpr, 0, Math.PI * 2);
   ctx.fillStyle = isBuy ? '#F97316' : '#78350f';
   ctx.fill();
   ctx.strokeStyle = isBuy ? '#FDBA74' : '#FCD34D';
-  ctx.lineWidth = 1.5 * dpr;
+  ctx.lineWidth = 1 * dpr;
   ctx.stroke();
 
   const img = isBuy ? coinImg : bearImg;
   if (img && img.complete && img.naturalWidth > 0) {
-    const s = iconD * 0.78;
+    const s = iconD * 0.82;
     ctx.drawImage(img, x - s / 2, y - s / 2, s, s);
   } else {
     ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.arc(x, y, iconR * 0.35, 0, Math.PI * 2);
+    ctx.arc(x, y, iconR * 0.32, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  // Compact username + amount pill
   const user = truncateUser(m.username);
   const sideLine = isBuy ? `Buy +${formatTradeAmt(m.amount)}` : `Sell -${formatTradeAmt(m.amount)}`;
-  const userFont = `800 ${9 * dpr}px JetBrains Mono, monospace`;
-  const amtFont = `700 ${9 * dpr}px JetBrains Mono, monospace`;
+  const userFont = `700 ${7.5 * dpr}px JetBrains Mono, monospace`;
+  const amtFont = `700 ${7.5 * dpr}px JetBrains Mono, monospace`;
   ctx.font = userFont;
   const userW = ctx.measureText(user).width;
   ctx.font = amtFont;
   const amtW = ctx.measureText(sideLine).width;
-  const pillPadX = 6 * dpr;
+  const pillPadX = 4.5 * dpr;
   const pillW = Math.max(userW, amtW) + pillPadX * 2;
-  const pillH = 24 * dpr;
-  const gap = 6 * dpr;
+  const pillH = 18 * dpr;
+  const gap = 4 * dpr;
   const pillX = labelLeft ? x - iconR - gap - pillW : x + iconR + gap;
   const pillY = y - pillH / 2;
 
-  roundRectPath(ctx, pillX, snap(pillY), pillW, pillH, 5 * dpr);
-  ctx.fillStyle = 'rgba(13, 15, 18, 0.94)';
+  roundRectPath(ctx, pillX, snap(pillY), pillW, pillH, 4 * dpr);
+  ctx.fillStyle = 'rgba(13, 15, 18, 0.92)';
   ctx.fill();
-  ctx.strokeStyle = isBuy ? 'rgba(249, 115, 22, 0.85)' : 'rgba(245, 158, 11, 0.75)';
-  ctx.lineWidth = 1.25 * dpr;
+  ctx.strokeStyle = isBuy ? 'rgba(249, 115, 22, 0.7)' : 'rgba(245, 158, 11, 0.65)';
+  ctx.lineWidth = 1 * dpr;
   ctx.stroke();
 
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.font = userFont;
   ctx.fillStyle = '#ffffff';
-  ctx.fillText(user, pillX + pillPadX, y - 5.5 * dpr);
+  ctx.fillText(user, pillX + pillPadX, y - 4 * dpr);
   ctx.font = amtFont;
   ctx.fillStyle = isBuy ? '#10B981' : '#EF4444';
-  ctx.fillText(sideLine, pillX + pillPadX, y + 5.5 * dpr);
+  ctx.fillText(sideLine, pillX + pillPadX, y + 4.5 * dpr);
 
   ctx.restore();
 }
@@ -357,7 +357,9 @@ export function ChartCanvas({
   const cashoutFxRef = useRef<CashoutFx[]>([]);
   const seenSellIdsRef = useRef<Set<number>>(new Set());
   const sellBootstrappedRef = useRef(false);
-  const liveTradeOverlaysRef = useRef<LiveTradeOverlay[]>([]);
+  const liveTradeQueueRef = useRef<LiveTradeOverlay[]>([]);
+  const activeLiveTradeRef = useRef<LiveTradeOverlay | null>(null);
+  const nextLiveTradeAtRef = useRef(0);
   const seenPublicTradeIdsRef = useRef<Set<number>>(new Set());
   const publicTradeBootstrappedRef = useRef(false);
   const coinImgRef = useRef<HTMLImageElement | null>(null);
@@ -497,7 +499,9 @@ export function ChartCanvas({
         cashoutFxRef.current = [];
         seenSellIdsRef.current = new Set();
         sellBootstrappedRef.current = false;
-        liveTradeOverlaysRef.current = [];
+        liveTradeQueueRef.current = [];
+        activeLiveTradeRef.current = null;
+        nextLiveTradeAtRef.current = 0;
         seenPublicTradeIdsRef.current = new Set();
         publicTradeBootstrappedRef.current = false;
       }
@@ -788,7 +792,7 @@ export function ChartCanvas({
         ctx.textAlign = 'left';
       }
 
-      // Mobile: canvas-drawn public buy/sell markers (desktop uses HTML overlays).
+      // Mobile: one compact public buy/sell marker at a time (no candle crowding).
       if (isMobile && layout) {
         const now = Date.now();
         const viewer = p.viewerName;
@@ -803,7 +807,7 @@ export function ChartCanvas({
             if (viewer && tag.user === viewer) continue;
             if (seenPublicTradeIdsRef.current.has(tag.id)) continue;
             seenPublicTradeIdsRef.current.add(tag.id);
-            liveTradeOverlaysRef.current.push({
+            liveTradeQueueRef.current.push({
               id: tag.id,
               type: tag.side === 'buy' ? 'BUY' : 'SELL',
               username: tag.user,
@@ -811,52 +815,65 @@ export function ChartCanvas({
               price: tag.price,
               candleT: tag.candleT,
               elapsed: tag.elapsed ?? tag.t,
-              timestamp: now,
+              timestamp: 0,
             });
           }
-          if (liveTradeOverlaysRef.current.length > 10) {
-            liveTradeOverlaysRef.current = liveTradeOverlaysRef.current.slice(-10);
+          // Drop oldest during spam so the queue stays snappy.
+          if (liveTradeQueueRef.current.length > 6) {
+            liveTradeQueueRef.current = liveTradeQueueRef.current.slice(-6);
           }
         }
 
-        liveTradeOverlaysRef.current = liveTradeOverlaysRef.current.filter(
-          m => now - m.timestamp <= MOBILE_TRADE_MARKER_MS,
-        );
+        const active = activeLiveTradeRef.current;
+        if (active && now - active.timestamp > MOBILE_TRADE_MARKER_MS) {
+          activeLiveTradeRef.current = null;
+          nextLiveTradeAtRef.current = now + MOBILE_TRADE_GAP_MS;
+        }
 
-        liveTradeOverlaysRef.current.forEach((m, mi) => {
+        if (
+          !activeLiveTradeRef.current &&
+          now >= nextLiveTradeAtRef.current &&
+          liveTradeQueueRef.current.length > 0
+        ) {
+          const next = liveTradeQueueRef.current.shift()!;
+          next.timestamp = now;
+          activeLiveTradeRef.current = next;
+        }
+
+        const m = activeLiveTradeRef.current;
+        if (m) {
           const candleIdx = resolveCandleIndex(
             visible,
             layout.visibleStartIdx,
             m.candleT,
             m.price,
           );
-          if (candleIdx < 0) return;
-          let mx = markerXForTrade(
-            layout,
-            candleIdx,
-            m.candleT,
-            m.elapsed,
-            candleDurationSec(visible, layout.visibleStartIdx, candleIdx),
-          );
-          const minX = padLeft + 10;
-          const maxX = padLeft + chartW - 10;
-          mx = Math.min(maxX, Math.max(minX, mx));
-          // Y tracks interpolated chart scale / candle tip in real time.
-          let my = yFor(m.price > 0 ? m.price : dispMult);
-          my = Math.min(padTop + chartH - 16, Math.max(padTop + 16, my));
-          my += (mi % 3) * 18; // slight stack so concurrent trades stay readable
-          const labelLeft = mx > padLeft + chartW * 0.48;
-          drawMobileTradeMarker(
-            ctx,
-            m,
-            snap(mx),
-            snap(my),
-            dpr,
-            labelLeft,
-            coinImgRef.current,
-            bearImgRef.current,
-          );
-        });
+          if (candleIdx >= 0) {
+            let mx = markerXForTrade(
+              layout,
+              candleIdx,
+              m.candleT,
+              m.elapsed,
+              candleDurationSec(visible, layout.visibleStartIdx, candleIdx),
+            );
+            const minX = padLeft + 10;
+            const maxX = padLeft + chartW - 10;
+            mx = Math.min(maxX, Math.max(minX, mx));
+            let my = yFor(m.price > 0 ? m.price : dispMult);
+            my = Math.min(padTop + chartH - 14, Math.max(padTop + 14, my));
+            const labelLeft = mx > padLeft + chartW * 0.48;
+            drawMobileTradeMarker(
+              ctx,
+              m,
+              snap(mx),
+              snap(my),
+              dpr,
+              labelLeft,
+              coinImgRef.current,
+              bearImgRef.current,
+            );
+          }
+        }
       }
 
       // Cashout floating FX — spawn from personal sell tags (visual only).
