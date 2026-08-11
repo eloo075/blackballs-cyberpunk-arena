@@ -281,6 +281,20 @@ export function ChartCanvas({
       ctx.imageSmoothingEnabled = true;
       ctx.clearRect(0, 0, cssW, cssH);
 
+      // Rich dark radial base (non-flat black).
+      const baseGrad = ctx.createRadialGradient(
+        cssW * 0.5,
+        cssH * 0.45,
+        Math.min(cssW, cssH) * 0.08,
+        cssW * 0.5,
+        cssH * 0.5,
+        Math.max(cssW, cssH) * 0.72,
+      );
+      baseGrad.addColorStop(0, '#0e1118');
+      baseGrad.addColorStop(1, '#06070a');
+      ctx.fillStyle = baseGrad;
+      ctx.fillRect(0, 0, cssW, cssH);
+
       const isMobile = cssW < 768;
       const padLeft = isMobile ? 36 : 40;
       const padRight = isMobile ? 56 : 62;
@@ -409,7 +423,7 @@ export function ChartCanvas({
       for (const tick of axisTicks) {
         const gy = snap(yFor(tick));
         if (gy < padTop - 2 || gy > padTop + chartH + 2) continue;
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
         ctx.lineWidth = 1;
         ctx.setLineDash([]);
         ctx.beginPath();
@@ -500,20 +514,38 @@ export function ChartCanvas({
       });
 
       if (p.phase === 'running' || p.phase === 'crashed') {
-        const targetY = yFor(dispMult);
+        const activeCandle = slice.length > 0 ? slice[slice.length - 1] : null;
+        // Track close tip color from the leading candle body (green if close ≥ open).
+        const isGreen = activeCandle ? activeCandle.c >= activeCandle.o : p.phase === 'running';
+        const trackStroke = isGreen ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)';
+        const trackFill = isGreen ? 'rgba(16,185,129,0.92)' : 'rgba(239,68,68,0.92)';
+
+        const targetY = yFor(activeCandle ? activeCandle.c : dispMult);
         if (smoothLiveYRef.current == null) {
           smoothLiveYRef.current = targetY;
         } else {
           smoothLiveYRef.current += (targetY - smoothLiveYRef.current) * LIVE_Y_DAMP;
         }
         const y = snap(smoothLiveYRef.current);
-        const rising = p.phase === 'running';
-        const col = rising ? CANDLE_UP : CANDLE_DOWN;
         const chartRight = padLeft + chartW;
         const tipX = Math.min(chartRight - 2, Math.max(padLeft, lastBodyRight));
 
-        // Dashed indicator from active candle tip → right edge (pixel-snapped Y).
-        ctx.strokeStyle = col + (isMobile ? 'AA' : '88');
+        // Soft ambient glow behind the leading candle tip.
+        const tipCx =
+          slice.length > 0
+            ? padLeft + (slotOffset + slice.length - 0.5) * slotW + shiftPx
+            : tipX;
+        const ambient = ctx.createRadialGradient(tipCx, y, 0, tipCx, y, Math.max(90, chartH * 0.35));
+        ambient.addColorStop(
+          0,
+          isGreen ? 'rgba(16, 185, 129, 0.04)' : 'rgba(239, 68, 68, 0.04)',
+        );
+        ambient.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = ambient;
+        ctx.fillRect(padLeft, padTop, chartW, chartH);
+
+        // Dashed tracking line → right edge, anchored to close tip.
+        ctx.strokeStyle = trackStroke;
         ctx.setLineDash([5 * dpr, 4 * dpr]);
         ctx.lineWidth = (isMobile ? 1.35 : 1.15) * dpr;
         ctx.beginPath();
@@ -532,7 +564,7 @@ export function ChartCanvas({
         const tagX = Math.min(cssW - tagW - 2 * dpr, chartRight - tagW * 0.15);
         const tagY = snap(y - tagH / 2);
         roundRectPath(ctx, tagX, tagY, tagW, tagH, 4 * dpr);
-        ctx.fillStyle = rising ? 'rgba(16,185,129,0.92)' : 'rgba(239,68,68,0.92)';
+        ctx.fillStyle = trackFill;
         ctx.fill();
         ctx.strokeStyle = 'rgba(255,255,255,0.35)';
         ctx.lineWidth = Math.max(1, 0.8 * dpr);
@@ -565,17 +597,17 @@ export function ChartCanvas({
         );
         const x1 = padLeft + chartW;
 
-        // Continuous solid white entry line (no dash, no green/red stroke).
+        // Sleek thin solid white entry line.
         ctx.setLineDash([]);
         ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 1.6 * dpr;
+        ctx.lineWidth = 1.25 * dpr;
         ctx.beginPath();
         ctx.moveTo(x0, ey);
         ctx.lineTo(x1, ey);
         ctx.stroke();
 
         ctx.beginPath();
-        ctx.arc(x0, ey, 3.2 * dpr, 0, Math.PI * 2);
+        ctx.arc(x0, ey, 2.4 * dpr, 0, Math.PI * 2);
         ctx.fillStyle = '#FFFFFF';
         ctx.fill();
 
@@ -588,7 +620,8 @@ export function ChartCanvas({
         const stack = Math.min(li, 4);
         let bx = x0 - bw * 0.35;
         bx = Math.max(padLeft + 2 * dpr, Math.min(bx, padLeft + chartW - bw - 2 * dpr));
-        const by = snap(ey - bh - (isMobile ? 12 : 14) * dpr - stack * (bh + 3 * dpr));
+        // Keep ENTRY clearly above the white line (room for Buy badge too).
+        const by = snap(ey - bh - (isMobile ? 18 : 20) * dpr - stack * (bh + 3 * dpr));
         roundRectPath(ctx, bx, by, bw, bh, 3 * dpr);
         ctx.fillStyle = 'rgba(8,10,14,0.88)';
         ctx.fill();

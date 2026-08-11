@@ -67,21 +67,33 @@ function PersonalMarkerBadge({ tag }: { tag: TradeTag }) {
           />
         </div>
       </div>
-      {/* Beside the logo only — ENTRY stays above the entry line, so they never stack. */}
-      <div
-        data-label-right
-        className={`absolute left-[24px] sm:left-[28px] top-1/2 -translate-y-1/2 whitespace-nowrap rounded px-1 sm:px-1.5 py-px text-[8px] sm:text-[10px] font-bold tabular-nums z-10 ${neonLabel}`}
-        style={{ textShadow: '0 0 8px rgba(255,255,255,0.95), 0 0 2px #fff' }}
-      >
-        {label}
-      </div>
-      <div
-        data-label-left
-        className={`absolute right-[24px] sm:right-[28px] top-1/2 -translate-y-1/2 whitespace-nowrap rounded px-1 sm:px-1.5 py-px text-[8px] sm:text-[10px] font-bold tabular-nums z-10 hidden ${neonLabel}`}
-        style={{ textShadow: '0 0 8px rgba(255,255,255,0.95), 0 0 2px #fff' }}
-      >
-        {label}
-      </div>
+      {isBuy ? (
+        /* Buy amount sits cleanly ABOVE the white entry line — never overlapping it. */
+        <div
+          data-label-right
+          className={`absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+10px)] sm:bottom-[calc(100%+12px)] whitespace-nowrap rounded px-1 sm:px-1.5 py-px text-[8px] sm:text-[10px] font-bold tabular-nums z-10 ${neonLabel}`}
+          style={{ textShadow: '0 0 8px rgba(255,255,255,0.95), 0 0 2px #fff' }}
+        >
+          {label}
+        </div>
+      ) : (
+        <>
+          <div
+            data-label-right
+            className={`absolute left-[24px] sm:left-[28px] top-1/2 -translate-y-1/2 whitespace-nowrap rounded px-1 sm:px-1.5 py-px text-[8px] sm:text-[10px] font-bold tabular-nums z-10 ${neonLabel}`}
+            style={{ textShadow: '0 0 8px rgba(255,255,255,0.95), 0 0 2px #fff' }}
+          >
+            {label}
+          </div>
+          <div
+            data-label-left
+            className={`absolute right-[24px] sm:right-[28px] top-1/2 -translate-y-1/2 whitespace-nowrap rounded px-1 sm:px-1.5 py-px text-[8px] sm:text-[10px] font-bold tabular-nums z-10 hidden ${neonLabel}`}
+            style={{ textShadow: '0 0 8px rgba(255,255,255,0.95), 0 0 2px #fff' }}
+          >
+            {label}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -190,9 +202,14 @@ function placeMarkers(
   entries: { id: number; tag: TradeTag; el: HTMLDivElement }[],
   zBase: number,
 ) {
-  const resolved: { id: number; el: HTMLDivElement; x: number; y: number; labelLeft: boolean }[] =
-    [];
-  const mobileLift = 0;
+  const resolved: {
+    id: number;
+    el: HTMLDivElement;
+    x: number;
+    y: number;
+    labelLeft: boolean;
+    side: TradeTag['side'];
+  }[] = [];
 
   for (const e of entries) {
     const pos = tagAnchor(layout, candles, e.tag);
@@ -200,12 +217,15 @@ function placeMarkers(
       e.el.style.visibility = 'hidden';
       continue;
     }
+    // Lift buy markers so the logo sits on the line and Buy text clears above it.
+    const buyLift = e.tag.side === 'buy' ? (layout.cssW < 768 ? 10 : 12) : 0;
     resolved.push({
       id: e.id,
       el: e.el,
       x: pos.x,
-      y: pos.y + mobileLift,
+      y: pos.y - buyLift,
       labelLeft: pos.labelLeft,
+      side: e.tag.side,
     });
   }
 
@@ -229,12 +249,16 @@ function placeMarkers(
     g.forEach((ri, gi) => {
       const r = resolved[ri];
       const oy = stackOffset(gi, g.length) * (layout.cssW < 640 ? 0.7 : 1);
+      // Extra upward stack for buys so labels stay above the white entry line.
+      const buyStack = r.side === 'buy' ? gi * (layout.cssW < 768 ? 16 : 18) : oy;
+      const finalY = r.side === 'buy' ? r.y - buyStack : r.y + oy;
       r.el.style.visibility = 'visible';
       r.el.style.left = `${r.x}px`;
-      r.el.style.top = `${r.y + oy}px`;
+      r.el.style.top = `${finalY}px`;
       r.el.style.transform = 'translate(-50%, -50%)';
       r.el.style.zIndex = String(zBase + gi);
-      setLabelSide(r.el, r.labelLeft);
+      // Buy label is centered above the logo — don't flip/hide it.
+      if (r.side !== 'buy') setLabelSide(r.el, r.labelLeft);
     });
   }
 }
