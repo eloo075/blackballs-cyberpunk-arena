@@ -128,7 +128,8 @@ export function WagerAmountPanel({
         </div>
       )}
 
-      <div className="flex flex-nowrap gap-1 sm:flex-wrap sm:gap-1.5">
+      {/* Mobile: single-row presets (1/2 · 2X · MAX). Desktop also keeps +BB chips. */}
+      <div className="flex flex-nowrap items-stretch gap-1 sm:flex-wrap sm:gap-1.5">
         {BET_BB_PRESETS.map(bb => (
           <button
             key={bb}
@@ -145,23 +146,23 @@ export function WagerAmountPanel({
           type="button"
           onClick={() => setTokensFree(amount / 2)}
           disabled={disabled}
-          className="flex-1 min-h-[26px] sm:min-h-[32px] rounded-md sm:rounded-lg text-[11px] sm:text-xs font-bold touch-manipulation disabled:opacity-30 bg-[#2a2c33] text-white/60 border border-white/10 hover:bg-[#353842]"
+          className="flex-1 min-h-[28px] sm:min-h-[32px] rounded-md sm:rounded-lg text-[11px] sm:text-xs font-bold touch-manipulation disabled:opacity-30 bg-[#2a2c33] text-white/60 border border-white/10 hover:bg-[#353842]"
         >
-          ½
+          1/2
         </button>
         <button
           type="button"
           onClick={() => setTokensFree(amount * 2)}
           disabled={disabled}
-          className="flex-1 min-h-[26px] sm:min-h-[32px] rounded-md sm:rounded-lg text-[11px] sm:text-xs font-bold touch-manipulation disabled:opacity-30 bg-[#2a2c33] text-white/60 border border-white/10 hover:bg-[#353842]"
+          className="flex-1 min-h-[28px] sm:min-h-[32px] rounded-md sm:rounded-lg text-[11px] sm:text-xs font-bold touch-manipulation disabled:opacity-30 bg-[#2a2c33] text-white/60 border border-white/10 hover:bg-[#353842]"
         >
-          2×
+          2X
         </button>
         <button
           type="button"
           onClick={setTokensMax}
           disabled={disabled}
-          className="flex-1 min-h-[26px] sm:min-h-[32px] rounded-md sm:rounded-lg text-[11px] sm:text-xs font-extrabold touch-manipulation disabled:opacity-30 bg-amber-400 text-black border-b-2 border-amber-600 hover:bg-amber-300"
+          className="flex-1 min-h-[28px] sm:min-h-[32px] rounded-md sm:rounded-lg text-[11px] sm:text-xs font-extrabold touch-manipulation disabled:opacity-30 bg-amber-400 text-black border-b-2 border-amber-600 hover:bg-amber-300"
         >
           MAX
         </button>

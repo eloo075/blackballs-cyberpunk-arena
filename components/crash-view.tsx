@@ -260,10 +260,10 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
           </div>
         </div>
 
-        {/* chart + trade dock — mobile: chart flexes; BUY/SELL always on-screen */}
-        <div className="flex flex-col gap-1 sm:gap-2 min-w-0 max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-hidden sm:shrink-0 sm:flex-none">
+        {/* chart + trade dock — mobile: ~52vh chart + compact controls dock */}
+        <div className="flex flex-col gap-1 sm:gap-2 min-w-0 max-md:flex-1 max-md:min-h-0 max-md:overflow-hidden md:shrink-0 md:flex-none">
         <div
-          className={`relative overflow-hidden w-full max-sm:flex-1 max-sm:min-h-0 sm:min-h-[440px] sm:h-[54vh] sm:max-h-none rounded-lg sm:rounded-2xl border border-white/[0.06] bg-[#0c0e12] ${chartCadreClass}`}
+          className={`relative overflow-hidden w-full h-[52vh] min-h-[260px] max-h-[55vh] md:min-h-[440px] md:h-[54vh] md:max-h-none rounded-lg sm:rounded-2xl border border-white/[0.06] bg-[#0c0e12] ${chartCadreClass}`}
         >
           <div
             className="pointer-events-none absolute inset-0 opacity-40"

@@ -127,9 +127,9 @@ function leveragePillClass(preset: number, active: boolean): string {
 }
 
 const ARCADE_BTN_BUY =
-  'crash-trade-btn bg-emerald-500 hover:bg-emerald-400 text-white font-black uppercase tracking-wider rounded-xl border-b-[3px] sm:border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 active:scale-[0.98] transition-all duration-150 shadow-[0_0_24px_rgba(16,185,129,0.25)]';
+  'crash-trade-btn bg-emerald-500 hover:bg-emerald-400 text-white font-black uppercase tracking-wider rounded-xl border-b-[3px] sm:border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 active:scale-[0.98] transition-all duration-150 shadow-[0_0_24px_rgba(16,185,129,0.35)]';
 const ARCADE_BTN_SELL =
-  'crash-trade-btn bg-rose-500 hover:bg-rose-400 text-white font-black uppercase tracking-wider rounded-xl border-b-[3px] sm:border-b-4 border-rose-700 active:border-b-0 active:translate-y-1 active:scale-[0.98] transition-all duration-150 shadow-[0_0_24px_rgba(244,63,94,0.22)]';
+  'crash-trade-btn bg-rose-500 hover:bg-rose-400 text-white font-black uppercase tracking-wider rounded-xl border-b-[3px] sm:border-b-4 border-rose-700 active:border-b-0 active:translate-y-1 active:scale-[0.98] transition-all duration-150 shadow-[0_0_24px_rgba(244,63,94,0.32)]';
 const ARCADE_BTN_LOCKED =
   'bg-[#1e2028] text-white/30 font-black uppercase tracking-wider rounded-xl border border-white/8 cursor-not-allowed';
 const ARCADE_BTN_CANCEL_SHORT =
@@ -1069,8 +1069,8 @@ export function CrashControls({
           )}
         </AnimatePresence>
 
-        {/* BUY / SELL */}
-        <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
+        {/* BUY / SELL — side-by-side dock (handlers unchanged) */}
+        <div className="grid grid-cols-2 gap-2">
           {renderTradeButton('buy')}
           {renderTradeButton('sell')}
         </div>

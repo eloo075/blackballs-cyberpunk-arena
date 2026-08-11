@@ -2,11 +2,14 @@
 import { useEffect, useRef } from 'react';
 import type { Candle, PositionLot, TradeTag } from '@/lib/crash-types';
 import {
+  chartCandleMetrics,
   chartPriceRange,
   chartSlotOffset,
   chartVisibleCount,
   computeChartLayout,
+  formatAxisMultLabel,
   markerXForTrade,
+  pickNiceMultTicks,
   type ChartLayoutFrame,
 } from '@/lib/chart-layout';
 import {
@@ -76,37 +79,14 @@ function pickTimeTicks(elapsed: number): number[] {
   return ticks.length ? ticks : [0];
 }
 
-/** Whole-number left axis (1x, 2x, 3x…) — mobile only, sparse & quiet. */
-function pickMultAxisTicks(minPrice: number, maxPrice: number, chartH: number): number[] {
-  const span = Math.max(0.01, maxPrice - minPrice);
-  const minGapPx = 44;
-  let step = Math.max(1, Math.ceil((minGapPx * span) / Math.max(chartH, 1)));
-  if (step > 2 && step < 5) step = 5;
-  else if (step > 5 && step < 10) step = 10;
-  else if (step > 10) step = Math.ceil(step / 5) * 5;
-
-  const start = Math.ceil(Math.max(minPrice, 1) / step) * step;
-  const ticks: number[] = [];
-  for (let v = start; v <= maxPrice + 1e-9; v += step) {
-    ticks.push(v);
-  }
-  // Always try to show 1x when it’s in view (common anchor).
-  if (minPrice <= 1 && maxPrice >= 1 && !ticks.includes(1)) {
-    ticks.push(1);
-    ticks.sort((a, b) => a - b);
-  }
-  return ticks;
-}
-
-function formatMultAxisLabel(v: number): string {
-  return `${Math.round(v)}x`;
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
 }
 
 function formatLiveMultLabel(v: number): string {
-  if (!Number.isFinite(v)) return '0x';
-  if (Math.abs(v - Math.round(v)) < 1e-6) return `${Math.round(v)}x`;
-  if (v >= 10) return `${v.toFixed(1)}x`;
-  return `${v.toFixed(2)}x`;
+  if (!Number.isFinite(v)) return '0.000x';
+  if (v >= 100) return `${v.toFixed(1)}x`;
+  return `${v.toFixed(3)}x`;
 }
 
 /** Collapse near-identical entries so stacked same-price buys share one line. */
@@ -204,6 +184,12 @@ export function ChartCanvas({
 
   const shiftOffsetRef = useRef(0);
   const prevCandleCountRef = useRef(0);
+  /** Incoming WS/price ticks — drained by the RAF lerp loop (decoupled from paint). */
+  const tickQueueRef = useRef<number[]>([]);
+  const lastQueuedMultRef = useRef<number | null>(null);
+  const smoothMultRef = useRef(1);
+  const smoothCandleRef = useRef<{ t: number; h: number; l: number; c: number } | null>(null);
+  const smoothRangeRef = useRef({ min: 0, max: 2, primed: false });
 
   useEffect(() => {
     if (!pageActive) return;
@@ -214,6 +200,8 @@ export function ChartCanvas({
 
     let lastFrame = performance.now();
     const SHIFT_LERP_PER_SEC = 8;
+    const PRICE_LERP_PER_SEC = 16;
+    const RANGE_LERP_PER_SEC = 9;
 
     const render = (frameMs: number) => {
       const p = propsRef.current;
@@ -236,10 +224,9 @@ export function ChartCanvas({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, cssW, cssH);
 
-      const isMobile = cssW < 640;
-      // Mobile: slim left gutter for quiet 1x/2x/3x labels. Desktop pads unchanged.
-      const padLeft = isMobile ? 26 : 12;
-      const padRight = isMobile ? 8 : 58;
+      const isMobile = cssW < 768;
+      const padLeft = isMobile ? 36 : 40;
+      const padRight = isMobile ? 56 : 62;
       const padTop = isMobile ? 8 : 24;
       const padBottom = isMobile ? 4 : 22;
       const chartW = cssW - padLeft - padRight;
@@ -249,15 +236,66 @@ export function ChartCanvas({
       const startIdx = Math.max(0, visible.length - visibleCount);
       const slice = visible.slice(startIdx).map(c => ({ ...c }));
 
-      const dispMult = p.mult;
-      if (p.phase === 'running' && slice.length > 0) {
+      // Ingest price ticks into a queue (render never snaps to raw WS cadence).
+      const targetMult = Number.isFinite(p.mult) && p.mult > 0 ? p.mult : 1;
+      if (lastQueuedMultRef.current !== targetMult) {
+        tickQueueRef.current.push(targetMult);
+        if (tickQueueRef.current.length > 12) {
+          tickQueueRef.current = tickQueueRef.current.slice(-6);
+        }
+        lastQueuedMultRef.current = targetMult;
+      }
+
+      const priceT = 1 - Math.exp(-PRICE_LERP_PER_SEC * dt);
+      let head = tickQueueRef.current[0] ?? targetMult;
+      smoothMultRef.current = lerp(smoothMultRef.current, head, priceT);
+      while (
+        tickQueueRef.current.length > 0 &&
+        Math.abs(smoothMultRef.current - tickQueueRef.current[0]) < 0.00035
+      ) {
+        tickQueueRef.current.shift();
+        head = tickQueueRef.current[0] ?? targetMult;
+      }
+      // Catch up if queue is deep (tab resume / burst ticks).
+      if (tickQueueRef.current.length > 4) {
+        smoothMultRef.current = lerp(smoothMultRef.current, targetMult, Math.min(1, priceT * 2.5));
+      }
+      const dispMult = smoothMultRef.current;
+
+      if (slice.length > 0 && (p.phase === 'running' || p.phase === 'crashed')) {
         const last = slice[slice.length - 1];
+        const prev = smoothCandleRef.current;
+        if (!prev || prev.t !== last.t) {
+          smoothCandleRef.current = {
+            t: last.t,
+            h: Math.max(last.h, last.o, dispMult),
+            l: Math.min(last.l, last.o, dispMult),
+            c: dispMult,
+          };
+        } else {
+          const targetC = p.phase === 'running' ? dispMult : last.c;
+          const targetH = Math.max(last.h, last.o, targetC);
+          const targetL = Math.min(last.l, last.o, targetC);
+          prev.c = lerp(prev.c, targetC, priceT);
+          prev.h = lerp(prev.h, Math.max(prev.h, targetH), priceT);
+          prev.l = lerp(prev.l, Math.min(prev.l, targetL), priceT);
+          // Keep OHLC invariants while easing.
+          prev.h = Math.max(prev.h, last.o, prev.c);
+          prev.l = Math.min(prev.l, last.o, prev.c);
+        }
+        const sm = smoothCandleRef.current!;
         slice[slice.length - 1] = {
           ...last,
-          c: dispMult,
-          h: Math.max(last.h, dispMult),
-          l: Math.min(last.l, dispMult),
+          c: sm.c,
+          h: Math.max(sm.h, sm.c, last.o),
+          l: Math.min(sm.l, sm.c, last.o),
         };
+      } else if (p.phase === 'waiting') {
+        smoothCandleRef.current = null;
+        tickQueueRef.current = [];
+        lastQueuedMultRef.current = null;
+        smoothMultRef.current = targetMult;
+        smoothRangeRef.current.primed = false;
       }
 
       if (visible.length > prevCandleCountRef.current) {
@@ -265,18 +303,31 @@ export function ChartCanvas({
       }
       prevCandleCountRef.current = visible.length;
 
-      const { minPrice, maxPrice } = chartPriceRange(
+      const rawRange = chartPriceRange(
         slice.length ? slice : visible,
-        p.mult,
+        dispMult,
         visibleCount,
       );
+      const rangeT = 1 - Math.exp(-RANGE_LERP_PER_SEC * dt);
+      if (!smoothRangeRef.current.primed) {
+        smoothRangeRef.current = {
+          min: rawRange.minPrice,
+          max: rawRange.maxPrice,
+          primed: true,
+        };
+      } else {
+        smoothRangeRef.current.min = lerp(smoothRangeRef.current.min, rawRange.minPrice, rangeT);
+        smoothRangeRef.current.max = lerp(smoothRangeRef.current.max, rawRange.maxPrice, rangeT);
+      }
+      const minPrice = smoothRangeRef.current.min;
+      const maxPrice = Math.max(smoothRangeRef.current.max, minPrice + 0.05);
 
       layoutRef.current = computeChartLayout(
         cssW,
         cssH,
         visible,
         p.phase,
-        p.mult,
+        dispMult,
         p.peakMult,
         p.elapsed,
         shiftOffsetRef.current,
@@ -287,44 +338,42 @@ export function ChartCanvas({
       const slotW = chartW / visibleCount;
       const shiftPx = shiftOffsetRef.current * slotW;
       const slotOffset = chartSlotOffset(visibleCount, slice.length);
-      const bodyRatio = isMobile ? 0.62 : 0.55;
-      const maxBodyW = (isMobile ? 34 : 28) * dpr;
+      const { candleWidth: bodyW } = chartCandleMetrics(slotW, isMobile, dpr);
 
       const yFor = (price: number) =>
         padTop + chartH - ((price - minPrice) / (maxPrice - minPrice)) * chartH;
 
-      if (isMobile) {
-        const axisTicks = pickMultAxisTicks(minPrice, maxPrice, chartH);
-        ctx.font = `500 ${8 * dpr}px JetBrains Mono, monospace`;
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'middle';
-        for (const tick of axisTicks) {
-          const gy = yFor(tick);
-          if (gy < padTop - 2 || gy > padTop + chartH + 2) continue;
-          ctx.strokeStyle = 'rgba(255,255,255,0.035)';
-          ctx.lineWidth = 1;
-          ctx.setLineDash([2 * dpr, 6 * dpr]);
-          ctx.beginPath();
-          ctx.moveTo(padLeft, gy);
-          ctx.lineTo(padLeft + chartW, gy);
-          ctx.stroke();
-          ctx.setLineDash([]);
-          ctx.fillStyle = 'rgba(255,255,255,0.28)';
-          ctx.fillText(formatMultAxisLabel(tick), padLeft - 4, gy);
-        }
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'alphabetic';
-      } else {
-        ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+      // Dynamic Y-axis grid + left multiplier badges.
+      const axisTicks = pickNiceMultTicks(minPrice, maxPrice, chartH);
+      ctx.font = `600 ${(isMobile ? 9 : 10) * dpr}px JetBrains Mono, monospace`;
+      ctx.textBaseline = 'middle';
+      for (const tick of axisTicks) {
+        const gy = yFor(tick);
+        if (gy < padTop - 2 || gy > padTop + chartH + 2) continue;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
         ctx.lineWidth = 1;
-        for (let g = 0; g < 4; g++) {
-          const gy = padTop + (chartH * g) / 3;
-          ctx.beginPath();
-          ctx.moveTo(padLeft, gy);
-          ctx.lineTo(padLeft + chartW, gy);
-          ctx.stroke();
-        }
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(padLeft, gy);
+        ctx.lineTo(padLeft + chartW, gy);
+        ctx.stroke();
+
+        const label = formatAxisMultLabel(tick);
+        ctx.font = `600 ${(isMobile ? 9 : 10) * dpr}px JetBrains Mono, monospace`;
+        const lw = ctx.measureText(label).width;
+        const badgeW = lw + 6 * dpr;
+        const badgeH = (isMobile ? 14 : 16) * dpr;
+        const bx = Math.max(2 * dpr, padLeft - badgeW - 4 * dpr);
+        const by = gy - badgeH / 2;
+        roundRectPath(ctx, bx, by, badgeW, badgeH, 3 * dpr);
+        ctx.fillStyle = 'rgba(10, 12, 16, 0.72)';
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        ctx.textAlign = 'left';
+        ctx.fillText(label, bx + 3 * dpr, gy);
       }
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
 
       // Desktop only — mobile time labels overlap and clutter the chart.
       if (!isMobile) {
@@ -340,6 +389,7 @@ export function ChartCanvas({
         ctx.textAlign = 'left';
       }
 
+      let lastBodyRight = padLeft;
       slice.forEach((c, i) => {
         const cx = padLeft + (slotOffset + i + 0.5) * slotW + shiftPx;
         if (cx < padLeft - slotW || cx > padLeft + chartW + slotW) return;
@@ -363,10 +413,10 @@ export function ChartCanvas({
         ctx.stroke();
         ctx.globalAlpha = 1;
 
-        const bodyW = Math.max((isMobile ? 5 : 4.5) * dpr, Math.min(maxBodyW, slotW * bodyRatio));
         const bodyTop = Math.min(yO, yC);
         const bodyH = Math.max(Math.abs(yC - yO), (isMobile ? 2.4 : 2.2) * dpr);
         const bodyX = cx - bodyW / 2;
+        if (isLast) lastBodyRight = bodyX + bodyW;
 
         roundRectPath(ctx, bodyX, bodyTop, bodyW, bodyH, 2 * dpr);
         ctx.fillStyle = color;
@@ -395,41 +445,37 @@ export function ChartCanvas({
         const y = yFor(dispMult);
         const rising = p.phase === 'running';
         const col = rising ? CANDLE_UP : CANDLE_DOWN;
+        const chartRight = padLeft + chartW;
+        const tipX = Math.min(chartRight - 2, Math.max(padLeft, lastBodyRight));
 
-        ctx.strokeStyle = col + (isMobile ? '88' : '55');
-        ctx.setLineDash([4 * dpr, 4 * dpr]);
-        ctx.lineWidth = (isMobile ? 1.25 : 1) * dpr;
+        // Dashed indicator from active candle tip → right edge.
+        ctx.strokeStyle = col + (isMobile ? 'AA' : '88');
+        ctx.setLineDash([5 * dpr, 4 * dpr]);
+        ctx.lineWidth = (isMobile ? 1.35 : 1.15) * dpr;
         ctx.beginPath();
-        ctx.moveTo(padLeft, y);
-        ctx.lineTo(padLeft + chartW, y);
+        ctx.moveTo(tipX, y);
+        ctx.lineTo(chartRight, y);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // White neon live mult pill — just above the candle tip (only live read-out).
+        // Highlighted multiplier badge anchored on the active line (right edge).
         const liveLabel = formatLiveMultLabel(dispMult);
-        const liveFont = (isMobile ? 8 : 10) * dpr;
+        const liveFont = (isMobile ? 9 : 11) * dpr;
         ctx.font = `bold ${liveFont}px JetBrains Mono, monospace`;
         const tw = ctx.measureText(liveLabel).width;
-        const tagW = tw + (isMobile ? 8 : 10) * dpr;
-        const tagH = (isMobile ? 12 : 15) * dpr;
-        const lastCx =
-          slice.length > 0
-            ? padLeft + (slotOffset + slice.length - 0.5) * slotW + shiftPx
-            : padLeft + chartW * 0.5;
-        const tagX = Math.min(
-          Math.max(padLeft + 2 * dpr, lastCx - tagW / 2),
-          padLeft + chartW - tagW - 2 * dpr,
-        );
-        const tagY = y - tagH - (isMobile ? 5 : 6) * dpr;
-        roundRectPath(ctx, tagX, tagY, tagW, tagH, 3 * dpr);
-        ctx.fillStyle = 'rgba(10,12,16,0.9)';
+        const tagW = tw + (isMobile ? 10 : 12) * dpr;
+        const tagH = (isMobile ? 16 : 18) * dpr;
+        const tagX = Math.min(cssW - tagW - 2 * dpr, chartRight - tagW * 0.15);
+        const tagY = y - tagH / 2;
+        roundRectPath(ctx, tagX, tagY, tagW, tagH, 4 * dpr);
+        ctx.fillStyle = rising ? 'rgba(16,185,129,0.92)' : 'rgba(239,68,68,0.92)';
         ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-        ctx.lineWidth = Math.max(1, 0.75 * dpr);
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+        ctx.lineWidth = Math.max(1, 0.8 * dpr);
         ctx.stroke();
         ctx.fillStyle = '#ffffff';
-        ctx.shadowColor = 'rgba(255,255,255,0.95)';
-        ctx.shadowBlur = 6 * dpr;
+        ctx.shadowColor = 'rgba(255,255,255,0.55)';
+        ctx.shadowBlur = 5 * dpr;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(liveLabel, tagX + tagW / 2, tagY + tagH / 2);

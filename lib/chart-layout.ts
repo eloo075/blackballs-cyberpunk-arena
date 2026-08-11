@@ -148,6 +148,47 @@ export function markerXForTrade(
   );
 }
 
+/** Consistent body width + gap so candles never leave empty slots. */
+export function chartCandleMetrics(slotW: number, isMobile: boolean, dpr = 1) {
+  const candleGap = Math.max(isMobile ? 2.5 : 2, slotW * 0.22);
+  const maxBodyW = (isMobile ? 34 : 28) * dpr;
+  const minBodyW = (isMobile ? 5 : 4.5) * dpr;
+  const candleWidth = Math.max(minBodyW, Math.min(maxBodyW, slotW - candleGap));
+  return { candleWidth, candleGap };
+}
+
+/** Nice multiplier ladder for left-axis badges (rugs.fun-style). */
+const NICE_MULT_TICKS = [
+  0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 10, 12, 15, 20, 25, 30, 40, 50, 75, 100,
+  150, 200, 300, 500, 1000,
+];
+
+export function pickNiceMultTicks(minPrice: number, maxPrice: number, chartH: number): number[] {
+  const span = Math.max(0.01, maxPrice - minPrice);
+  const minGapPx = Math.max(28, Math.min(48, chartH / 7));
+  const candidates = NICE_MULT_TICKS.filter(v => v >= minPrice - 1e-9 && v <= maxPrice + 1e-9);
+  const ticks: number[] = [];
+  let lastPx = -Infinity;
+  for (const v of candidates) {
+    const px = ((v - minPrice) / span) * chartH;
+    if (ticks.length === 0 || Math.abs(px - lastPx) >= minGapPx) {
+      ticks.push(v);
+      lastPx = px;
+    }
+  }
+  if (ticks.length === 0 && Number.isFinite(minPrice) && Number.isFinite(maxPrice)) {
+    ticks.push(Number(((minPrice + maxPrice) / 2).toFixed(2)));
+  }
+  return ticks;
+}
+
+export function formatAxisMultLabel(v: number): string {
+  if (!Number.isFinite(v)) return '0.0x';
+  if (v >= 100) return `${Math.round(v)}x`;
+  if (v >= 10) return `${v.toFixed(1)}x`;
+  return `${v.toFixed(1)}x`;
+}
+
 export function computeChartLayout(
   cssW: number,
   cssH: number,
@@ -160,9 +201,10 @@ export function computeChartLayout(
   minPriceOverride?: number,
   maxPriceOverride?: number,
 ): ChartLayoutFrame {
-  const isMobile = cssW < 640;
-  const padLeft = isMobile ? 26 : 12;
-  const padRight = isMobile ? 8 : 58;
+  const isMobile = cssW < 768;
+  // Left gutter for axis badges; right gutter for live mult pill on the tip line.
+  const padLeft = isMobile ? 36 : 40;
+  const padRight = isMobile ? 56 : 62;
   const padTop = isMobile ? 8 : 24;
   const padBottom = isMobile ? 4 : 22;
   const chartW = cssW - padLeft - padRight;
