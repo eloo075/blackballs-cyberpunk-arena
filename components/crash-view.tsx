@@ -18,6 +18,8 @@ import { recordHallOfFame } from '@/lib/player-retention';
 import { isVaultConfigured } from '@/lib/chain/public-config';
 import { resolvePlayableBalance, resolveClientSyncBalance } from '@/lib/session-balance';
 import { CrashMobileHeader } from '@/components/crash-mobile-header';
+import { CrashMobileHistoryReel } from '@/components/crash-mobile-history-reel';
+import { CrashMobileLowerPanel } from '@/components/crash-mobile-lower-panel';
 import { syncGameSessionBalances } from '@/lib/sync-game-sessions';
 import { useGameTabFocus } from '@/lib/use-game-tab-focus';
 import { useExtrapolatedCrashDisplay } from '@/hooks/use-extrapolated-crash-display';
@@ -204,9 +206,9 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
   return (
     <>
       <ResultFeedback event={resultEvent} onComplete={dismissResult} />
-    <div className="flex flex-col lg:flex-row gap-1 sm:gap-3 p-1 sm:p-3 max-w-[1700px] mx-auto w-full max-sm:h-full max-sm:max-h-full max-sm:min-h-0 max-sm:overflow-hidden">
-      {/* Mobile: locked one-screen shell (chart fills leftover; controls docked). Desktop unchanged. */}
-      <div className="flex flex-col gap-1 sm:gap-3 min-w-0 flex-1 max-sm:h-full max-sm:min-h-0 max-sm:overflow-hidden">
+    <div className="flex flex-col lg:flex-row gap-1 sm:gap-3 p-1 sm:p-3 max-w-[1700px] mx-auto w-full max-md:min-h-0">
+      {/* Mobile: primary trade frame + scrollable lower activity. Desktop unchanged. */}
+      <div className="flex flex-col gap-1 sm:gap-3 min-w-0 flex-1 max-md:min-h-0">
         <CrashMobileHeader
           blackballsBalance={playableBalance}
           solBalance={wallet.solBalance}
@@ -217,6 +219,8 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
           isDemoWallet={wallet.connected && !wallet.isRealWallet}
           onDemoRefill={handleDemoRefill}
         />
+
+        <CrashMobileHistoryReel history={state.history} />
 
         {/* desktop status bar */}
         <div className="cp-panel px-4 py-2 items-center justify-between text-xs flex-wrap gap-2 hidden sm:flex">
@@ -260,10 +264,10 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
           </div>
         </div>
 
-        {/* chart + trade dock — mobile: ~52vh chart + compact controls dock */}
-        <div className="flex flex-col gap-1 sm:gap-2 min-w-0 max-md:flex-1 max-md:min-h-0 max-md:overflow-hidden md:shrink-0 md:flex-none">
+        {/* Primary mobile cadre: chart + BUY/SELL stay in first viewport (non-scrolling frame). */}
+        <div className="flex flex-col gap-1 sm:gap-2 min-w-0 shrink-0 max-md:max-h-[85vh] md:flex-none">
         <div
-          className={`relative overflow-hidden w-full h-[42vh] min-h-[220px] max-h-[42vh] md:min-h-[440px] md:h-[54vh] md:max-h-none rounded-lg sm:rounded-2xl border border-white/[0.06] bg-[#06070a] ${chartCadreClass}`}
+          className={`relative overflow-hidden w-full h-[37vh] min-h-[200px] max-h-[38vh] md:min-h-[440px] md:h-[54vh] md:max-h-none rounded-lg sm:rounded-2xl border border-white/[0.06] bg-[#06070a] ${chartCadreClass}`}
         >
           <div
             className="pointer-events-none absolute inset-0 opacity-40"
@@ -465,6 +469,15 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
         />
         </div>
         </div>
+
+        <CrashMobileLowerPanel
+          history={state.history}
+          feed={state.feed}
+          tradeTags={publicTradeTags}
+          mult={display.mult}
+          phase={state.phase}
+          buyersIn={state.buyersIn}
+        />
 
         {state.phase === 'crashed' && (
           <div className="hidden sm:block">

@@ -32,19 +32,19 @@ function GameHome() {
   return (
     <div
       className={`bg-[#141518] flex flex-col font-arcade ${
-        mobile && tab === 'crash' ? 'h-dvh max-h-dvh overflow-hidden' : 'min-h-screen'
+        mobile && tab === 'crash' ? 'h-dvh max-h-dvh' : 'min-h-screen'
       }`}
     >
       <Nav activeTab={tab} onTabChange={setTab} />
       <main
         className={`flex-1 min-h-0 ${
-          mobile && tab === 'crash' ? 'overflow-hidden flex flex-col' : ''
+          mobile && tab === 'crash' ? 'overflow-y-auto overscroll-contain' : ''
         }`}
       >
         {mobile ? (
           <>
             {tab === 'crash' && (
-              <div className="flex-1 min-h-0 overflow-hidden">
+              <div className="min-h-0">
                 <CrashView visible />
               </div>
             )}
