@@ -341,7 +341,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
         {/* Primary mobile cadre: chart + BUY/SELL stay in first viewport (non-scrolling frame). */}
         <div className="flex flex-col gap-1 sm:gap-2 min-w-0 shrink-0 max-md:max-h-[85vh] md:flex-none">
         <div
-          className={`relative overflow-hidden w-full h-[37vh] min-h-[200px] max-h-[38vh] md:min-h-[440px] md:h-[54vh] md:max-h-none rounded-lg sm:rounded-2xl border bg-[#06070a] transition-[box-shadow,border-color] duration-200 ${chartCadreClass}`}
+          className={`relative overflow-hidden w-full h-[37vh] min-h-[200px] max-h-[38vh] md:min-h-[300px] md:h-[42vh] md:max-h-[46vh] lg:h-[44vh] rounded-lg sm:rounded-2xl border bg-[#06070a] transition-[box-shadow,border-color] duration-200 ${chartCadreClass}`}
         >
           <div
             className="pointer-events-none absolute inset-0 opacity-40"
