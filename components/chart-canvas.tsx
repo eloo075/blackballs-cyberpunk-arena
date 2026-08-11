@@ -252,8 +252,8 @@ function drawMobileTradeMarker(
   compact: boolean,
 ) {
   const isBuy = m.type === 'BUY';
-  // Laptop: larger, clearer icons + text. Mobile stays compact.
-  const iconR = (compact ? 4.5 : 9) * dpr;
+  // Laptop: large icons + text; mobile still readable.
+  const iconR = (compact ? 5.5 : 12) * dpr;
   const iconD = iconR * 2;
   const age = Date.now() - m.timestamp;
   const life = Math.max(0, 1 - age / MOBILE_TRADE_MARKER_MS);
@@ -301,28 +301,28 @@ function drawMobileTradeMarker(
 
   const user = truncateUser(m.username);
   const sideLine = isBuy ? `Buy +${formatTradeAmt(m.amount)}` : `Sell -${formatTradeAmt(m.amount)}`;
-  const fontPx = (compact ? 6.5 : 11) * dpr;
+  const fontPx = (compact ? 7.5 : 13.5) * dpr;
   const userFont = `800 ${fontPx}px JetBrains Mono, monospace`;
   const amtFont = `800 ${fontPx}px JetBrains Mono, monospace`;
   ctx.font = userFont;
   const userW = ctx.measureText(user).width;
   ctx.font = amtFont;
   const amtW = ctx.measureText(sideLine).width;
-  const pillPadX = (compact ? 3.5 : 7) * dpr;
+  const pillPadX = (compact ? 4.5 : 9) * dpr;
   const pillW = Math.max(userW, amtW) + pillPadX * 2;
-  const pillH = (compact ? 15 : 26) * dpr;
-  const gap = (compact ? 3.5 : 8) * dpr;
+  const pillH = (compact ? 18 : 32) * dpr;
+  const gap = (compact ? 4 : 10) * dpr;
   const pillX = labelLeft ? x - iconR - gap - pillW : x + iconR + gap;
   const pillY = y - pillH / 2;
 
-  roundRectPath(ctx, pillX, snap(pillY), pillW, pillH, (compact ? 4 : 6) * dpr);
+  roundRectPath(ctx, pillX, snap(pillY), pillW, pillH, (compact ? 4 : 7) * dpr);
   ctx.fillStyle = 'rgba(13, 15, 18, 0.94)';
   ctx.fill();
   ctx.strokeStyle = isBuy ? 'rgba(249, 115, 22, 0.85)' : 'rgba(245, 158, 11, 0.8)';
-  ctx.lineWidth = (compact ? 1 : 1.5) * dpr;
+  ctx.lineWidth = (compact ? 1 : 1.75) * dpr;
   ctx.stroke();
 
-  const tyOff = compact ? 3.5 : 5.5;
+  const tyOff = compact ? 4 : 7;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.font = userFont;
@@ -705,7 +705,6 @@ export function ChartCanvas({
         // Track close tip color from the leading candle body (green if close ≥ open).
         const isGreen = activeCandle ? activeCandle.c >= activeCandle.o : p.phase === 'running';
         const trackStroke = isGreen ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)';
-        const trackFill = isGreen ? 'rgba(16,185,129,0.92)' : 'rgba(239,68,68,0.92)';
 
         const targetY = yFor(activeCandle ? activeCandle.c : dispMult);
         if (smoothLiveYRef.current == null) {
@@ -741,26 +740,34 @@ export function ChartCanvas({
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Smooth counting badge (lerp mult → toFixed(2)).
+        // Neon live multiplier badge (slightly larger + glow).
         const liveLabel = formatLiveMultLabel(dispMult);
-        const liveFont = (isMobile ? 9 : 11) * dpr;
-        ctx.font = `bold ${liveFont}px JetBrains Mono, monospace`;
+        const neon = isGreen ? '#39FFB6' : '#FF5C6A';
+        const neonSoft = isGreen ? 'rgba(57, 255, 182, 0.95)' : 'rgba(255, 92, 106, 0.95)';
+        const liveFont = (isMobile ? 11 : 15) * dpr;
+        ctx.font = `800 ${liveFont}px JetBrains Mono, monospace`;
         const tw = ctx.measureText(liveLabel).width;
-        const tagW = tw + (isMobile ? 10 : 12) * dpr;
-        const tagH = (isMobile ? 16 : 18) * dpr;
+        const tagW = tw + (isMobile ? 12 : 16) * dpr;
+        const tagH = (isMobile ? 20 : 26) * dpr;
         const tagX = Math.min(cssW - tagW - 2 * dpr, chartRight - tagW * 0.15);
         const tagY = snap(y - tagH / 2);
-        roundRectPath(ctx, tagX, tagY, tagW, tagH, 4 * dpr);
-        ctx.fillStyle = trackFill;
+        roundRectPath(ctx, tagX, tagY, tagW, tagH, (isMobile ? 5 : 6) * dpr);
+        ctx.fillStyle = 'rgba(6, 8, 12, 0.88)';
         ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-        ctx.lineWidth = Math.max(1, 0.8 * dpr);
+        ctx.shadowColor = neonSoft;
+        ctx.shadowBlur = (isMobile ? 10 : 14) * dpr;
+        ctx.strokeStyle = neon;
+        ctx.lineWidth = (isMobile ? 1.25 : 1.6) * dpr;
         ctx.stroke();
-        ctx.fillStyle = '#ffffff';
-        ctx.shadowColor = 'rgba(255,255,255,0.55)';
-        ctx.shadowBlur = 5 * dpr;
+        ctx.fillStyle = neon;
+        ctx.shadowColor = neon;
+        ctx.shadowBlur = (isMobile ? 12 : 18) * dpr;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
+        ctx.fillText(liveLabel, tagX + tagW / 2, y);
+        // Second pass for brighter core.
+        ctx.shadowBlur = (isMobile ? 4 : 6) * dpr;
+        ctx.fillStyle = '#ffffff';
         ctx.fillText(liveLabel, tagX + tagW / 2, y);
         ctx.shadowBlur = 0;
         ctx.textAlign = 'left';
