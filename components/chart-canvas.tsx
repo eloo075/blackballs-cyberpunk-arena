@@ -118,9 +118,9 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
-/** Smooth badge text — 2dp for readable count-up. */
+/** Smooth badge text — 2dp for readable count-up; rug locks at 0x. */
 function formatLiveMultLabel(v: number): string {
-  if (!Number.isFinite(v)) return '0.00x';
+  if (!Number.isFinite(v) || v <= 0) return '0.00x';
   if (v >= 100) return `${v.toFixed(1)}x`;
   return `${v.toFixed(2)}x`;
 }
@@ -457,8 +457,23 @@ export function ChartCanvas({
       const slice = visible.slice(startIdx).map(c => ({ ...c }));
 
       // Ingest price ticks into a queue (render never snaps to raw WS cadence).
-      const targetMult = Number.isFinite(p.mult) && p.mult > 0 ? p.mult : 1;
-      if (lastQueuedMultRef.current !== targetMult) {
+      // After rug: hard-lock at 0x — clear queue so the badge never keeps counting.
+      const targetMult =
+        p.phase === 'crashed'
+          ? 0
+          : Number.isFinite(p.mult) && p.mult > 0
+            ? p.mult
+            : 1;
+      if (p.phase === 'crashed') {
+        tickQueueRef.current = [];
+        lastQueuedMultRef.current = 0;
+        smoothMultRef.current = 0;
+        if (smoothCandleRef.current) {
+          smoothCandleRef.current.c = 0;
+          smoothCandleRef.current.l = Math.min(smoothCandleRef.current.l, 0.01);
+        }
+        smoothLiveYRef.current = null;
+      } else if (lastQueuedMultRef.current !== targetMult) {
         tickQueueRef.current.push(targetMult);
         if (tickQueueRef.current.length > 12) {
           tickQueueRef.current = tickQueueRef.current.slice(-6);
@@ -468,18 +483,20 @@ export function ChartCanvas({
 
       const priceT = 1 - Math.exp(-PRICE_LERP_PER_SEC * dt);
       let head = tickQueueRef.current[0] ?? targetMult;
-      smoothMultRef.current = lerp(smoothMultRef.current, head, priceT);
-      while (
-        tickQueueRef.current.length > 0 &&
-        Math.abs(smoothMultRef.current - tickQueueRef.current[0]) < 0.00035
-      ) {
-        tickQueueRef.current.shift();
-        head = tickQueueRef.current[0] ?? targetMult;
+      if (p.phase !== 'crashed') {
+        smoothMultRef.current = lerp(smoothMultRef.current, head, priceT);
+        while (
+          tickQueueRef.current.length > 0 &&
+          Math.abs(smoothMultRef.current - tickQueueRef.current[0]) < 0.00035
+        ) {
+          tickQueueRef.current.shift();
+          head = tickQueueRef.current[0] ?? targetMult;
+        }
+        if (tickQueueRef.current.length > 4) {
+          smoothMultRef.current = lerp(smoothMultRef.current, targetMult, Math.min(1, priceT * 2.5));
+        }
       }
-      if (tickQueueRef.current.length > 4) {
-        smoothMultRef.current = lerp(smoothMultRef.current, targetMult, Math.min(1, priceT * 2.5));
-      }
-      const dispMult = smoothMultRef.current;
+      const dispMult = p.phase === 'crashed' ? 0 : smoothMultRef.current;
 
       if (slice.length > 0 && (p.phase === 'running' || p.phase === 'crashed')) {
         const last = slice[slice.length - 1];

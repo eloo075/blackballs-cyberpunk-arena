@@ -44,7 +44,17 @@ function computeDisplay(s: FullState, clockOffset: number): ExtrapolatedCrashDis
       waitLeft: s.waitLeft,
     };
   }
-  if (s.phase === 'waiting' || s.phase === 'crashed') {
+  if (s.phase === 'crashed') {
+    // Freeze at 0x after the rug — never keep counting / extrapolating.
+    return {
+      phase: s.phase,
+      mult: 0,
+      peakMult: s.peakMult,
+      elapsed: s.elapsed,
+      waitLeft: Math.max(0, s.waitLeft - drift),
+    };
+  }
+  if (s.phase === 'waiting') {
     return {
       phase: s.phase,
       mult: fairMult,

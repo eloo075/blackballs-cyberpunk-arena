@@ -175,10 +175,8 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
   const showLivePosition = state.hasLivePosition && state.phase === 'running';
   const showEntryLines = showLivePosition && state.phase === 'running';
   const continuousRound = state.currentRound.mode === 'continuous';
-  const chartMult =
-    state.phase === 'crashed' && state.currentRound.crashPoint != null && !continuousRound
-      ? state.currentRound.crashPoint
-      : display.mult;
+  // After rug: lock chart multiplier at 0x (no continued counting / lerp chase).
+  const chartMult = state.phase === 'crashed' ? 0 : display.mult;
   const chartPeak =
     state.phase === 'crashed' && state.currentRound.crashPoint != null
       ? Math.max(state.peakMult, state.currentRound.crashPoint)
