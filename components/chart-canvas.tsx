@@ -17,6 +17,7 @@ import {
   ChartTradeOverlays,
 } from '@/components/chart-trade-overlays';
 import { usePageVisibility } from '@/hooks/use-page-visibility';
+import { CURRENCY_LABEL } from '@/lib/format-currency';
 
 export interface EntryLevel {
   price: number;
@@ -34,7 +35,7 @@ interface ChartCanvasProps {
   tradeTags: TradeTag[];
   /** @deprecated Prefer entryLevels — kept for single-line callers. */
   entryPrice?: number | null;
-  /** Every buy lot (presale + live stacks) gets its own dashed entry line. */
+  /** Every buy lot (presale + live stacks) gets its own solid entry line. */
   entryLevels?: EntryLevel[] | null;
   positionSide?: 'buy' | 'sell';
   /** When live: green entry marker if price ≥ entry, red if underwater. */
@@ -47,6 +48,25 @@ interface ChartCanvasProps {
 
 const CANDLE_UP = '#22c55e';
 const CANDLE_DOWN = '#ef4444';
+const CASHOUT_GREEN = '#10B981';
+const LIVE_Y_DAMP = 0.15;
+
+interface CashoutSpark {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+}
+
+interface CashoutFx {
+  x: number;
+  y: number;
+  text: string;
+  alpha: number;
+  scale: number;
+  sparks: CashoutSpark[];
+}
 
 function roundRectPath(
   ctx: CanvasRenderingContext2D,
@@ -83,10 +103,15 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
+/** Smooth badge text — 2dp for readable count-up. */
 function formatLiveMultLabel(v: number): string {
-  if (!Number.isFinite(v)) return '0.000x';
+  if (!Number.isFinite(v)) return '0.00x';
   if (v >= 100) return `${v.toFixed(1)}x`;
-  return `${v.toFixed(3)}x`;
+  return `${v.toFixed(2)}x`;
+}
+
+function snap(n: number): number {
+  return Math.round(n);
 }
 
 /** Collapse near-identical entries so stacked same-price buys share one line. */
@@ -140,6 +165,29 @@ function xForEntryElapsed(
   return markerXForTrade(layout, sliceIdx, cur.t, entryElapsed, dur);
 }
 
+function spawnCashoutFx(x: number, y: number, amount: number): CashoutFx {
+  const sparks: CashoutSpark[] = [];
+  for (let i = 0; i < 10; i++) {
+    const a = (Math.PI * 2 * i) / 10 + Math.random() * 0.4;
+    const speed = 1.2 + Math.random() * 2.4;
+    sparks.push({
+      x,
+      y,
+      vx: Math.cos(a) * speed,
+      vy: Math.sin(a) * speed - 0.6,
+      life: 1,
+    });
+  }
+  return {
+    x,
+    y,
+    text: `+${amount.toFixed(2)} ${CURRENCY_LABEL}`,
+    alpha: 1,
+    scale: 1,
+    sparks,
+  };
+}
+
 export function ChartCanvas({
   candles,
   phase,
@@ -167,6 +215,7 @@ export function ChartCanvas({
     entryLevels,
     positionSide,
     entryInProfit,
+    viewerName,
   });
   propsRef.current = {
     candles,
@@ -179,6 +228,7 @@ export function ChartCanvas({
     entryLevels,
     positionSide,
     entryInProfit,
+    viewerName,
   };
   const pageActive = usePageVisibility(active);
 
@@ -190,6 +240,11 @@ export function ChartCanvas({
   const smoothMultRef = useRef(1);
   const smoothCandleRef = useRef<{ t: number; h: number; l: number; c: number } | null>(null);
   const smoothRangeRef = useRef({ min: 0, max: 2, primed: false });
+  /** Damped screen-Y for live price line / badge (kills sub-pixel tremor). */
+  const smoothLiveYRef = useRef<number | null>(null);
+  const cashoutFxRef = useRef<CashoutFx[]>([]);
+  const seenSellIdsRef = useRef<Set<number>>(new Set());
+  const sellBootstrappedRef = useRef(false);
 
   useEffect(() => {
     if (!pageActive) return;
@@ -197,6 +252,7 @@ export function ChartCanvas({
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    ctx.imageSmoothingEnabled = true;
 
     let lastFrame = performance.now();
     const SHIFT_LERP_PER_SEC = 8;
@@ -222,6 +278,7 @@ export function ChartCanvas({
         canvas.height = bh;
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.imageSmoothingEnabled = true;
       ctx.clearRect(0, 0, cssW, cssH);
 
       const isMobile = cssW < 768;
@@ -256,7 +313,6 @@ export function ChartCanvas({
         tickQueueRef.current.shift();
         head = tickQueueRef.current[0] ?? targetMult;
       }
-      // Catch up if queue is deep (tab resume / burst ticks).
       if (tickQueueRef.current.length > 4) {
         smoothMultRef.current = lerp(smoothMultRef.current, targetMult, Math.min(1, priceT * 2.5));
       }
@@ -279,7 +335,6 @@ export function ChartCanvas({
           prev.c = lerp(prev.c, targetC, priceT);
           prev.h = lerp(prev.h, Math.max(prev.h, targetH), priceT);
           prev.l = lerp(prev.l, Math.min(prev.l, targetL), priceT);
-          // Keep OHLC invariants while easing.
           prev.h = Math.max(prev.h, last.o, prev.c);
           prev.l = Math.min(prev.l, last.o, prev.c);
         }
@@ -296,6 +351,10 @@ export function ChartCanvas({
         lastQueuedMultRef.current = null;
         smoothMultRef.current = targetMult;
         smoothRangeRef.current.primed = false;
+        smoothLiveYRef.current = null;
+        cashoutFxRef.current = [];
+        seenSellIdsRef.current = new Set();
+        sellBootstrappedRef.current = false;
       }
 
       if (visible.length > prevCandleCountRef.current) {
@@ -348,7 +407,7 @@ export function ChartCanvas({
       ctx.font = `600 ${(isMobile ? 9 : 10) * dpr}px JetBrains Mono, monospace`;
       ctx.textBaseline = 'middle';
       for (const tick of axisTicks) {
-        const gy = yFor(tick);
+        const gy = snap(yFor(tick));
         if (gy < padTop - 2 || gy > padTop + chartH + 2) continue;
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
         ctx.lineWidth = 1;
@@ -364,7 +423,7 @@ export function ChartCanvas({
         const badgeW = lw + 6 * dpr;
         const badgeH = (isMobile ? 14 : 16) * dpr;
         const bx = Math.max(2 * dpr, padLeft - badgeW - 4 * dpr);
-        const by = gy - badgeH / 2;
+        const by = snap(gy - badgeH / 2);
         roundRectPath(ctx, bx, by, badgeW, badgeH, 3 * dpr);
         ctx.fillStyle = 'rgba(10, 12, 16, 0.72)';
         ctx.fill();
@@ -375,7 +434,6 @@ export function ChartCanvas({
       ctx.textAlign = 'left';
       ctx.textBaseline = 'alphabetic';
 
-      // Desktop only — mobile time labels overlap and clutter the chart.
       if (!isMobile) {
         const timeTicks = pickTimeTicks(p.elapsed);
         ctx.fillStyle = 'rgba(255,255,255,0.28)';
@@ -399,10 +457,10 @@ export function ChartCanvas({
         const isCrashCandle = p.phase === 'crashed' && isLast && c.c < c.o;
         const color = isCrashCandle ? CANDLE_DOWN : up ? CANDLE_UP : CANDLE_DOWN;
 
-        const yH = yFor(c.h);
-        const yL = yFor(c.l);
-        const yO = yFor(c.o);
-        const yC = yFor(c.c);
+        const yH = snap(yFor(c.h));
+        const yL = snap(yFor(c.l));
+        const yO = snap(yFor(c.o));
+        const yC = snap(yFor(c.c));
 
         ctx.strokeStyle = color;
         ctx.globalAlpha = 0.85;
@@ -442,13 +500,19 @@ export function ChartCanvas({
       });
 
       if (p.phase === 'running' || p.phase === 'crashed') {
-        const y = yFor(dispMult);
+        const targetY = yFor(dispMult);
+        if (smoothLiveYRef.current == null) {
+          smoothLiveYRef.current = targetY;
+        } else {
+          smoothLiveYRef.current += (targetY - smoothLiveYRef.current) * LIVE_Y_DAMP;
+        }
+        const y = snap(smoothLiveYRef.current);
         const rising = p.phase === 'running';
         const col = rising ? CANDLE_UP : CANDLE_DOWN;
         const chartRight = padLeft + chartW;
         const tipX = Math.min(chartRight - 2, Math.max(padLeft, lastBodyRight));
 
-        // Dashed indicator from active candle tip → right edge.
+        // Dashed indicator from active candle tip → right edge (pixel-snapped Y).
         ctx.strokeStyle = col + (isMobile ? 'AA' : '88');
         ctx.setLineDash([5 * dpr, 4 * dpr]);
         ctx.lineWidth = (isMobile ? 1.35 : 1.15) * dpr;
@@ -458,7 +522,7 @@ export function ChartCanvas({
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Highlighted multiplier badge anchored on the active line (right edge).
+        // Smooth counting badge (lerp mult → toFixed(2)).
         const liveLabel = formatLiveMultLabel(dispMult);
         const liveFont = (isMobile ? 9 : 11) * dpr;
         ctx.font = `bold ${liveFont}px JetBrains Mono, monospace`;
@@ -466,7 +530,7 @@ export function ChartCanvas({
         const tagW = tw + (isMobile ? 10 : 12) * dpr;
         const tagH = (isMobile ? 16 : 18) * dpr;
         const tagX = Math.min(cssW - tagW - 2 * dpr, chartRight - tagW * 0.15);
-        const tagY = y - tagH / 2;
+        const tagY = snap(y - tagH / 2);
         roundRectPath(ctx, tagX, tagY, tagW, tagH, 4 * dpr);
         ctx.fillStyle = rising ? 'rgba(16,185,129,0.92)' : 'rgba(239,68,68,0.92)';
         ctx.fill();
@@ -478,7 +542,7 @@ export function ChartCanvas({
         ctx.shadowBlur = 5 * dpr;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(liveLabel, tagX + tagW / 2, tagY + tagH / 2);
+        ctx.fillText(liveLabel, tagX + tagW / 2, y);
         ctx.shadowBlur = 0;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'alphabetic';
@@ -494,31 +558,25 @@ export function ChartCanvas({
       const layout = layoutRef.current;
       levels.forEach((level, li) => {
         if (!level.price || level.price <= 0 || !layout) return;
-        const ey = yFor(level.price);
-        const inProfit =
-          p.positionSide === 'sell'
-            ? dispMult <= level.price + 1e-9
-            : dispMult >= level.price - 1e-9;
-        const entryCol = inProfit ? 'rgba(34,197,94,0.78)' : 'rgba(239,68,68,0.78)';
-        const entryFill = inProfit ? '#22c55e' : '#ef4444';
+        const ey = snap(yFor(level.price));
         const x0 = Math.min(
           padLeft + chartW - 4,
           Math.max(padLeft, xForEntryElapsed(layout, visible, level.elapsed)),
         );
         const x1 = padLeft + chartW;
 
-        ctx.strokeStyle = entryCol;
-        ctx.setLineDash([6 * dpr, 4 * dpr]);
-        ctx.lineWidth = 1.5 * dpr;
+        // Continuous solid white entry line (no dash, no green/red stroke).
+        ctx.setLineDash([]);
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 1.6 * dpr;
         ctx.beginPath();
         ctx.moveTo(x0, ey);
         ctx.lineTo(x1, ey);
         ctx.stroke();
-        ctx.setLineDash([]);
 
         ctx.beginPath();
         ctx.arc(x0, ey, 3.2 * dpr, 0, Math.PI * 2);
-        ctx.fillStyle = entryFill;
+        ctx.fillStyle = '#FFFFFF';
         ctx.fill();
 
         const label = `ENTRY ${level.price.toFixed(2)}x`;
@@ -528,18 +586,17 @@ export function ChartCanvas({
         const bh = (isMobile ? 10 : 12) * dpr;
         const bw = tw + (isMobile ? 7 : 9) * dpr;
         const stack = Math.min(li, 4);
-        // Always ABOVE the entry line (Buy sits beside the logo) — no overlap.
         let bx = x0 - bw * 0.35;
         bx = Math.max(padLeft + 2 * dpr, Math.min(bx, padLeft + chartW - bw - 2 * dpr));
-        const by = ey - bh - (isMobile ? 12 : 14) * dpr - stack * (bh + 3 * dpr);
+        const by = snap(ey - bh - (isMobile ? 12 : 14) * dpr - stack * (bh + 3 * dpr));
         roundRectPath(ctx, bx, by, bw, bh, 3 * dpr);
-        ctx.fillStyle = 'rgba(8,10,14,0.82)';
+        ctx.fillStyle = 'rgba(8,10,14,0.88)';
         ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.38)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.55)';
         ctx.lineWidth = Math.max(1, 0.75 * dpr);
         ctx.stroke();
-        ctx.shadowColor = 'rgba(255,255,255,0.9)';
-        ctx.shadowBlur = 5 * dpr;
+        ctx.shadowColor = 'rgba(255,255,255,0.75)';
+        ctx.shadowBlur = 4 * dpr;
         ctx.fillStyle = '#ffffff';
         ctx.textBaseline = 'middle';
         ctx.fillText(label, bx + (isMobile ? 3.5 : 4.5) * dpr, by + bh / 2);
@@ -548,7 +605,7 @@ export function ChartCanvas({
       });
 
       if (p.peakMult > 1.15 && p.phase !== 'waiting') {
-        const py = yFor(p.peakMult);
+        const py = snap(yFor(p.peakMult));
         ctx.strokeStyle = 'rgba(157,0,255,0.28)';
         ctx.setLineDash([2 * dpr, 4 * dpr]);
         ctx.lineWidth = 1 * dpr;
@@ -565,6 +622,103 @@ export function ChartCanvas({
         ctx.textAlign = 'center';
         ctx.fillText('// AWAITING_ROUND', padLeft + chartW / 2, padTop + chartH / 2);
         ctx.textAlign = 'left';
+      }
+
+      // Cashout floating FX — spawn from personal sell tags (visual only).
+      const viewer = p.viewerName;
+      if (viewer && layout) {
+        if (!sellBootstrappedRef.current) {
+          for (const tag of p.tradeTags) {
+            if (tag.side === 'sell' && tag.user === viewer) {
+              seenSellIdsRef.current.add(tag.id);
+            }
+          }
+          sellBootstrappedRef.current = true;
+        } else {
+          for (const tag of p.tradeTags) {
+            if (tag.side !== 'sell' || tag.user !== viewer) continue;
+            if (seenSellIdsRef.current.has(tag.id)) continue;
+            seenSellIdsRef.current.add(tag.id);
+            const sliceIdx = (() => {
+              const g =
+                tag.candleT != null
+                  ? visible.findIndex(c => Math.abs(c.t - tag.candleT!) < 1e-4)
+                  : visible.length - 1;
+              const idx = g >= 0 ? g : visible.length - 1;
+              return idx - layout.visibleStartIdx;
+            })();
+            const fxX =
+              sliceIdx >= 0
+                ? markerXForTrade(
+                    layout,
+                    sliceIdx,
+                    tag.candleT,
+                    tag.elapsed ?? tag.t,
+                    4,
+                  )
+                : padLeft + chartW * 0.7;
+            const fxY = snap(yFor(tag.price > 0 ? tag.price : dispMult));
+            cashoutFxRef.current.push(spawnCashoutFx(fxX, fxY, tag.amount));
+            if (cashoutFxRef.current.length > 6) {
+              cashoutFxRef.current = cashoutFxRef.current.slice(-6);
+            }
+          }
+        }
+      }
+
+      // Animate + draw cashout pills / sparks.
+      if (cashoutFxRef.current.length > 0) {
+        const next: CashoutFx[] = [];
+        for (const fx of cashoutFxRef.current) {
+          fx.y -= 1.2;
+          fx.alpha -= 0.02;
+          fx.scale = Math.min(1.12, fx.scale + 0.01);
+          for (const s of fx.sparks) {
+            s.x += s.vx;
+            s.y += s.vy;
+            s.vy += 0.05;
+            s.life -= 0.035;
+          }
+          fx.sparks = fx.sparks.filter(s => s.life > 0);
+          if (fx.alpha <= 0) continue;
+          next.push(fx);
+
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, fx.alpha);
+          for (const s of fx.sparks) {
+            ctx.globalAlpha = Math.max(0, fx.alpha * s.life);
+            ctx.fillStyle = CASHOUT_GREEN;
+            ctx.beginPath();
+            ctx.arc(snap(s.x), snap(s.y), 1.6 * dpr, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.globalAlpha = Math.max(0, fx.alpha);
+          const fontPx = (isMobile ? 10 : 12) * dpr * fx.scale;
+          ctx.font = `bold ${fontPx}px JetBrains Mono, monospace`;
+          const tw = ctx.measureText(fx.text).width;
+          const pillW = tw + 14 * dpr;
+          const pillH = (isMobile ? 18 : 20) * dpr;
+          const px = snap(fx.x - pillW / 2);
+          const py = snap(fx.y - pillH / 2);
+          ctx.shadowColor = 'rgba(16,185,129,0.55)';
+          ctx.shadowBlur = 10 * dpr;
+          roundRectPath(ctx, px, py, pillW, pillH, 999);
+          ctx.fillStyle = 'rgba(8,14,12,0.88)';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(16,185,129,0.65)';
+          ctx.lineWidth = 1 * dpr;
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = CASHOUT_GREEN;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(fx.text, snap(fx.x), snap(fx.y));
+          ctx.restore();
+        }
+        cashoutFxRef.current = next;
+        ctx.globalAlpha = 1;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
       }
     };
 
