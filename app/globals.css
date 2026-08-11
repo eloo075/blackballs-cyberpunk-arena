@@ -163,13 +163,15 @@ body {
 }
 
 @keyframes trade-toast-one {
-  0% { opacity: 0; transform: scale(0.72) translateY(6px); }
-  18% { opacity: 1; transform: scale(1.04) translateY(0); }
+  0% { opacity: 0; transform: scale(0.55) translateY(8px); }
+  22% { opacity: 1; transform: scale(1.12) translateY(0); }
+  40% { transform: scale(0.96) translateY(0); }
+  55% { transform: scale(1.02) translateY(0); }
   78% { opacity: 1; transform: scale(1) translateY(0); }
-  100% { opacity: 0; transform: scale(0.92) translateY(-4px); }
+  100% { opacity: 0; transform: scale(0.88) translateY(-6px); }
 }
 .trade-toast-one {
-  animation: trade-toast-one 0.72s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: trade-toast-one 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes trade-marker-ring {
@@ -1062,12 +1064,13 @@ body {
 }
 
 @keyframes marker-pop {
-  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.55); }
-  70% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+  55% { opacity: 1; transform: translate(-50%, -50%) scale(1.18); }
+  78% { transform: translate(-50%, -50%) scale(0.94); }
   100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
 .trade-marker-pop {
-  animation: marker-pop 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: marker-pop 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes rug-flash {

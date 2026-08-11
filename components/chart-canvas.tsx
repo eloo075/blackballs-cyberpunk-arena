@@ -10,7 +10,6 @@ import {
   formatAxisMultLabel,
   markerXForTrade,
   pickNiceMultTicks,
-  resolveCandleIndex,
   type ChartLayoutFrame,
 } from '@/lib/chart-layout';
 import {
@@ -51,9 +50,9 @@ const CANDLE_UP = '#22c55e';
 const CANDLE_DOWN = '#ef4444';
 const CASHOUT_GREEN = '#10B981';
 const LIVE_Y_DAMP = 0.15;
-/** Mobile public trade toasts — one at a time, short lifetime. */
-const MOBILE_TRADE_MARKER_MS = 1100;
-const MOBILE_TRADE_GAP_MS = 80;
+/** Mobile public trade toasts — one at a time on the live candle tip. */
+const MOBILE_TRADE_MARKER_MS = 900;
+const MOBILE_TRADE_GAP_MS = 60;
 const DEFAULT_CANDLE_DURATION_SEC = 4;
 
 interface LiveTradeOverlay {
@@ -215,6 +214,15 @@ function candleDurationSec(candles: Candle[], visibleStartIdx: number, candleIdx
   return DEFAULT_CANDLE_DURATION_SEC;
 }
 
+/** True when the trade belongs on the currently forming (active) candle. */
+function isLiveCandleTrade(tag: { candleT?: number; elapsed?: number }, candles: Candle[]): boolean {
+  const last = candles[candles.length - 1];
+  if (!last) return false;
+  if (tag.candleT != null && Math.abs(tag.candleT - last.t) < 1e-3) return true;
+  if (tag.elapsed != null && tag.elapsed + 1e-9 >= last.t) return true;
+  return false;
+}
+
 function truncateUser(name: string): string {
   if (name.length <= 9) return name;
   return `${name.slice(0, 3)}…${name.slice(-3)}`;
@@ -224,6 +232,12 @@ function formatTradeAmt(amount: number): string {
   if (Math.abs(amount - Math.round(amount)) < 1e-6) return String(Math.round(amount));
   if (amount >= 100) return amount.toFixed(1);
   return amount.toFixed(2);
+}
+
+function easeOutBack(t: number): number {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
 }
 
 function drawMobileTradeMarker(
@@ -237,15 +251,20 @@ function drawMobileTradeMarker(
   bearImg: HTMLImageElement | null,
 ) {
   const isBuy = m.type === 'BUY';
-  // Compact mobile FOMO chip — ~11px icon, ~7–8px type.
   const iconR = 5.5 * dpr;
   const iconD = iconR * 2;
   const age = Date.now() - m.timestamp;
   const life = Math.max(0, 1 - age / MOBILE_TRADE_MARKER_MS);
-  const alpha = life > 0.2 ? 1 : life / 0.2;
+  const alpha = life > 0.18 ? 1 : life / 0.18;
+  // Small pop-in on the candle tip.
+  const popT = Math.min(1, age / 220);
+  const scale = 0.55 + 0.45 * easeOutBack(popT);
 
   ctx.save();
   ctx.globalAlpha = alpha;
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  ctx.translate(-x, -y);
 
   ctx.beginPath();
   ctx.arc(x, y, iconR + 0.8 * dpr, 0, Math.PI * 2);
@@ -792,42 +811,48 @@ export function ChartCanvas({
         ctx.textAlign = 'left';
       }
 
-      // Mobile: one compact public buy/sell marker at a time (no candle crowding).
+      // Mobile: one live-candle trade marker at the exact buy/sell point (no old-wallet backlog).
       if (isMobile && layout) {
         const now = Date.now();
         const viewer = p.viewerName;
+        const lastCandle = visible[visible.length - 1];
         if (!publicTradeBootstrappedRef.current) {
           for (const tag of p.tradeTags) {
-            if (viewer && tag.user === viewer) continue;
             seenPublicTradeIdsRef.current.add(tag.id);
           }
           publicTradeBootstrappedRef.current = true;
-        } else {
+        } else if (lastCandle) {
           for (const tag of p.tradeTags) {
             if (viewer && tag.user === viewer) continue;
             if (seenPublicTradeIdsRef.current.has(tag.id)) continue;
             seenPublicTradeIdsRef.current.add(tag.id);
+            // Only the active candle — skip historical wallets/candles.
+            if (!isLiveCandleTrade(tag, visible)) continue;
             liveTradeQueueRef.current.push({
               id: tag.id,
               type: tag.side === 'buy' ? 'BUY' : 'SELL',
               username: tag.user,
               amount: tag.amount,
               price: tag.price,
-              candleT: tag.candleT,
+              candleT: tag.candleT ?? lastCandle.t,
               elapsed: tag.elapsed ?? tag.t,
               timestamp: 0,
             });
           }
-          // Drop oldest during spam so the queue stays snappy.
-          if (liveTradeQueueRef.current.length > 6) {
-            liveTradeQueueRef.current = liveTradeQueueRef.current.slice(-6);
+          // Keep only the newest couple — never replay a long previous-wallet backlog.
+          if (liveTradeQueueRef.current.length > 2) {
+            liveTradeQueueRef.current = liveTradeQueueRef.current.slice(-2);
           }
         }
 
         const active = activeLiveTradeRef.current;
-        if (active && now - active.timestamp > MOBILE_TRADE_MARKER_MS) {
-          activeLiveTradeRef.current = null;
-          nextLiveTradeAtRef.current = now + MOBILE_TRADE_GAP_MS;
+        if (active) {
+          const expired = now - active.timestamp > MOBILE_TRADE_MARKER_MS;
+          const offLive = !isLiveCandleTrade(active, visible);
+          if (expired || offLive) {
+            activeLiveTradeRef.current = null;
+            nextLiveTradeAtRef.current = now + MOBILE_TRADE_GAP_MS;
+          }
         }
 
         if (
@@ -841,24 +866,22 @@ export function ChartCanvas({
         }
 
         const m = activeLiveTradeRef.current;
-        if (m) {
-          const candleIdx = resolveCandleIndex(
-            visible,
-            layout.visibleStartIdx,
-            m.candleT,
-            m.price,
-          );
+        if (m && lastCandle) {
+          // Always pin to the active (last) candle slot at the trade's elapsed + price.
+          const candleIdx = visible.length - 1 - layout.visibleStartIdx;
           if (candleIdx >= 0) {
+            const dur = candleDurationSec(visible, layout.visibleStartIdx, candleIdx);
             let mx = markerXForTrade(
               layout,
               candleIdx,
-              m.candleT,
-              m.elapsed,
-              candleDurationSec(visible, layout.visibleStartIdx, candleIdx),
+              lastCandle.t,
+              m.elapsed ?? m.candleT,
+              dur,
             );
             const minX = padLeft + 10;
             const maxX = padLeft + chartW - 10;
             mx = Math.min(maxX, Math.max(minX, mx));
+            // Y = exact fill price on the candle — not the live tip.
             let my = yFor(m.price > 0 ? m.price : dispMult);
             my = Math.min(padTop + chartH - 14, Math.max(padTop + 14, my));
             const labelLeft = mx > padLeft + chartW * 0.48;

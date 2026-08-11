@@ -160,18 +160,32 @@ function tagAnchor(
   candles: Candle[],
   tag: TradeTag,
 ): { x: number; y: number; labelLeft: boolean } | null {
-  const candleIdx = resolveCandleIndex(
-    candles,
-    layout.visibleStartIdx,
-    tag.candleT,
-    tag.price,
-  );
+  const last = candles[candles.length - 1];
+  const onLive =
+    !!last &&
+    (tag.candleT == null ||
+      Math.abs(tag.candleT - last.t) < 1e-3 ||
+      (tag.elapsed != null && tag.elapsed + 1e-9 >= last.t));
+
+  // Live trades always pin to the active candle at the exact fill elapsed/price.
+  let candleIdx: number;
+  if (onLive && last) {
+    candleIdx = candles.length - 1 - layout.visibleStartIdx;
+  } else {
+    candleIdx = resolveCandleIndex(
+      candles,
+      layout.visibleStartIdx,
+      tag.candleT,
+      tag.price,
+    );
+  }
   if (candleIdx < 0) return null;
 
+  const openT = onLive && last ? last.t : tag.candleT;
   let x = markerXForTrade(
     layout,
     candleIdx,
-    tag.candleT,
+    openT,
     tag.elapsed,
     candleDurationSec(candles, layout.visibleStartIdx, candleIdx),
   );
@@ -180,12 +194,12 @@ function tagAnchor(
   if (x < minX - 20 || x > maxX + 28) return null;
   x = Math.min(maxX, Math.max(minX, x));
 
+  // Exact trade price on the candle body — not the live tip.
   let y = priceToY(tag.price, layout);
   const minY = layout.padTop + 16;
   const maxY = layout.padTop + layout.chartH - 16;
   y = Math.min(maxY, Math.max(minY, y));
 
-  // Live candle sits on the right — flip labels left so they aren't clipped by the axis
   const labelLeft = x > layout.padLeft + layout.chartW * 0.48;
 
   return { x, y, labelLeft };
@@ -217,8 +231,8 @@ function placeMarkers(
       e.el.style.visibility = 'hidden';
       continue;
     }
-    // Lift buy markers so the logo sits on the line and Buy text clears above it.
-    const buyLift = e.tag.side === 'buy' ? (layout.cssW < 768 ? 10 : 12) : 0;
+    // Lift buy amount label only — keep icon centered on the fill price.
+    const buyLift = e.tag.side === 'buy' ? (layout.cssW < 768 ? 4 : 6) : 0;
     resolved.push({
       id: e.id,
       el: e.el,
@@ -369,7 +383,16 @@ export function ChartTradeOverlays({
     // Skip huge catch-up dumps on first connect / reconnect
     if (newest.length > 12) return;
 
-    const publicNewest = newest.filter(t => !isMine(t, viewerName));
+    const publicNewest = newest.filter(t => {
+      if (isMine(t, viewerName)) return false;
+      const candles = candlesRef.current;
+      const last = candles[candles.length - 1];
+      if (!last) return false;
+      // Only toast trades that land on the active candle (no old-wallet replay).
+      if (t.candleT != null && Math.abs(t.candleT - last.t) < 1e-3) return true;
+      if (t.elapsed != null && t.elapsed + 1e-9 >= last.t) return true;
+      return false;
+    });
     if (publicNewest.length === 0) return;
 
     for (const tag of publicNewest) {
@@ -378,8 +401,8 @@ export function ChartTradeOverlays({
       }
     }
     // Keep queue short — drop oldest during bot spam so we stay snappy
-    if (queueRef.current.length > MAX_QUEUE) {
-      queueRef.current = queueRef.current.slice(-MAX_QUEUE);
+    if (queueRef.current.length > 3) {
+      queueRef.current = queueRef.current.slice(-3);
     }
 
     if (!showingRef.current) {
