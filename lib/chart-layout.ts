@@ -150,9 +150,10 @@ export function markerXForTrade(
 
 /** Consistent body width + gap so candles never leave empty slots. */
 export function chartCandleMetrics(slotW: number, isMobile: boolean, dpr = 1) {
-  const candleGap = Math.max(isMobile ? 2.5 : 2, slotW * 0.22);
-  const maxBodyW = (isMobile ? 34 : 28) * dpr;
-  const minBodyW = (isMobile ? 5 : 4.5) * dpr;
+  // Tight spacing — candles sit close like rugs.fun (small gap, wide body).
+  const candleGap = Math.max(isMobile ? 1.2 : 1.5, slotW * 0.08);
+  const maxBodyW = (isMobile ? 36 : 32) * dpr;
+  const minBodyW = (isMobile ? 5.5 : 5) * dpr;
   const candleWidth = Math.max(minBodyW, Math.min(maxBodyW, slotW - candleGap));
   return { candleWidth, candleGap };
 }

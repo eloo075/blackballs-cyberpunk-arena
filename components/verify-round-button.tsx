@@ -115,11 +115,18 @@ export function VerifyRoundButton({ round }: VerifyRoundButtonProps) {
         <button
           type="button"
           onClick={verify}
-          disabled={status === 'checking'}
-          className="w-full touch-manipulation min-h-[44px] py-2.5 text-sm font-black bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50"
+          disabled={status === 'checking' || status === 'valid'}
+          className="w-full touch-manipulation min-h-[44px] py-2.5 text-sm font-black bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-45 disabled:cursor-not-allowed disabled:active:translate-y-0 disabled:hover:bg-emerald-500"
         >
-          {status === 'checking' ? 'VERIFYING…' : '✓ VERIFY THIS ROUND (1-CLICK)'}
+          {status === 'checking'
+            ? 'VERIFYING…'
+            : status === 'valid'
+              ? '✓ VERIFIED — WAIT FOR NEXT ROUND'
+              : '✓ VERIFY THIS ROUND (1-CLICK)'}
         </button>
+        {detail && status === 'valid' && (
+          <div className="mt-2 text-[11px] font-bold text-center text-emerald-300">{detail}</div>
+        )}
         {detail && status === 'invalid' && (
           <div className="mt-2 text-[11px] font-bold text-center text-rose-300">{detail}</div>
         )}

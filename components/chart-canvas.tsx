@@ -14,7 +14,6 @@ import {
 } from '@/lib/chart-layout';
 import {
   ChartTradeMarkers,
-  ChartTradeOverlays,
 } from '@/components/chart-trade-overlays';
 import { usePageVisibility } from '@/hooks/use-page-visibility';
 import { CURRENCY_LABEL } from '@/lib/format-currency';
@@ -828,8 +827,8 @@ export function ChartCanvas({
         ctx.textAlign = 'left';
       }
 
-      // Mobile: one live-candle trade marker at the exact buy/sell point (no old-wallet backlog).
-      if (isMobile && layout) {
+      // Live-candle buy/sell icons + username (same path on mobile and laptop).
+      if (layout) {
         if (p.phase !== 'running') {
           liveTradeQueueRef.current = [];
           activeLiveTradeRef.current = null;
@@ -1032,12 +1031,6 @@ export function ChartCanvas({
     <div className="relative w-full h-full overflow-visible">
       <canvas ref={canvasRef} className="w-full h-full block" />
       <ChartTradeMarkers
-        tradeTags={tradeTags}
-        candles={candles}
-        layoutRef={layoutRef}
-        viewerName={viewerName}
-      />
-      <ChartTradeOverlays
         tradeTags={tradeTags}
         candles={candles}
         layoutRef={layoutRef}
