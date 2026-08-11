@@ -251,7 +251,7 @@ function drawMobileTradeMarker(
   bearImg: HTMLImageElement | null,
 ) {
   const isBuy = m.type === 'BUY';
-  const iconR = 5.5 * dpr;
+  const iconR = 4.5 * dpr;
   const iconD = iconR * 2;
   const age = Date.now() - m.timestamp;
   const life = Math.max(0, 1 - age / MOBILE_TRADE_MARKER_MS);
@@ -267,7 +267,7 @@ function drawMobileTradeMarker(
   ctx.translate(-x, -y);
 
   ctx.beginPath();
-  ctx.arc(x, y, iconR + 0.8 * dpr, 0, Math.PI * 2);
+  ctx.arc(x, y, iconR + 0.7 * dpr, 0, Math.PI * 2);
   ctx.fillStyle = isBuy ? '#F97316' : '#78350f';
   ctx.fill();
   ctx.strokeStyle = isBuy ? '#FDBA74' : '#FCD34D';
@@ -287,16 +287,16 @@ function drawMobileTradeMarker(
 
   const user = truncateUser(m.username);
   const sideLine = isBuy ? `Buy +${formatTradeAmt(m.amount)}` : `Sell -${formatTradeAmt(m.amount)}`;
-  const userFont = `700 ${7.5 * dpr}px JetBrains Mono, monospace`;
-  const amtFont = `700 ${7.5 * dpr}px JetBrains Mono, monospace`;
+  const userFont = `700 ${6.5 * dpr}px JetBrains Mono, monospace`;
+  const amtFont = `700 ${6.5 * dpr}px JetBrains Mono, monospace`;
   ctx.font = userFont;
   const userW = ctx.measureText(user).width;
   ctx.font = amtFont;
   const amtW = ctx.measureText(sideLine).width;
-  const pillPadX = 4.5 * dpr;
+  const pillPadX = 3.5 * dpr;
   const pillW = Math.max(userW, amtW) + pillPadX * 2;
-  const pillH = 18 * dpr;
-  const gap = 4 * dpr;
+  const pillH = 15 * dpr;
+  const gap = 3.5 * dpr;
   const pillX = labelLeft ? x - iconR - gap - pillW : x + iconR + gap;
   const pillY = y - pillH / 2;
 
@@ -311,10 +311,10 @@ function drawMobileTradeMarker(
   ctx.textBaseline = 'middle';
   ctx.font = userFont;
   ctx.fillStyle = '#ffffff';
-  ctx.fillText(user, pillX + pillPadX, y - 4 * dpr);
+  ctx.fillText(user, pillX + pillPadX, y - 3.5 * dpr);
   ctx.font = amtFont;
   ctx.fillStyle = isBuy ? '#10B981' : '#EF4444';
-  ctx.fillText(sideLine, pillX + pillPadX, y + 4.5 * dpr);
+  ctx.fillText(sideLine, pillX + pillPadX, y + 3.8 * dpr);
 
   ctx.restore();
 }
@@ -813,88 +813,93 @@ export function ChartCanvas({
 
       // Mobile: one live-candle trade marker at the exact buy/sell point (no old-wallet backlog).
       if (isMobile && layout) {
-        const now = Date.now();
-        const viewer = p.viewerName;
-        const lastCandle = visible[visible.length - 1];
-        if (!publicTradeBootstrappedRef.current) {
-          for (const tag of p.tradeTags) {
-            seenPublicTradeIdsRef.current.add(tag.id);
+        if (p.phase !== 'running') {
+          liveTradeQueueRef.current = [];
+          activeLiveTradeRef.current = null;
+        } else {
+          const now = Date.now();
+          const viewer = p.viewerName;
+          const lastCandle = visible[visible.length - 1];
+          if (!publicTradeBootstrappedRef.current) {
+            for (const tag of p.tradeTags) {
+              seenPublicTradeIdsRef.current.add(tag.id);
+            }
+            publicTradeBootstrappedRef.current = true;
+          } else if (lastCandle) {
+            for (const tag of p.tradeTags) {
+              if (viewer && tag.user === viewer) continue;
+              if (seenPublicTradeIdsRef.current.has(tag.id)) continue;
+              seenPublicTradeIdsRef.current.add(tag.id);
+              // Only the active candle — skip historical wallets/candles.
+              if (!isLiveCandleTrade(tag, visible)) continue;
+              liveTradeQueueRef.current.push({
+                id: tag.id,
+                type: tag.side === 'buy' ? 'BUY' : 'SELL',
+                username: tag.user,
+                amount: tag.amount,
+                price: tag.price,
+                candleT: tag.candleT ?? lastCandle.t,
+                elapsed: tag.elapsed ?? tag.t,
+                timestamp: 0,
+              });
+            }
+            // Keep only the newest couple — never replay a long previous-wallet backlog.
+            if (liveTradeQueueRef.current.length > 2) {
+              liveTradeQueueRef.current = liveTradeQueueRef.current.slice(-2);
+            }
           }
-          publicTradeBootstrappedRef.current = true;
-        } else if (lastCandle) {
-          for (const tag of p.tradeTags) {
-            if (viewer && tag.user === viewer) continue;
-            if (seenPublicTradeIdsRef.current.has(tag.id)) continue;
-            seenPublicTradeIdsRef.current.add(tag.id);
-            // Only the active candle — skip historical wallets/candles.
-            if (!isLiveCandleTrade(tag, visible)) continue;
-            liveTradeQueueRef.current.push({
-              id: tag.id,
-              type: tag.side === 'buy' ? 'BUY' : 'SELL',
-              username: tag.user,
-              amount: tag.amount,
-              price: tag.price,
-              candleT: tag.candleT ?? lastCandle.t,
-              elapsed: tag.elapsed ?? tag.t,
-              timestamp: 0,
-            });
-          }
-          // Keep only the newest couple — never replay a long previous-wallet backlog.
-          if (liveTradeQueueRef.current.length > 2) {
-            liveTradeQueueRef.current = liveTradeQueueRef.current.slice(-2);
-          }
-        }
 
-        const active = activeLiveTradeRef.current;
-        if (active) {
-          const expired = now - active.timestamp > MOBILE_TRADE_MARKER_MS;
-          const offLive = !isLiveCandleTrade(active, visible);
-          if (expired || offLive) {
-            activeLiveTradeRef.current = null;
-            nextLiveTradeAtRef.current = now + MOBILE_TRADE_GAP_MS;
+          const active = activeLiveTradeRef.current;
+          if (active) {
+            const expired = now - active.timestamp > MOBILE_TRADE_MARKER_MS;
+            const offLive = !isLiveCandleTrade(active, visible);
+            if (expired || offLive) {
+              activeLiveTradeRef.current = null;
+              nextLiveTradeAtRef.current = now + MOBILE_TRADE_GAP_MS;
+            }
           }
-        }
 
-        if (
-          !activeLiveTradeRef.current &&
-          now >= nextLiveTradeAtRef.current &&
-          liveTradeQueueRef.current.length > 0
-        ) {
-          const next = liveTradeQueueRef.current.shift()!;
-          next.timestamp = now;
-          activeLiveTradeRef.current = next;
-        }
+          if (
+            !activeLiveTradeRef.current &&
+            now >= nextLiveTradeAtRef.current &&
+            liveTradeQueueRef.current.length > 0
+          ) {
+            const next = liveTradeQueueRef.current.shift()!;
+            next.timestamp = now;
+            activeLiveTradeRef.current = next;
+          }
 
-        const m = activeLiveTradeRef.current;
-        if (m && lastCandle) {
-          // Always pin to the active (last) candle slot at the trade's elapsed + price.
-          const candleIdx = visible.length - 1 - layout.visibleStartIdx;
-          if (candleIdx >= 0) {
-            const dur = candleDurationSec(visible, layout.visibleStartIdx, candleIdx);
-            let mx = markerXForTrade(
-              layout,
-              candleIdx,
-              lastCandle.t,
-              m.elapsed ?? m.candleT,
-              dur,
-            );
-            const minX = padLeft + 10;
-            const maxX = padLeft + chartW - 10;
-            mx = Math.min(maxX, Math.max(minX, mx));
-            // Y = exact fill price on the candle — not the live tip.
-            let my = yFor(m.price > 0 ? m.price : dispMult);
-            my = Math.min(padTop + chartH - 14, Math.max(padTop + 14, my));
-            const labelLeft = mx > padLeft + chartW * 0.48;
-            drawMobileTradeMarker(
-              ctx,
-              m,
-              snap(mx),
-              snap(my),
-              dpr,
-              labelLeft,
-              coinImgRef.current,
-              bearImgRef.current,
-            );
+          const m = activeLiveTradeRef.current;
+          if (m && lastCandle) {
+            // Always pin to the active (last) candle slot at the trade's elapsed + price.
+            const candleIdx = visible.length - 1 - layout.visibleStartIdx;
+            if (candleIdx >= 0) {
+              const dur = candleDurationSec(visible, layout.visibleStartIdx, candleIdx);
+              let mx = markerXForTrade(
+                layout,
+                candleIdx,
+                lastCandle.t,
+                m.elapsed ?? m.candleT,
+                dur,
+              );
+              const minX = padLeft + 10;
+              const maxX = padLeft + chartW - 10;
+              mx = Math.min(maxX, Math.max(minX, mx));
+              // Y = exact fill price on the candle — not the live tip.
+              let my = yFor(m.price > 0 ? m.price : dispMult);
+              my = Math.min(padTop + chartH - 14, Math.max(padTop + 14, my));
+              const labelLeft = mx > padLeft + chartW * 0.48;
+              drawMobileTradeMarker(
+                ctx,
+                m,
+                snap(mx),
+                snap(my),
+                dpr,
+                labelLeft,
+                coinImgRef.current,
+                bearImgRef.current,
+              );
+            }
           }
         }
       }

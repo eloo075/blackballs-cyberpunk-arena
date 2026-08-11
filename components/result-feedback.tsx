@@ -90,16 +90,16 @@ export function ResultFeedback({ event, onComplete }: ResultFeedbackProps) {
   return (
     <AnimatePresence>
       {event && (
-        <motion.div
-          key={event.id}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          className={`result-feedback-overlay ${event.won ? 'result-feedback-win' : 'result-feedback-loss'}`}
-          aria-live="polite"
-          role="status"
-        >
+          <motion.div
+            key={event.id}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+            className={`result-feedback-overlay ${event.won ? 'result-feedback-win' : 'result-feedback-loss'}`}
+            aria-live="polite"
+            role="status"
+          >
           {!event.won && <div className="result-feedback-loss-vignette" aria-hidden />}
 
           {event.won && (
@@ -110,13 +110,12 @@ export function ResultFeedback({ event, onComplete }: ResultFeedbackProps) {
           )}
 
           <motion.div
-            initial={{ scale: 0.5, opacity: 0, y: event.won ? 30 : 0 }}
+            initial={{ scale: 0.94, opacity: 0, y: event.won ? 18 : 14 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.92, opacity: 0, y: -12 }}
+            exit={{ scale: 0.97, opacity: 0, y: -8 }}
             transition={{
-              type: 'spring',
-              stiffness: event.won ? 280 : 360,
-              damping: event.won ? 18 : 22,
+              duration: event.won ? 0.42 : 0.5,
+              ease: [0.22, 1, 0.36, 1],
             }}
             className={`result-feedback-card ${event.won ? 'result-feedback-card-win' : 'result-feedback-card-loss'}`}
           >

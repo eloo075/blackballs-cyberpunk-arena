@@ -50,7 +50,7 @@ function PersonalMarkerBadge({ tag }: { tag: TradeTag }) {
 
   return (
     <div className="relative pointer-events-none drop-shadow-lg trade-marker-pop">
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 sm:w-9 sm:h-9">
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-5 sm:w-7 sm:h-7">
         <span
           className="absolute inset-[-2px] sm:inset-[-3px] rounded-full border-2 trade-marker-ring border-sky-400"
           aria-hidden
@@ -60,18 +60,17 @@ function PersonalMarkerBadge({ tag }: { tag: TradeTag }) {
           <img
             src="/blackballs-marker.png"
             alt=""
-            width={26}
-            height={26}
-            className="w-[18px] h-[18px] sm:w-[26px] sm:h-[26px]"
+            width={22}
+            height={22}
+            className="w-[14px] h-[14px] sm:w-[20px] sm:h-[20px]"
             draggable={false}
           />
         </div>
       </div>
       {isBuy ? (
-        /* Buy amount sits cleanly ABOVE the white entry line — never overlapping it. */
         <div
           data-label-right
-          className={`absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+10px)] sm:bottom-[calc(100%+12px)] whitespace-nowrap rounded px-1 sm:px-1.5 py-px text-[8px] sm:text-[10px] font-bold tabular-nums z-10 ${neonLabel}`}
+          className={`absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+8px)] sm:bottom-[calc(100%+10px)] whitespace-nowrap rounded px-1 py-px text-[7px] sm:text-[9px] font-bold tabular-nums z-10 ${neonLabel}`}
           style={{ textShadow: '0 0 8px rgba(255,255,255,0.95), 0 0 2px #fff' }}
         >
           {label}
@@ -80,14 +79,14 @@ function PersonalMarkerBadge({ tag }: { tag: TradeTag }) {
         <>
           <div
             data-label-right
-            className={`absolute left-[24px] sm:left-[28px] top-1/2 -translate-y-1/2 whitespace-nowrap rounded px-1 sm:px-1.5 py-px text-[8px] sm:text-[10px] font-bold tabular-nums z-10 ${neonLabel}`}
+            className={`absolute left-[20px] sm:left-[24px] top-1/2 -translate-y-1/2 whitespace-nowrap rounded px-1 py-px text-[7px] sm:text-[9px] font-bold tabular-nums z-10 ${neonLabel}`}
             style={{ textShadow: '0 0 8px rgba(255,255,255,0.95), 0 0 2px #fff' }}
           >
             {label}
           </div>
           <div
             data-label-left
-            className={`absolute right-[24px] sm:right-[28px] top-1/2 -translate-y-1/2 whitespace-nowrap rounded px-1 sm:px-1.5 py-px text-[8px] sm:text-[10px] font-bold tabular-nums z-10 hidden ${neonLabel}`}
+            className={`absolute right-[20px] sm:right-[24px] top-1/2 -translate-y-1/2 whitespace-nowrap rounded px-1 py-px text-[7px] sm:text-[9px] font-bold tabular-nums z-10 hidden ${neonLabel}`}
             style={{ textShadow: '0 0 8px rgba(255,255,255,0.95), 0 0 2px #fff' }}
           >
             {label}
@@ -100,24 +99,24 @@ function PersonalMarkerBadge({ tag }: { tag: TradeTag }) {
 
 function PublicActivityBadge({ tag }: { tag: TradeTag }) {
   const isBuy = tag.side === 'buy';
-  const sideLabel = isBuy ? `Buy +${tag.amount.toFixed(3)}` : `Sell -${tag.amount.toFixed(3)}`;
+  const sideLabel = isBuy ? `Buy +${tag.amount.toFixed(2)}` : `Sell -${tag.amount.toFixed(2)}`;
   const boxClass = isBuy
-    ? 'border-orange-400 text-orange-50'
-    : 'border-amber-400 text-amber-50';
+    ? 'border-orange-400/80 text-orange-50'
+    : 'border-amber-400/80 text-amber-50';
 
   const body = (
     <>
-      <div className="truncate text-[11px] sm:text-xs font-black tracking-wide text-white">
+      <div className="truncate text-[9px] sm:text-[10px] font-black tracking-wide text-white">
         {tag.user}
       </div>
-      <div className="tabular-nums text-[11px] sm:text-xs font-extrabold mt-0.5">{sideLabel}</div>
+      <div className="tabular-nums text-[9px] sm:text-[10px] font-extrabold mt-0.5">{sideLabel}</div>
     </>
   );
 
   return (
     <div className="relative pointer-events-none drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)] trade-toast-one">
       <div
-        className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center border-2 overflow-hidden shadow-md ${
+        className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center border overflow-hidden shadow-md ${
           isBuy ? 'bg-orange-500 border-orange-200' : 'bg-amber-800 border-amber-300'
         }`}
         aria-hidden
@@ -126,21 +125,21 @@ function PublicActivityBadge({ tag }: { tag: TradeTag }) {
         <img
           src={isBuy ? '/blackballs-coin.png' : '/bear-icon.svg'}
           alt=""
-          width={22}
-          height={22}
-          className="w-[20px] h-[20px] sm:w-[22px] sm:h-[22px]"
+          width={16}
+          height={16}
+          className="w-[14px] h-[14px] sm:w-[16px] sm:h-[16px]"
           draggable={false}
         />
       </div>
       <div
         data-label-right
-        className={`absolute left-[20px] sm:left-[22px] top-1/2 -translate-y-1/2 min-w-[88px] max-w-[150px] rounded-lg border-2 px-2 py-1 leading-tight shadow-lg bg-[#0d0f12]/96 z-10 ${boxClass}`}
+        className={`absolute left-[16px] sm:left-[18px] top-1/2 -translate-y-1/2 min-w-[72px] max-w-[120px] rounded-md border px-1.5 py-0.5 leading-tight shadow-lg bg-[#0d0f12]/96 z-10 ${boxClass}`}
       >
         {body}
       </div>
       <div
         data-label-left
-        className={`absolute right-[20px] sm:right-[22px] top-1/2 -translate-y-1/2 min-w-[88px] max-w-[150px] rounded-lg border-2 px-2 py-1 leading-tight shadow-lg bg-[#0d0f12]/96 z-10 text-right hidden ${boxClass}`}
+        className={`absolute right-[16px] sm:right-[18px] top-1/2 -translate-y-1/2 min-w-[72px] max-w-[120px] rounded-md border px-1.5 py-0.5 leading-tight shadow-lg bg-[#0d0f12]/96 z-10 text-right hidden ${boxClass}`}
       >
         {body}
       </div>

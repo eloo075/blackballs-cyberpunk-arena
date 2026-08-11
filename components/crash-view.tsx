@@ -156,11 +156,25 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
         : chartMult >= entryPrice - 1e-9
       : true;
   const viewerName = wallet.connected && wallet.address ? playerMarkerName(wallet.address) : null;
-  const publicTradeTags = state.tradeTags ?? [];
-  // Frame follows live PnL vs entry: green when in profit, red when underwater.
+  // Hide buy/sell logos after the round ends (rug / waiting).
+  const publicTradeTags =
+    state.phase === 'running' ? (state.tradeTags ?? []) : [];
+  // Frame follows live PnL vs entry: green in profit, red when underwater.
+  const liveEntry =
+    state.phase === 'running' && state.hasLivePosition
+      ? state.positionEntryPrice > 0
+        ? state.positionEntryPrice
+        : entryPrice
+      : null;
+  const cadreInProfit =
+    liveEntry != null && liveEntry > 0
+      ? state.positionSide === 'sell'
+        ? chartMult <= liveEntry + 1e-9
+        : chartMult >= liveEntry - 1e-9
+      : true;
   const chartCadreClass =
-    showLivePosition && state.phase === 'running' && entryPrice != null && entryPrice > 0
-      ? entryInProfit
+    liveEntry != null
+      ? cadreInProfit
         ? 'ring-2 ring-inset ring-emerald-500 shadow-[inset_0_0_28px_rgba(34,197,94,0.22)]'
         : 'ring-2 ring-inset ring-rose-500 shadow-[inset_0_0_28px_rgba(239,68,68,0.24)]'
       : '';
