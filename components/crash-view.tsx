@@ -217,13 +217,29 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
       : 'border-rose-500/70 ring-2 ring-inset ring-rose-500 shadow-[inset_0_0_32px_rgba(239,68,68,0.3)]'
     : 'border-white/[0.06]';
 
-  // Seed verify for the last finished round (revealed on rug; cached because stream history strips seeds).
+  // Seed verify for the last finished round (revealed on rug; stream keeps seed on history[0]).
+  const lastHistory = state.history[0];
   const verifyRound =
     state.phase === 'crashed' &&
     state.currentRound.crashPoint != null &&
     state.currentRound.serverSeed
       ? state.currentRound
-      : lastFinishedRound;
+      : lastFinishedRound?.serverSeed
+        ? lastFinishedRound
+        : lastHistory &&
+            lastHistory.serverSeed &&
+            Number.isFinite(lastHistory.crashPoint)
+          ? {
+              id: lastHistory.id,
+              serverSeedHash: lastHistory.serverSeedHash,
+              serverSeed: lastHistory.serverSeed,
+              clientSeed: lastHistory.clientSeed ?? state.currentRound.clientSeed,
+              nonce: lastHistory.nonce ?? state.currentRound.nonce,
+              crashPoint: lastHistory.crashPoint,
+              mode: lastHistory.mode,
+              rugTick: lastHistory.rugTick ?? null,
+            }
+          : null;
 
   if (mobileFull) {
     return (

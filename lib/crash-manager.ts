@@ -679,15 +679,18 @@ export class CrashManager {
       ...full,
       serverNow: Date.now(),
       pathAhead,
-      history: full.history.slice(0, STREAM_HISTORY).map(h => ({
+      history: full.history.slice(0, STREAM_HISTORY).map((h, i) => ({
         id: h.id,
         crashPoint: h.crashPoint,
         ts: h.ts,
         instantRug: h.instantRug,
         mode: h.mode,
         rugTick: h.rugTick,
-        serverSeedHash: h.serverSeedHash.slice(0, 16),
-        serverSeed: null,
+        // Keep full seed on the newest finished round so clients can verify after reload.
+        serverSeedHash: i === 0 ? h.serverSeedHash : h.serverSeedHash.slice(0, 16),
+        serverSeed: i === 0 ? h.serverSeed : null,
+        clientSeed: i === 0 ? h.clientSeed : undefined,
+        nonce: i === 0 ? h.nonce : undefined,
         sparkline: h.sparkline,
       })),
     };
