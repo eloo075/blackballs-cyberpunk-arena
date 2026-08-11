@@ -8,6 +8,7 @@ import {
   chartVisibleCount,
   computeChartLayout,
   formatAxisMultLabel,
+  markerXForCandle,
   markerXForTrade,
   pickNiceMultTicks,
   type ChartLayoutFrame,
@@ -248,16 +249,18 @@ function drawMobileTradeMarker(
   labelLeft: boolean,
   coinImg: HTMLImageElement | null,
   bearImg: HTMLImageElement | null,
+  compact: boolean,
 ) {
   const isBuy = m.type === 'BUY';
-  const iconR = 4.5 * dpr;
+  // Laptop: larger, clearer icons + text. Mobile stays compact.
+  const iconR = (compact ? 4.5 : 9) * dpr;
   const iconD = iconR * 2;
   const age = Date.now() - m.timestamp;
   const life = Math.max(0, 1 - age / MOBILE_TRADE_MARKER_MS);
   const alpha = life > 0.18 ? 1 : life / 0.18;
-  // Small pop-in on the candle tip.
-  const popT = Math.min(1, age / 220);
-  const scale = 0.55 + 0.45 * easeOutBack(popT);
+  // Pop + overshoot, then settle (more visible on laptop).
+  const popT = Math.min(1, age / (compact ? 220 : 280));
+  const scale = 0.45 + 0.55 * easeOutBack(popT);
 
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -265,12 +268,24 @@ function drawMobileTradeMarker(
   ctx.scale(scale, scale);
   ctx.translate(-x, -y);
 
+  // Soft pulse ring behind icon.
+  const ringLife = Math.max(0, 1 - age / 500);
+  if (ringLife > 0) {
+    ctx.beginPath();
+    ctx.arc(x, y, iconR * (1.35 + (1 - ringLife) * 0.9), 0, Math.PI * 2);
+    ctx.strokeStyle = isBuy
+      ? `rgba(249, 115, 22, ${0.55 * ringLife})`
+      : `rgba(245, 158, 11, ${0.5 * ringLife})`;
+    ctx.lineWidth = (compact ? 1.5 : 2.25) * dpr;
+    ctx.stroke();
+  }
+
   ctx.beginPath();
-  ctx.arc(x, y, iconR + 0.7 * dpr, 0, Math.PI * 2);
+  ctx.arc(x, y, iconR + (compact ? 0.7 : 1.2) * dpr, 0, Math.PI * 2);
   ctx.fillStyle = isBuy ? '#F97316' : '#78350f';
   ctx.fill();
   ctx.strokeStyle = isBuy ? '#FDBA74' : '#FCD34D';
-  ctx.lineWidth = 1 * dpr;
+  ctx.lineWidth = (compact ? 1 : 1.75) * dpr;
   ctx.stroke();
 
   const img = isBuy ? coinImg : bearImg;
@@ -286,34 +301,36 @@ function drawMobileTradeMarker(
 
   const user = truncateUser(m.username);
   const sideLine = isBuy ? `Buy +${formatTradeAmt(m.amount)}` : `Sell -${formatTradeAmt(m.amount)}`;
-  const userFont = `700 ${6.5 * dpr}px JetBrains Mono, monospace`;
-  const amtFont = `700 ${6.5 * dpr}px JetBrains Mono, monospace`;
+  const fontPx = (compact ? 6.5 : 11) * dpr;
+  const userFont = `800 ${fontPx}px JetBrains Mono, monospace`;
+  const amtFont = `800 ${fontPx}px JetBrains Mono, monospace`;
   ctx.font = userFont;
   const userW = ctx.measureText(user).width;
   ctx.font = amtFont;
   const amtW = ctx.measureText(sideLine).width;
-  const pillPadX = 3.5 * dpr;
+  const pillPadX = (compact ? 3.5 : 7) * dpr;
   const pillW = Math.max(userW, amtW) + pillPadX * 2;
-  const pillH = 15 * dpr;
-  const gap = 3.5 * dpr;
+  const pillH = (compact ? 15 : 26) * dpr;
+  const gap = (compact ? 3.5 : 8) * dpr;
   const pillX = labelLeft ? x - iconR - gap - pillW : x + iconR + gap;
   const pillY = y - pillH / 2;
 
-  roundRectPath(ctx, pillX, snap(pillY), pillW, pillH, 4 * dpr);
-  ctx.fillStyle = 'rgba(13, 15, 18, 0.92)';
+  roundRectPath(ctx, pillX, snap(pillY), pillW, pillH, (compact ? 4 : 6) * dpr);
+  ctx.fillStyle = 'rgba(13, 15, 18, 0.94)';
   ctx.fill();
-  ctx.strokeStyle = isBuy ? 'rgba(249, 115, 22, 0.7)' : 'rgba(245, 158, 11, 0.65)';
-  ctx.lineWidth = 1 * dpr;
+  ctx.strokeStyle = isBuy ? 'rgba(249, 115, 22, 0.85)' : 'rgba(245, 158, 11, 0.8)';
+  ctx.lineWidth = (compact ? 1 : 1.5) * dpr;
   ctx.stroke();
 
+  const tyOff = compact ? 3.5 : 5.5;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.font = userFont;
   ctx.fillStyle = '#ffffff';
-  ctx.fillText(user, pillX + pillPadX, y - 3.5 * dpr);
+  ctx.fillText(user, pillX + pillPadX, y - tyOff * dpr);
   ctx.font = amtFont;
   ctx.fillStyle = isBuy ? '#10B981' : '#EF4444';
-  ctx.fillText(sideLine, pillX + pillPadX, y + 3.8 * dpr);
+  ctx.fillText(sideLine, pillX + pillPadX, y + (tyOff + 0.2) * dpr);
 
   ctx.restore();
 }
@@ -887,21 +904,13 @@ export function ChartCanvas({
 
           const m = activeLiveTradeRef.current;
           if (m && lastCandle) {
-            // Always pin to the active (last) candle slot at the trade's elapsed + price.
+            // Pin to the CENTER of the active candle at the exact fill price.
             const candleIdx = visible.length - 1 - layout.visibleStartIdx;
             if (candleIdx >= 0) {
-              const dur = candleDurationSec(visible, layout.visibleStartIdx, candleIdx);
-              let mx = markerXForTrade(
-                layout,
-                candleIdx,
-                lastCandle.t,
-                m.elapsed ?? m.candleT,
-                dur,
-              );
+              let mx = markerXForCandle(layout, candleIdx);
               const minX = padLeft + 10;
               const maxX = padLeft + chartW - 10;
               mx = Math.min(maxX, Math.max(minX, mx));
-              // Y = exact fill price on the candle — not the live tip.
               let my = yFor(m.price > 0 ? m.price : dispMult);
               my = Math.min(padTop + chartH - 14, Math.max(padTop + 14, my));
               const labelLeft = mx > padLeft + chartW * 0.48;
@@ -914,6 +923,7 @@ export function ChartCanvas({
                 labelLeft,
                 coinImgRef.current,
                 bearImgRef.current,
+                isMobile,
               );
             }
           }

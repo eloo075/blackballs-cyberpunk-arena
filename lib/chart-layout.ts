@@ -1,10 +1,11 @@
 import type { Candle } from '@/lib/crash-types';
 
 export function chartVisibleCount(cssW: number): number {
-  // Mobile: fewer candles → thicker, clearer bodies (rugs.fun-like).
+  // Fewer candles → thicker bodies with almost no gap (rugs.fun-like).
   if (cssW < 420) return 10;
   if (cssW < 640) return 12;
-  return 24;
+  if (cssW < 1100) return 16;
+  return 18;
 }
 
 export function chartSlotOffset(visibleCount: number, sliceLength: number): number {
@@ -150,11 +151,10 @@ export function markerXForTrade(
 
 /** Consistent body width + gap so candles never leave empty slots. */
 export function chartCandleMetrics(slotW: number, isMobile: boolean, dpr = 1) {
-  // Tight spacing — candles sit close like rugs.fun (small gap, wide body).
-  const candleGap = Math.max(isMobile ? 1.2 : 1.5, slotW * 0.08);
-  const maxBodyW = (isMobile ? 36 : 32) * dpr;
-  const minBodyW = (isMobile ? 5.5 : 5) * dpr;
-  const candleWidth = Math.max(minBodyW, Math.min(maxBodyW, slotW - candleGap));
+  // Near-touching candles: ~4% gap max, body fills the rest.
+  void dpr;
+  const candleGap = Math.max(isMobile ? 1 : 1.25, Math.min(3, slotW * 0.04));
+  const candleWidth = Math.max(isMobile ? 6 : 7, slotW - candleGap);
   return { candleWidth, candleGap };
 }
 
