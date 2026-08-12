@@ -102,8 +102,8 @@ function roundRectPath(
 function pickTimeTicks(elapsed: number): number[] {
   const end = Math.max(elapsed, 1);
   let step = 1;
-  if (end > 24) step = 5;
-  else if (end > 12) step = 2;
+  if (end > 48) step = 5;
+  else if (end > 24) step = 2;
 
   const ticks: number[] = [];
   for (let t = 0; t <= end + 0.001; t += step) {
@@ -289,8 +289,8 @@ function drawMobileTradeMarker(
   compact: boolean,
 ) {
   const isBuy = m.type === 'BUY';
-  // Laptop readable; mobile compact — ~20% smaller than prior loud size.
-  const iconR = (compact ? 4.4 : 9.6) * dpr;
+  // Desktop: larger markers; mobile (compact) unchanged.
+  const iconR = (compact ? 4.4 : 12.96) * dpr;
   const iconD = iconR * 2;
   const age = Date.now() - m.timestamp;
   const life = Math.max(0, 1 - age / MOBILE_TRADE_MARKER_MS);
@@ -306,7 +306,7 @@ function drawMobileTradeMarker(
   ctx.translate(-x, -y);
 
   ctx.beginPath();
-  ctx.arc(x, y, iconR + (compact ? 0.5 : 0.9) * dpr, 0, Math.PI * 2);
+  ctx.arc(x, y, iconR + (compact ? 0.5 : 1.1) * dpr, 0, Math.PI * 2);
   ctx.fillStyle = isBuy ? '#F97316' : '#78350f';
   ctx.fill();
 
@@ -323,28 +323,28 @@ function drawMobileTradeMarker(
 
   const user = truncateUser(m.username);
   const sideLine = isBuy ? `Buy +${formatTradeAmt(m.amount)}` : `Sell -${formatTradeAmt(m.amount)}`;
-  const fontPx = (compact ? 7 : 12) * dpr;
+  const fontPx = (compact ? 7 : 15) * dpr;
   const userFont = `800 ${fontPx}px JetBrains Mono, monospace`;
   const amtFont = `800 ${fontPx}px JetBrains Mono, monospace`;
   ctx.font = userFont;
   const userW = ctx.measureText(user).width;
   ctx.font = amtFont;
   const amtW = ctx.measureText(sideLine).width;
-  const pillPadX = (compact ? 4 : 8) * dpr;
+  const pillPadX = (compact ? 4 : 10) * dpr;
   const pillW = Math.max(userW, amtW) + pillPadX * 2;
-  const pillH = (compact ? 16 : 28) * dpr;
-  const gap = (compact ? 3.5 : 8) * dpr;
+  const pillH = (compact ? 16 : 35) * dpr;
+  const gap = (compact ? 3.5 : 10) * dpr;
   const pillX = labelLeft ? x - iconR - gap - pillW : x + iconR + gap;
   const pillY = y - pillH / 2;
 
-  roundRectPath(ctx, pillX, snap(pillY), pillW, pillH, (compact ? 3 : 5) * dpr);
+  roundRectPath(ctx, pillX, snap(pillY), pillW, pillH, (compact ? 3 : 6) * dpr);
   ctx.fillStyle = 'rgba(13, 15, 18, 0.88)';
   ctx.fill();
   // Thin left accent only — no full outline glow.
   ctx.fillStyle = isBuy ? '#10B981' : '#EF4444';
   ctx.fillRect(pillX, snap(pillY), 1 * dpr, pillH);
 
-  const tyOff = compact ? 3.5 : 6;
+  const tyOff = compact ? 3.5 : 7.5;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.font = userFont;
@@ -632,7 +632,11 @@ export function ChartCanvas({
       const slotW = chartW / visibleCount;
       const shiftPx = shiftOffsetRef.current * slotW;
       const slotOffset = chartSlotOffset(visibleCount, slice.length);
-      const { candleWidth: bodyW } = chartCandleMetrics(slotW, isMobile, dpr);
+      const { candleWidth: rawBodyW } = chartCandleMetrics(slotW, isMobile, dpr);
+      // Desktop: slightly fatter bodies; keep ≥35% of slot as gap (spacing unchanged).
+      const bodyW = isMobile
+        ? rawBodyW
+        : Math.min(rawBodyW * 1.15, slotW * 0.65);
 
       const yFor = (price: number) =>
         padTop + chartH - ((price - minPrice) / (maxPrice - minPrice)) * chartH;
@@ -644,7 +648,7 @@ export function ChartCanvas({
       for (const tick of axisTicks) {
         const gy = snap(yFor(tick));
         if (gy < padTop - 2 || gy > padTop + chartH + 2) continue;
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.025)';
         ctx.lineWidth = 1;
         ctx.setLineDash([]);
         ctx.beginPath();
@@ -936,7 +940,7 @@ export function ChartCanvas({
                 m,
                 x: snap(mx),
                 y: snap(my),
-                h: (isMobile ? 16 : 28) * dpr,
+                h: (isMobile ? 16 : 35) * dpr,
                 labelLeft: mx > padLeft + chartW * 0.48,
               };
             }

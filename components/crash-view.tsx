@@ -211,8 +211,8 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
   const entryInProfit = liveEntry != null ? cadreInProfit : true;
   const chartCadreClass = liveEntry != null
     ? cadreInProfit
-      ? 'border-emerald-500/70 ring-2 ring-inset ring-emerald-500 shadow-[inset_0_0_32px_rgba(16,185,129,0.28)]'
-      : 'border-rose-500/70 ring-2 ring-inset ring-rose-500 shadow-[inset_0_0_32px_rgba(239,68,68,0.3)]'
+      ? 'border-emerald-500/35 ring-1 ring-inset ring-emerald-500/50 shadow-[inset_0_0_16px_rgba(16,185,129,0.14)]'
+      : 'border-rose-500/35 ring-1 ring-inset ring-rose-500/50 shadow-[inset_0_0_16px_rgba(239,68,68,0.15)]'
     : 'border-white/[0.06]';
 
   // Seed verify for the last finished round (revealed on rug; stream keeps seed on history[0]).
