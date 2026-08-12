@@ -45,24 +45,18 @@ function PersonalMarkerBadge({ tag }: { tag: TradeTag }) {
       ? String(Math.round(tag.amount))
       : tag.amount.toFixed(2);
   const label = isBuy ? `Buy +${amt}` : `Sell -${amt}`;
-  const neonLabel =
-    'border-white/40 text-white bg-[#0d0f12]/88 shadow-[0_0_10px_rgba(255,255,255,0.5)]';
 
   return (
-    <div className="relative pointer-events-none drop-shadow-lg trade-marker-pop">
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-5 sm:w-7 sm:h-7">
-        <span
-          className="absolute inset-[-2px] sm:inset-[-3px] rounded-full border-2 trade-marker-ring border-sky-400"
-          aria-hidden
-        />
-        <div className="absolute inset-0 rounded-full flex items-center justify-center overflow-hidden border-2 shadow-md bg-sky-500/95 border-sky-300">
+    <div className="relative pointer-events-none trade-marker-pop">
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4">
+        <div className="absolute inset-0 rounded-full flex items-center justify-center overflow-hidden bg-sky-500/90">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/blackballs-marker.png"
             alt=""
-            width={22}
-            height={22}
-            className="w-[14px] h-[14px] sm:w-[20px] sm:h-[20px]"
+            width={16}
+            height={16}
+            className="w-[12px] h-[12px] sm:w-[14px] sm:h-[14px]"
             draggable={false}
           />
         </div>
@@ -70,8 +64,8 @@ function PersonalMarkerBadge({ tag }: { tag: TradeTag }) {
       {isBuy ? (
         <div
           data-label-right
-          className={`absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+8px)] sm:bottom-[calc(100%+10px)] whitespace-nowrap rounded px-1 py-px text-[7px] sm:text-[9px] font-bold tabular-nums z-10 ${neonLabel}`}
-          style={{ textShadow: '0 0 8px rgba(255,255,255,0.95), 0 0 2px #fff' }}
+          className="absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+6px)] whitespace-nowrap text-[7px] sm:text-[8px] font-bold tabular-nums z-10 text-white"
+          style={{ textShadow: '0 1px 2px rgba(0,0,0,0.85)' }}
         >
           {label}
         </div>
@@ -79,15 +73,15 @@ function PersonalMarkerBadge({ tag }: { tag: TradeTag }) {
         <>
           <div
             data-label-right
-            className={`absolute left-[20px] sm:left-[24px] top-1/2 -translate-y-1/2 whitespace-nowrap rounded px-1 py-px text-[7px] sm:text-[9px] font-bold tabular-nums z-10 ${neonLabel}`}
-            style={{ textShadow: '0 0 8px rgba(255,255,255,0.95), 0 0 2px #fff' }}
+            className="absolute left-[14px] sm:left-[16px] top-1/2 -translate-y-1/2 whitespace-nowrap text-[7px] sm:text-[8px] font-bold tabular-nums z-10 text-white"
+            style={{ textShadow: '0 1px 2px rgba(0,0,0,0.85)' }}
           >
             {label}
           </div>
           <div
             data-label-left
-            className={`absolute right-[20px] sm:right-[24px] top-1/2 -translate-y-1/2 whitespace-nowrap rounded px-1 py-px text-[7px] sm:text-[9px] font-bold tabular-nums z-10 hidden ${neonLabel}`}
-            style={{ textShadow: '0 0 8px rgba(255,255,255,0.95), 0 0 2px #fff' }}
+            className="absolute right-[14px] sm:right-[16px] top-1/2 -translate-y-1/2 whitespace-nowrap text-[7px] sm:text-[8px] font-bold tabular-nums z-10 hidden text-white"
+            style={{ textShadow: '0 1px 2px rgba(0,0,0,0.85)' }}
           >
             {label}
           </div>
@@ -100,24 +94,24 @@ function PersonalMarkerBadge({ tag }: { tag: TradeTag }) {
 function PublicActivityBadge({ tag }: { tag: TradeTag }) {
   const isBuy = tag.side === 'buy';
   const sideLabel = isBuy ? `Buy +${tag.amount.toFixed(2)}` : `Sell -${tag.amount.toFixed(2)}`;
-  const boxClass = isBuy
-    ? 'border-orange-400/80 text-orange-50'
-    : 'border-amber-400/80 text-amber-50';
+  const sideColor = isBuy ? 'text-emerald-400' : 'text-rose-400';
 
   const body = (
     <>
-      <div className="truncate text-[9px] sm:text-[10px] font-black tracking-wide text-white">
+      <div className="truncate text-[8px] sm:text-[9px] font-bold tracking-wide text-white/90">
         {tag.user}
       </div>
-      <div className="tabular-nums text-[9px] sm:text-[10px] font-extrabold mt-0.5">{sideLabel}</div>
+      <div className={`tabular-nums text-[8px] sm:text-[9px] font-bold mt-px ${sideColor}`}>
+        {sideLabel}
+      </div>
     </>
   );
 
   return (
-    <div className="relative pointer-events-none drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)] trade-toast-one">
+    <div className="relative pointer-events-none trade-toast-one">
       <div
-        className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center border overflow-hidden shadow-md ${
-          isBuy ? 'bg-orange-500 border-orange-200' : 'bg-amber-800 border-amber-300'
+        className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full flex items-center justify-center overflow-hidden ${
+          isBuy ? 'bg-orange-500' : 'bg-amber-800'
         }`}
         aria-hidden
       >
@@ -125,21 +119,29 @@ function PublicActivityBadge({ tag }: { tag: TradeTag }) {
         <img
           src={isBuy ? '/blackballs-coin.png' : '/bear-icon.svg'}
           alt=""
-          width={16}
-          height={16}
-          className="w-[14px] h-[14px] sm:w-[16px] sm:h-[16px]"
+          width={14}
+          height={14}
+          className="w-[12px] h-[12px] sm:w-[13px] sm:h-[13px]"
           draggable={false}
         />
       </div>
       <div
         data-label-right
-        className={`absolute left-[16px] sm:left-[18px] top-1/2 -translate-y-1/2 min-w-[72px] max-w-[120px] rounded-md border px-1.5 py-0.5 leading-tight shadow-lg bg-[#0d0f12]/96 z-10 ${boxClass}`}
+        className="absolute left-[14px] sm:left-[16px] top-1/2 -translate-y-1/2 min-w-[64px] max-w-[110px] pl-1.5 leading-tight z-10 border-l"
+        style={{
+          borderLeftColor: isBuy ? 'rgb(16 185 129)' : 'rgb(239 68 68)',
+          textShadow: '0 1px 2px rgba(0,0,0,0.85)',
+        }}
       >
         {body}
       </div>
       <div
         data-label-left
-        className={`absolute right-[16px] sm:right-[18px] top-1/2 -translate-y-1/2 min-w-[72px] max-w-[120px] rounded-md border px-1.5 py-0.5 leading-tight shadow-lg bg-[#0d0f12]/96 z-10 text-right hidden ${boxClass}`}
+        className="absolute right-[14px] sm:right-[16px] top-1/2 -translate-y-1/2 min-w-[64px] max-w-[110px] pr-1.5 leading-tight z-10 text-right hidden border-r"
+        style={{
+          borderRightColor: isBuy ? 'rgb(16 185 129)' : 'rgb(239 68 68)',
+          textShadow: '0 1px 2px rgba(0,0,0,0.85)',
+        }}
       >
         {body}
       </div>

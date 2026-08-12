@@ -49,11 +49,9 @@ interface ChartCanvasProps {
 const CANDLE_UP = '#22c55e';
 const CANDLE_DOWN = '#ef4444';
 const CASHOUT_GREEN = '#10B981';
-const LIVE_Y_DAMP = 0.15;
 /** Mobile public trade toasts — one at a time on the live candle tip. */
 const MOBILE_TRADE_MARKER_MS = 900;
 const MOBILE_TRADE_GAP_MS = 60;
-const DEFAULT_CANDLE_DURATION_SEC = 4;
 
 interface LiveTradeOverlay {
   id: number;
@@ -203,17 +201,6 @@ function spawnCashoutFx(x: number, y: number, amount: number): CashoutFx {
   };
 }
 
-function candleDurationSec(candles: Candle[], visibleStartIdx: number, candleIdxInSlice: number): number {
-  const globalIdx = visibleStartIdx + candleIdxInSlice;
-  const cur = candles[globalIdx];
-  if (!cur) return DEFAULT_CANDLE_DURATION_SEC;
-  const next = candles[globalIdx + 1];
-  if (next && next.t > cur.t) return Math.max(0.25, next.t - cur.t);
-  const prev = candles[globalIdx - 1];
-  if (prev && cur.t > prev.t) return Math.max(0.25, cur.t - prev.t);
-  return DEFAULT_CANDLE_DURATION_SEC;
-}
-
 /** True when the trade belongs on the currently forming (active) candle. */
 function isLiveCandleTrade(tag: { candleT?: number; elapsed?: number }, candles: Candle[]): boolean {
   const last = candles[candles.length - 1];
@@ -240,6 +227,56 @@ function easeOutBack(t: number): number {
   return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
 }
 
+/** Separate stacked chart labels vertically (higher priority stays put). */
+function resolveVerticalOverlap(
+  boxes: { y: number; h: number; priority: number }[],
+  chartTop: number,
+  chartBottom: number,
+  gapPx = 4,
+): number[] {
+  const n = boxes.length;
+  if (n === 0) return [];
+  const order = boxes
+    .map((b, i) => ({ ...b, i }))
+    .sort((a, b) => b.priority - a.priority || a.i - b.i);
+  const placed: { cy: number; h: number; i: number }[] = [];
+
+  for (const item of order) {
+    let cy = item.y;
+    let dir = -1;
+    for (let attempt = 0; attempt < 24; attempt++) {
+      const top = cy - item.h / 2;
+      const bot = cy + item.h / 2;
+      let clash: { cy: number; h: number } | null = null;
+      for (const p of placed) {
+        const pt = p.cy - p.h / 2;
+        const pb = p.cy + p.h / 2;
+        if (!(bot + gapPx <= pt || top - gapPx >= pb)) {
+          clash = p;
+          break;
+        }
+      }
+      if (!clash) break;
+      const push = clash.h / 2 + item.h / 2 + gapPx;
+      cy = dir < 0 ? clash.cy - push : clash.cy + push;
+      if (cy - item.h / 2 < chartTop) {
+        cy = chartTop + item.h / 2;
+        dir = 1;
+      } else if (cy + item.h / 2 > chartBottom) {
+        cy = chartBottom - item.h / 2;
+        dir = -1;
+      } else {
+        dir *= -1;
+      }
+    }
+    placed.push({ cy, h: item.h, i: item.i });
+  }
+
+  const out = new Array<number>(n);
+  for (const p of placed) out[p.i] = p.cy;
+  return out;
+}
+
 function drawMobileTradeMarker(
   ctx: CanvasRenderingContext2D,
   m: LiveTradeOverlay,
@@ -252,13 +289,13 @@ function drawMobileTradeMarker(
   compact: boolean,
 ) {
   const isBuy = m.type === 'BUY';
-  // Laptop: large icons + text; mobile still readable.
-  const iconR = (compact ? 5.5 : 12) * dpr;
+  // Laptop readable; mobile compact — ~20% smaller than prior loud size.
+  const iconR = (compact ? 4.4 : 9.6) * dpr;
   const iconD = iconR * 2;
   const age = Date.now() - m.timestamp;
   const life = Math.max(0, 1 - age / MOBILE_TRADE_MARKER_MS);
-  const alpha = life > 0.18 ? 1 : life / 0.18;
-  // Pop + overshoot, then settle (more visible on laptop).
+  // Quieter max opacity; same fade timing window.
+  const alpha = (life > 0.18 ? 1 : life / 0.18) * 0.78;
   const popT = Math.min(1, age / (compact ? 220 : 280));
   const scale = 0.45 + 0.55 * easeOutBack(popT);
 
@@ -268,25 +305,10 @@ function drawMobileTradeMarker(
   ctx.scale(scale, scale);
   ctx.translate(-x, -y);
 
-  // Soft pulse ring behind icon.
-  const ringLife = Math.max(0, 1 - age / 500);
-  if (ringLife > 0) {
-    ctx.beginPath();
-    ctx.arc(x, y, iconR * (1.35 + (1 - ringLife) * 0.9), 0, Math.PI * 2);
-    ctx.strokeStyle = isBuy
-      ? `rgba(249, 115, 22, ${0.55 * ringLife})`
-      : `rgba(245, 158, 11, ${0.5 * ringLife})`;
-    ctx.lineWidth = (compact ? 1.5 : 2.25) * dpr;
-    ctx.stroke();
-  }
-
   ctx.beginPath();
-  ctx.arc(x, y, iconR + (compact ? 0.7 : 1.2) * dpr, 0, Math.PI * 2);
+  ctx.arc(x, y, iconR + (compact ? 0.5 : 0.9) * dpr, 0, Math.PI * 2);
   ctx.fillStyle = isBuy ? '#F97316' : '#78350f';
   ctx.fill();
-  ctx.strokeStyle = isBuy ? '#FDBA74' : '#FCD34D';
-  ctx.lineWidth = (compact ? 1 : 1.75) * dpr;
-  ctx.stroke();
 
   const img = isBuy ? coinImg : bearImg;
   if (img && img.complete && img.naturalWidth > 0) {
@@ -301,28 +323,28 @@ function drawMobileTradeMarker(
 
   const user = truncateUser(m.username);
   const sideLine = isBuy ? `Buy +${formatTradeAmt(m.amount)}` : `Sell -${formatTradeAmt(m.amount)}`;
-  const fontPx = (compact ? 7.5 : 13.5) * dpr;
+  const fontPx = (compact ? 7 : 12) * dpr;
   const userFont = `800 ${fontPx}px JetBrains Mono, monospace`;
   const amtFont = `800 ${fontPx}px JetBrains Mono, monospace`;
   ctx.font = userFont;
   const userW = ctx.measureText(user).width;
   ctx.font = amtFont;
   const amtW = ctx.measureText(sideLine).width;
-  const pillPadX = (compact ? 4.5 : 9) * dpr;
+  const pillPadX = (compact ? 4 : 8) * dpr;
   const pillW = Math.max(userW, amtW) + pillPadX * 2;
-  const pillH = (compact ? 18 : 32) * dpr;
-  const gap = (compact ? 4 : 10) * dpr;
+  const pillH = (compact ? 16 : 28) * dpr;
+  const gap = (compact ? 3.5 : 8) * dpr;
   const pillX = labelLeft ? x - iconR - gap - pillW : x + iconR + gap;
   const pillY = y - pillH / 2;
 
-  roundRectPath(ctx, pillX, snap(pillY), pillW, pillH, (compact ? 4 : 7) * dpr);
-  ctx.fillStyle = 'rgba(13, 15, 18, 0.94)';
+  roundRectPath(ctx, pillX, snap(pillY), pillW, pillH, (compact ? 3 : 5) * dpr);
+  ctx.fillStyle = 'rgba(13, 15, 18, 0.88)';
   ctx.fill();
-  ctx.strokeStyle = isBuy ? 'rgba(249, 115, 22, 0.85)' : 'rgba(245, 158, 11, 0.8)';
-  ctx.lineWidth = (compact ? 1 : 1.75) * dpr;
-  ctx.stroke();
+  // Thin left accent only — no full outline glow.
+  ctx.fillStyle = isBuy ? '#10B981' : '#EF4444';
+  ctx.fillRect(pillX, snap(pillY), 1 * dpr, pillH);
 
-  const tyOff = compact ? 4 : 7;
+  const tyOff = compact ? 3.5 : 6;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.font = userFont;
@@ -399,6 +421,13 @@ export function ChartCanvas({
   const publicTradeBootstrappedRef = useRef(false);
   const coinImgRef = useRef<HTMLImageElement | null>(null);
   const bearImgRef = useRef<HTMLImageElement | null>(null);
+  const baseGradCacheRef = useRef<{ w: number; h: number; grad: CanvasGradient } | null>(null);
+  const ambientGradCacheRef = useRef<{
+    x: number;
+    y: number;
+    green: boolean;
+    grad: CanvasGradient;
+  } | null>(null);
 
   useEffect(() => {
     if (!pageActive) return;
@@ -423,10 +452,11 @@ export function ChartCanvas({
     const SHIFT_LERP_PER_SEC = 8;
     const PRICE_LERP_PER_SEC = 16;
     const RANGE_LERP_PER_SEC = 9;
+    const LIVE_Y_LERP_PER_SEC = 10;
 
     const render = (frameMs: number) => {
       const p = propsRef.current;
-      const dt = Math.min(0.05, Math.max(0, (frameMs - lastFrame) / 1000));
+      const dt = Math.min(0.25, Math.max(0, (frameMs - lastFrame) / 1000));
       lastFrame = frameMs;
       shiftOffsetRef.current += (0 - shiftOffsetRef.current) * Math.min(1, SHIFT_LERP_PER_SEC * dt);
       if (Math.abs(shiftOffsetRef.current) < 0.001) shiftOffsetRef.current = 0;
@@ -446,17 +476,21 @@ export function ChartCanvas({
       ctx.imageSmoothingEnabled = true;
       ctx.clearRect(0, 0, cssW, cssH);
 
-      // Rich dark radial base (non-flat black).
-      const baseGrad = ctx.createRadialGradient(
-        cssW * 0.5,
-        cssH * 0.45,
-        Math.min(cssW, cssH) * 0.08,
-        cssW * 0.5,
-        cssH * 0.5,
-        Math.max(cssW, cssH) * 0.72,
-      );
-      baseGrad.addColorStop(0, '#0e1118');
-      baseGrad.addColorStop(1, '#06070a');
+      // Rich dark radial base (non-flat black) — rebuild only on resize.
+      let baseGrad = baseGradCacheRef.current?.grad;
+      if (!baseGrad || baseGradCacheRef.current!.w !== cssW || baseGradCacheRef.current!.h !== cssH) {
+        baseGrad = ctx.createRadialGradient(
+          cssW * 0.5,
+          cssH * 0.45,
+          Math.min(cssW, cssH) * 0.08,
+          cssW * 0.5,
+          cssH * 0.5,
+          Math.max(cssW, cssH) * 0.72,
+        );
+        baseGrad.addColorStop(0, '#0e1118');
+        baseGrad.addColorStop(1, '#06070a');
+        baseGradCacheRef.current = { w: cssW, h: cssH, grad: baseGrad };
+      }
       ctx.fillStyle = baseGrad;
       ctx.fillRect(0, 0, cssW, cssH);
 
@@ -621,16 +655,13 @@ export function ChartCanvas({
         const label = formatAxisMultLabel(tick);
         ctx.font = `600 ${(isMobile ? 9 : 10) * dpr}px JetBrains Mono, monospace`;
         const lw = ctx.measureText(label).width;
-        const badgeW = lw + 6 * dpr;
-        const badgeH = (isMobile ? 14 : 16) * dpr;
-        const bx = Math.max(2 * dpr, padLeft - badgeW - 4 * dpr);
-        const by = snap(gy - badgeH / 2);
-        roundRectPath(ctx, bx, by, badgeW, badgeH, 3 * dpr);
-        ctx.fillStyle = 'rgba(10, 12, 16, 0.72)';
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        const tx = Math.max(2 * dpr, padLeft - lw - 4 * dpr);
+        ctx.shadowColor = 'rgba(0,0,0,0.6)';
+        ctx.shadowBlur = 2 * dpr;
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
         ctx.textAlign = 'left';
-        ctx.fillText(label, bx + 3 * dpr, gy);
+        ctx.fillText(label, tx, gy);
+        ctx.shadowBlur = 0;
       }
       ctx.textAlign = 'left';
       ctx.textBaseline = 'alphabetic';
@@ -691,7 +722,7 @@ export function ChartCanvas({
         if (isLast && (p.phase === 'running' || p.phase === 'crashed')) {
           ctx.save();
           ctx.shadowColor = color;
-          ctx.shadowBlur = isCrashCandle ? 16 * dpr : 10 * dpr;
+          ctx.shadowBlur = isCrashCandle ? 11 * dpr : 7 * dpr;
           roundRectPath(ctx, bodyX, bodyTop, bodyW, bodyH, 2 * dpr);
           ctx.strokeStyle = color;
           ctx.lineWidth = 1.5 * dpr;
@@ -700,9 +731,18 @@ export function ChartCanvas({
         }
       });
 
+      // Shared live-track Y for collision with ENTRY / trade markers.
+      let liveDraw: {
+        label: string;
+        neon: string;
+        font: number;
+        x: number;
+        y: number;
+        h: number;
+      } | null = null;
+
       if (p.phase === 'running' || p.phase === 'crashed') {
         const activeCandle = slice.length > 0 ? slice[slice.length - 1] : null;
-        // Track close tip color from the leading candle body (green if close ≥ open).
         const isGreen = activeCandle ? activeCandle.c >= activeCandle.o : p.phase === 'running';
         const trackStroke = isGreen ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)';
 
@@ -710,27 +750,37 @@ export function ChartCanvas({
         if (smoothLiveYRef.current == null) {
           smoothLiveYRef.current = targetY;
         } else {
-          smoothLiveYRef.current += (targetY - smoothLiveYRef.current) * LIVE_Y_DAMP;
+          const liveYT = 1 - Math.exp(-LIVE_Y_LERP_PER_SEC * dt);
+          smoothLiveYRef.current += (targetY - smoothLiveYRef.current) * liveYT;
         }
         const y = snap(smoothLiveYRef.current);
         const chartRight = padLeft + chartW;
         const tipX = Math.min(chartRight - 2, Math.max(padLeft, lastBodyRight));
 
-        // Soft ambient glow behind the leading candle tip.
         const tipCx =
           slice.length > 0
             ? padLeft + (slotOffset + slice.length - 0.5) * slotW + shiftPx
             : tipX;
-        const ambient = ctx.createRadialGradient(tipCx, y, 0, tipCx, y, Math.max(90, chartH * 0.35));
-        ambient.addColorStop(
-          0,
-          isGreen ? 'rgba(16, 185, 129, 0.04)' : 'rgba(239, 68, 68, 0.04)',
-        );
-        ambient.addColorStop(1, 'rgba(0,0,0,0)');
+        const ambCache = ambientGradCacheRef.current;
+        let ambient = ambCache?.grad;
+        if (
+          !ambient ||
+          !ambCache ||
+          ambCache.green !== isGreen ||
+          Math.abs(ambCache.x - tipCx) > 2 ||
+          Math.abs(ambCache.y - y) > 2
+        ) {
+          ambient = ctx.createRadialGradient(tipCx, y, 0, tipCx, y, Math.max(90, chartH * 0.35));
+          ambient.addColorStop(
+            0,
+            isGreen ? 'rgba(16, 185, 129, 0.02)' : 'rgba(239, 68, 68, 0.02)',
+          );
+          ambient.addColorStop(1, 'rgba(0,0,0,0)');
+          ambientGradCacheRef.current = { x: tipCx, y, green: isGreen, grad: ambient };
+        }
         ctx.fillStyle = ambient;
         ctx.fillRect(padLeft, padTop, chartW, chartH);
 
-        // Dashed tracking line → right edge, anchored to close tip.
         ctx.strokeStyle = trackStroke;
         ctx.setLineDash([5 * dpr, 4 * dpr]);
         ctx.lineWidth = (isMobile ? 1.35 : 1.15) * dpr;
@@ -740,38 +790,21 @@ export function ChartCanvas({
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Neon live multiplier badge (slightly larger + glow).
+        // Plain neon text on the track — no boxed badge (drawn after collision pass).
         const liveLabel = formatLiveMultLabel(dispMult);
         const neon = isGreen ? '#39FFB6' : '#FF5C6A';
-        const neonSoft = isGreen ? 'rgba(57, 255, 182, 0.95)' : 'rgba(255, 92, 106, 0.95)';
-        const liveFont = (isMobile ? 11 : 15) * dpr;
+        const liveFont = (isMobile ? 9 : 12.5) * dpr;
         ctx.font = `800 ${liveFont}px JetBrains Mono, monospace`;
         const tw = ctx.measureText(liveLabel).width;
-        const tagW = tw + (isMobile ? 12 : 16) * dpr;
-        const tagH = (isMobile ? 20 : 26) * dpr;
-        const tagX = Math.min(cssW - tagW - 2 * dpr, chartRight - tagW * 0.15);
-        const tagY = snap(y - tagH / 2);
-        roundRectPath(ctx, tagX, tagY, tagW, tagH, (isMobile ? 5 : 6) * dpr);
-        ctx.fillStyle = 'rgba(6, 8, 12, 0.88)';
-        ctx.fill();
-        ctx.shadowColor = neonSoft;
-        ctx.shadowBlur = (isMobile ? 10 : 14) * dpr;
-        ctx.strokeStyle = neon;
-        ctx.lineWidth = (isMobile ? 1.25 : 1.6) * dpr;
-        ctx.stroke();
-        ctx.fillStyle = neon;
-        ctx.shadowColor = neon;
-        ctx.shadowBlur = (isMobile ? 12 : 18) * dpr;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(liveLabel, tagX + tagW / 2, y);
-        // Second pass for brighter core.
-        ctx.shadowBlur = (isMobile ? 4 : 6) * dpr;
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(liveLabel, tagX + tagW / 2, y);
-        ctx.shadowBlur = 0;
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'alphabetic';
+        const tagX = Math.min(cssW - tw - 4 * dpr, chartRight - 4 * dpr);
+        liveDraw = {
+          label: liveLabel,
+          neon,
+          font: liveFont,
+          x: tagX + tw / 2,
+          y,
+          h: liveFont * 1.35,
+        };
       }
 
       const levels: EntryLevel[] =
@@ -782,6 +815,15 @@ export function ChartCanvas({
             : [];
 
       const layout = layoutRef.current;
+      type EntryLabelDraw = {
+        label: string;
+        x: number;
+        y: number;
+        h: number;
+        font: number;
+      };
+      const entryLabelDraws: EntryLabelDraw[] = [];
+
       levels.forEach((level, li) => {
         if (!level.price || level.price <= 0 || !layout) return;
         const ey = snap(yFor(level.price));
@@ -791,7 +833,6 @@ export function ChartCanvas({
         );
         const x1 = padLeft + chartW;
 
-        // Sleek thin solid white entry line.
         ctx.setLineDash([]);
         ctx.strokeStyle = '#FFFFFF';
         ctx.lineWidth = 1.25 * dpr;
@@ -809,49 +850,23 @@ export function ChartCanvas({
         const entryFont = (isMobile ? 7 : 8) * dpr;
         ctx.font = `bold ${entryFont}px JetBrains Mono`;
         const tw = ctx.measureText(label).width;
-        const bh = (isMobile ? 10 : 12) * dpr;
-        const bw = tw + (isMobile ? 7 : 9) * dpr;
+        const bh = entryFont * 1.4;
         const stack = Math.min(li, 4);
-        let bx = x0 - bw * 0.35;
-        bx = Math.max(padLeft + 2 * dpr, Math.min(bx, padLeft + chartW - bw - 2 * dpr));
-        // Keep ENTRY clearly above the white line (room for Buy badge too).
-        const by = snap(ey - bh - (isMobile ? 18 : 20) * dpr - stack * (bh + 3 * dpr));
-        roundRectPath(ctx, bx, by, bw, bh, 3 * dpr);
-        ctx.fillStyle = 'rgba(8,10,14,0.88)';
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-        ctx.lineWidth = Math.max(1, 0.75 * dpr);
-        ctx.stroke();
-        ctx.shadowColor = 'rgba(255,255,255,0.75)';
-        ctx.shadowBlur = 4 * dpr;
-        ctx.fillStyle = '#ffffff';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(label, bx + (isMobile ? 3.5 : 4.5) * dpr, by + bh / 2);
-        ctx.shadowBlur = 0;
-        ctx.textBaseline = 'alphabetic';
+        let bx = x0 - tw * 0.35;
+        bx = Math.max(padLeft + 2 * dpr, Math.min(bx, padLeft + chartW - tw - 2 * dpr));
+        const labelCy = snap(ey - (isMobile ? 14 : 16) * dpr - stack * (bh + 3 * dpr));
+        entryLabelDraws.push({ label, x: bx, y: labelCy, h: bh, font: entryFont });
       });
 
-      if (p.peakMult > 1.15 && p.phase !== 'waiting') {
-        const py = snap(yFor(p.peakMult));
-        ctx.strokeStyle = 'rgba(157,0,255,0.28)';
-        ctx.setLineDash([2 * dpr, 4 * dpr]);
-        ctx.lineWidth = 1 * dpr;
-        ctx.beginPath();
-        ctx.moveTo(padLeft, py);
-        ctx.lineTo(padLeft + chartW, py);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
+      // Advance public trade queue (draw deferred until after collision pass).
+      let markerDraw: {
+        m: LiveTradeOverlay;
+        x: number;
+        y: number;
+        h: number;
+        labelLeft: boolean;
+      } | null = null;
 
-      if (slice.length === 0 && p.phase === 'waiting') {
-        ctx.fillStyle = 'rgba(255,255,255,0.18)';
-        ctx.font = `${12 * dpr}px JetBrains Mono`;
-        ctx.textAlign = 'center';
-        ctx.fillText('// AWAITING_ROUND', padLeft + chartW / 2, padTop + chartH / 2);
-        ctx.textAlign = 'left';
-      }
-
-      // Live-candle buy/sell icons + username (same path on mobile and laptop).
       if (layout) {
         if (p.phase !== 'running') {
           liveTradeQueueRef.current = [];
@@ -870,7 +885,6 @@ export function ChartCanvas({
               if (viewer && tag.user === viewer) continue;
               if (seenPublicTradeIdsRef.current.has(tag.id)) continue;
               seenPublicTradeIdsRef.current.add(tag.id);
-              // Only the active candle — skip historical wallets/candles.
               if (!isLiveCandleTrade(tag, visible)) continue;
               liveTradeQueueRef.current.push({
                 id: tag.id,
@@ -883,7 +897,6 @@ export function ChartCanvas({
                 timestamp: 0,
               });
             }
-            // Keep only the newest couple — never replay a long previous-wallet backlog.
             if (liveTradeQueueRef.current.length > 2) {
               liveTradeQueueRef.current = liveTradeQueueRef.current.slice(-2);
             }
@@ -911,7 +924,6 @@ export function ChartCanvas({
 
           const m = activeLiveTradeRef.current;
           if (m && lastCandle) {
-            // Pin to the CENTER of the active candle at the exact fill price.
             const candleIdx = visible.length - 1 - layout.visibleStartIdx;
             if (candleIdx >= 0) {
               let mx = markerXForCandle(layout, candleIdx);
@@ -920,21 +932,110 @@ export function ChartCanvas({
               mx = Math.min(maxX, Math.max(minX, mx));
               let my = yFor(m.price > 0 ? m.price : dispMult);
               my = Math.min(padTop + chartH - 14, Math.max(padTop + 14, my));
-              const labelLeft = mx > padLeft + chartW * 0.48;
-              drawMobileTradeMarker(
-                ctx,
+              markerDraw = {
                 m,
-                snap(mx),
-                snap(my),
-                dpr,
-                labelLeft,
-                coinImgRef.current,
-                bearImgRef.current,
-                isMobile,
-              );
+                x: snap(mx),
+                y: snap(my),
+                h: (isMobile ? 16 : 28) * dpr,
+                labelLeft: mx > padLeft + chartW * 0.48,
+              };
             }
           }
         }
+      }
+
+      // Collision: live mult > ENTRY > trade marker.
+      {
+        const boxes: { y: number; h: number; priority: number }[] = [];
+        const kinds: ('live' | 'entry' | 'marker')[] = [];
+        if (liveDraw) {
+          boxes.push({ y: liveDraw.y, h: liveDraw.h, priority: 3 });
+          kinds.push('live');
+        }
+        if (entryLabelDraws.length > 0) {
+          boxes.push({
+            y: entryLabelDraws[0].y,
+            h: entryLabelDraws[0].h,
+            priority: 2,
+          });
+          kinds.push('entry');
+        }
+        if (markerDraw) {
+          boxes.push({ y: markerDraw.y, h: markerDraw.h, priority: 1 });
+          kinds.push('marker');
+        }
+        if (boxes.length >= 2) {
+          const resolved = resolveVerticalOverlap(
+            boxes,
+            padTop + 10,
+            padTop + chartH - 10,
+            4 * dpr,
+          );
+          kinds.forEach((k, i) => {
+            const cy = resolved[i];
+            if (k === 'live' && liveDraw) liveDraw.y = cy;
+            if (k === 'entry' && entryLabelDraws[0]) entryLabelDraws[0].y = cy;
+            if (k === 'marker' && markerDraw) markerDraw.y = cy;
+          });
+        }
+      }
+
+      if (liveDraw) {
+        ctx.font = `800 ${liveDraw.font}px JetBrains Mono, monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = liveDraw.neon;
+        ctx.shadowBlur = (isMobile ? 4 : 6) * dpr;
+        ctx.fillStyle = liveDraw.neon;
+        ctx.fillText(liveDraw.label, liveDraw.x, snap(liveDraw.y));
+        ctx.shadowBlur = 0;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+      }
+
+      for (const el of entryLabelDraws) {
+        ctx.font = `bold ${el.font}px JetBrains Mono`;
+        ctx.shadowColor = 'rgba(0,0,0,0.65)';
+        ctx.shadowBlur = 2 * dpr;
+        ctx.fillStyle = '#ffffff';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(el.label, el.x, snap(el.y));
+        ctx.shadowBlur = 0;
+        ctx.textBaseline = 'alphabetic';
+      }
+
+      if (markerDraw) {
+        drawMobileTradeMarker(
+          ctx,
+          markerDraw.m,
+          markerDraw.x,
+          snap(markerDraw.y),
+          dpr,
+          markerDraw.labelLeft,
+          coinImgRef.current,
+          bearImgRef.current,
+          isMobile,
+        );
+      }
+
+      if (p.peakMult > 1.15 && p.phase !== 'waiting') {
+        const py = snap(yFor(p.peakMult));
+        ctx.strokeStyle = 'rgba(157,0,255,0.28)';
+        ctx.setLineDash([2 * dpr, 4 * dpr]);
+        ctx.lineWidth = 1 * dpr;
+        ctx.beginPath();
+        ctx.moveTo(padLeft, py);
+        ctx.lineTo(padLeft + chartW, py);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      if (slice.length === 0 && p.phase === 'waiting') {
+        ctx.fillStyle = 'rgba(255,255,255,0.18)';
+        ctx.font = `${12 * dpr}px JetBrains Mono`;
+        ctx.textAlign = 'center';
+        ctx.fillText('// AWAITING_ROUND', padLeft + chartW / 2, padTop + chartH / 2);
+        ctx.textAlign = 'left';
       }
 
       // Cashout floating FX — spawn from personal sell tags (visual only).

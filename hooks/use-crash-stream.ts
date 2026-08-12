@@ -692,6 +692,20 @@ export function useCrashStream() {
           stateRef.current = next;
           return next;
         });
+      } else {
+        setState(prev => {
+          if (!prev || !prev.hasPosition) return prev;
+          const next = {
+            ...prev,
+            hasPosition: false,
+            hasLivePosition: false,
+            entryPending: false,
+            positionAmount: 0,
+            positionLots: [],
+          };
+          stateRef.current = next;
+          return next;
+        });
       }
 
       try {
@@ -744,6 +758,26 @@ export function useCrashStream() {
                   entryPending: false,
                   positionAmount: 0,
                   positionLeverage: 1,
+                };
+                stateRef.current = next;
+                return next;
+              });
+            } else if (closing) {
+              setState(prev => {
+                if (!prev) return prev;
+                const sideRestore =
+                  preOptimisticView?.positionSide === 'buy' ||
+                  preOptimisticView?.positionSide === 'sell'
+                    ? preOptimisticView.positionSide
+                    : prev.positionSide;
+                const next: FullState = {
+                  ...prev,
+                  hasPosition: true,
+                  hasLivePosition: preOptimisticView?.hasLivePosition ?? false,
+                  entryPending: preOptimisticView?.entryPending ?? false,
+                  positionSide: sideRestore,
+                  positionAmount: preOptimisticView?.positionAmount ?? 0,
+                  positionLots: preOptimisticView?.positionLots ?? [],
                 };
                 stateRef.current = next;
                 return next;
@@ -863,6 +897,7 @@ export function useCrashStream() {
       const snap = stateRef.current;
       const isPartial = pct < 0.999 && snap?.hasPosition && snap.phase === 'running';
       let optimisticRemaining: number | null = null;
+      let optimisticFullClose = false;
 
       if (isPartial && snap) {
         const split = splitPartialCashout(snap.positionAmount, pct);
@@ -883,6 +918,23 @@ export function useCrashStream() {
             return next;
           });
         }
+      } else if (snap?.hasPosition && snap.phase === 'running') {
+        optimisticFullClose = true;
+        cashoutWasFullRef.current = true;
+        cashoutSuppressUntilRef.current = Date.now() + 5000;
+        setState(prev => {
+          if (!prev || prev.phase !== 'running') return prev;
+          const next = {
+            ...prev,
+            hasPosition: false,
+            hasLivePosition: false,
+            entryPending: false,
+            positionAmount: 0,
+            positionLots: [],
+          };
+          stateRef.current = next;
+          return next;
+        });
       }
 
       try {
@@ -914,6 +966,20 @@ export function useCrashStream() {
               setState(prev => {
                 if (!prev) return prev;
                 const next = { ...prev, positionAmount: snap.positionAmount, hasLivePosition: true, hasPosition: true };
+                stateRef.current = next;
+                return next;
+              });
+            } else if (optimisticFullClose && snap) {
+              setState(prev => {
+                if (!prev) return prev;
+                const next = {
+                  ...prev,
+                  hasPosition: true,
+                  hasLivePosition: true,
+                  entryPending: false,
+                  positionAmount: snap.positionAmount,
+                  positionLots: snap.positionLots,
+                };
                 stateRef.current = next;
                 return next;
               });
@@ -1001,6 +1067,20 @@ export function useCrashStream() {
         setState(prev => {
           if (!prev) return prev;
           const next = { ...prev, positionAmount: snap.positionAmount, hasLivePosition: true, hasPosition: true };
+          stateRef.current = next;
+          return next;
+        });
+      } else if (optimisticFullClose && snap) {
+        setState(prev => {
+          if (!prev) return prev;
+          const next = {
+            ...prev,
+            hasPosition: true,
+            hasLivePosition: true,
+            entryPending: false,
+            positionAmount: snap.positionAmount,
+            positionLots: snap.positionLots,
+          };
           stateRef.current = next;
           return next;
         });

@@ -14,7 +14,7 @@ export function CrashMobileHistoryReel({ history }: { history: RoundSummary[] })
 
   if (recent.length === 0) {
     return (
-      <div className="md:hidden flex items-center gap-1.5 py-1 px-2 text-[10px] font-bold text-white/35">
+      <div className="md:hidden flex items-center gap-1 py-0.5 px-1.5 text-[9px] font-bold text-white/35">
         Waiting for round history…
       </div>
     );
@@ -22,14 +22,14 @@ export function CrashMobileHistoryReel({ history }: { history: RoundSummary[] })
 
   return (
     <div
-      className="md:hidden flex overflow-x-auto mobile-scroll-x gap-1.5 py-1 px-2"
+      className="md:hidden flex overflow-x-auto mobile-scroll-x gap-1 py-0.5 px-1.5"
       aria-label="Recent multipliers"
     >
       {recent.map(r => (
         <span
           key={`${r.id}-${r.ts}`}
           title={`Round #${r.id}`}
-          className={`shrink-0 px-2 py-1 rounded-full border text-[10px] font-black tabular-nums leading-none ${pillClass(r.crashPoint)}`}
+          className={`shrink-0 px-1.5 py-0.5 rounded-full border text-[9px] font-black tabular-nums leading-none ${pillClass(r.crashPoint)}`}
         >
           {r.crashPoint.toFixed(2)}x
         </span>
