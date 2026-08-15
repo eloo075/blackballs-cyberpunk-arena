@@ -1073,6 +1073,33 @@ body {
   animation: marker-pop 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Desktop personal BUY logo: one pop + one fading ring (not looping). */
+@keyframes trade-buy-logo-pop {
+  0% { transform: scale(0.6); }
+  72% { transform: scale(1.14); }
+  100% { transform: scale(1); }
+}
+@keyframes trade-buy-pulse-ring {
+  0% { transform: translate(-50%, -50%) scale(0.65); opacity: 0.55; }
+  100% { transform: translate(-50%, -50%) scale(1.9); opacity: 0; }
+}
+@media (min-width: 768px) {
+  .trade-buy-logo-pop {
+    animation: trade-buy-logo-pop 250ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .trade-buy-pulse-ring {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 22px;
+    height: 22px;
+    border-radius: 9999px;
+    border: 1.5px solid rgba(56, 189, 248, 0.72);
+    pointer-events: none;
+    animation: trade-buy-pulse-ring 420ms ease-out both;
+  }
+}
+
 @keyframes rug-flash {
   0% { background-color: rgba(244, 63, 94, 0.35); }
   100% { background-color: rgba(136, 19, 55, 0.5); }

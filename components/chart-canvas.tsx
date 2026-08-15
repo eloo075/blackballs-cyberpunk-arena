@@ -289,24 +289,40 @@ function drawMobileTradeMarker(
   compact: boolean,
 ) {
   const isBuy = m.type === 'BUY';
-  // Desktop: larger markers; mobile (compact) unchanged.
-  const iconR = (compact ? 4.4 : 12.96) * dpr;
+  // Desktop: ~38% larger logos; mobile (compact) unchanged.
+  const iconR = (compact ? 4.4 : 17.9) * dpr;
   const iconD = iconR * 2;
   const age = Date.now() - m.timestamp;
   const life = Math.max(0, 1 - age / MOBILE_TRADE_MARKER_MS);
-  // Quieter max opacity; same fade timing window.
-  const alpha = (life > 0.18 ? 1 : life / 0.18) * 0.78;
-  const popT = Math.min(1, age / (compact ? 220 : 280));
-  const scale = 0.45 + 0.55 * easeOutBack(popT);
+  const alpha = (life > 0.18 ? 1 : life / 0.18) * (compact ? 0.78 : 0.92);
+  const popMs = compact ? 220 : isBuy ? 250 : 280;
+  const popT = Math.min(1, age / popMs);
+  const scale = compact
+    ? 0.45 + 0.55 * easeOutBack(popT)
+    : isBuy
+      ? 0.6 + 0.4 * easeOutBack(popT)
+      : 0.45 + 0.55 * easeOutBack(popT);
 
   ctx.save();
   ctx.globalAlpha = alpha;
+
+  // One-shot pulse ring on desktop BUY (age-driven, not looping).
+  if (!compact && isBuy) {
+    const ringT = Math.min(1, age / 420);
+    const ringR = iconR * (1.08 + ringT * 1.45);
+    ctx.beginPath();
+    ctx.arc(x, y, ringR, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(249, 115, 22, ${(1 - ringT) * 0.5})`;
+    ctx.lineWidth = 1.6 * dpr;
+    ctx.stroke();
+  }
+
   ctx.translate(x, y);
   ctx.scale(scale, scale);
   ctx.translate(-x, -y);
 
   ctx.beginPath();
-  ctx.arc(x, y, iconR + (compact ? 0.5 : 1.1) * dpr, 0, Math.PI * 2);
+  ctx.arc(x, y, iconR + (compact ? 0.5 : 1.35) * dpr, 0, Math.PI * 2);
   ctx.fillStyle = isBuy ? '#F97316' : '#78350f';
   ctx.fill();
 
@@ -323,36 +339,38 @@ function drawMobileTradeMarker(
 
   const user = truncateUser(m.username);
   const sideLine = isBuy ? `Buy +${formatTradeAmt(m.amount)}` : `Sell -${formatTradeAmt(m.amount)}`;
-  const fontPx = (compact ? 7 : 15) * dpr;
+  const fontPx = (compact ? 7 : 18.5) * dpr;
   const userFont = `800 ${fontPx}px JetBrains Mono, monospace`;
   const amtFont = `800 ${fontPx}px JetBrains Mono, monospace`;
   ctx.font = userFont;
   const userW = ctx.measureText(user).width;
   ctx.font = amtFont;
   const amtW = ctx.measureText(sideLine).width;
-  const pillPadX = (compact ? 4 : 10) * dpr;
+  const pillPadX = (compact ? 4 : 11) * dpr;
   const pillW = Math.max(userW, amtW) + pillPadX * 2;
-  const pillH = (compact ? 16 : 35) * dpr;
-  const gap = (compact ? 3.5 : 10) * dpr;
+  const pillH = (compact ? 16 : 42) * dpr;
+  const gap = (compact ? 3.5 : 14) * dpr;
   const pillX = labelLeft ? x - iconR - gap - pillW : x + iconR + gap;
   const pillY = y - pillH / 2;
 
   roundRectPath(ctx, pillX, snap(pillY), pillW, pillH, (compact ? 3 : 6) * dpr);
-  ctx.fillStyle = 'rgba(13, 15, 18, 0.88)';
+  ctx.fillStyle = compact ? 'rgba(13, 15, 18, 0.88)' : 'rgba(8, 10, 14, 0.94)';
   ctx.fill();
-  // Thin left accent only — no full outline glow.
   ctx.fillStyle = isBuy ? '#10B981' : '#EF4444';
   ctx.fillRect(pillX, snap(pillY), 1 * dpr, pillH);
 
-  const tyOff = compact ? 3.5 : 7.5;
+  const tyOff = compact ? 3.5 : 9.4;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.font = userFont;
+  ctx.shadowColor = 'rgba(0,0,0,0.85)';
+  ctx.shadowBlur = compact ? 0 : 3 * dpr;
   ctx.fillStyle = '#ffffff';
   ctx.fillText(user, pillX + pillPadX, y - tyOff * dpr);
   ctx.font = amtFont;
-  ctx.fillStyle = isBuy ? '#10B981' : '#EF4444';
+  ctx.fillStyle = isBuy ? '#34D399' : '#FB7185';
   ctx.fillText(sideLine, pillX + pillPadX, y + (tyOff + 0.2) * dpr);
+  ctx.shadowBlur = 0;
 
   ctx.restore();
 }
@@ -839,7 +857,7 @@ export function ChartCanvas({
 
         ctx.setLineDash([]);
         ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 1.25 * dpr;
+        ctx.lineWidth = 0.7 * dpr;
         ctx.beginPath();
         ctx.moveTo(x0, ey);
         ctx.lineTo(x1, ey);
@@ -940,7 +958,7 @@ export function ChartCanvas({
                 m,
                 x: snap(mx),
                 y: snap(my),
-                h: (isMobile ? 16 : 35) * dpr,
+                h: (isMobile ? 16 : 42) * dpr,
                 labelLeft: mx > padLeft + chartW * 0.48,
               };
             }

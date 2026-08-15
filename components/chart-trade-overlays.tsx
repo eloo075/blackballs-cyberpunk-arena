@@ -48,15 +48,20 @@ function PersonalMarkerBadge({ tag }: { tag: TradeTag }) {
 
   return (
     <div className="relative pointer-events-none trade-marker-pop">
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4">
-        <div className="absolute inset-0 rounded-full flex items-center justify-center overflow-hidden bg-sky-500/90">
+      {isBuy ? <span className="trade-buy-pulse-ring hidden md:block" aria-hidden /> : null}
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-[22px] md:h-[22px]">
+        <div
+          className={`absolute inset-0 rounded-full flex items-center justify-center overflow-hidden bg-sky-500/90 ${
+            isBuy ? 'trade-buy-logo-pop' : ''
+          }`}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/blackballs-marker.png"
             alt=""
             width={16}
             height={16}
-            className="w-[12px] h-[12px] sm:w-[14px] sm:h-[14px]"
+            className="w-[12px] h-[12px] sm:w-[14px] sm:h-[14px] md:w-[19px] md:h-[19px]"
             draggable={false}
           />
         </div>
@@ -64,8 +69,8 @@ function PersonalMarkerBadge({ tag }: { tag: TradeTag }) {
       {isBuy ? (
         <div
           data-label-right
-          className="absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+6px)] whitespace-nowrap text-[7px] sm:text-[8px] font-bold tabular-nums z-10 text-white"
-          style={{ textShadow: '0 1px 2px rgba(0,0,0,0.85)' }}
+          className="absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+6px)] md:bottom-[calc(100%+11px)] whitespace-nowrap text-[7px] sm:text-[8px] md:text-[10px] font-bold tabular-nums z-10 text-white"
+          style={{ textShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.55)' }}
         >
           {label}
         </div>
@@ -73,15 +78,15 @@ function PersonalMarkerBadge({ tag }: { tag: TradeTag }) {
         <>
           <div
             data-label-right
-            className="absolute left-[14px] sm:left-[16px] top-1/2 -translate-y-1/2 whitespace-nowrap text-[7px] sm:text-[8px] font-bold tabular-nums z-10 text-white"
-            style={{ textShadow: '0 1px 2px rgba(0,0,0,0.85)' }}
+            className="absolute left-[14px] sm:left-[16px] md:left-[26px] top-1/2 -translate-y-1/2 whitespace-nowrap text-[7px] sm:text-[8px] md:text-[10px] font-bold tabular-nums z-10 text-white"
+            style={{ textShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.55)' }}
           >
             {label}
           </div>
           <div
             data-label-left
-            className="absolute right-[14px] sm:right-[16px] top-1/2 -translate-y-1/2 whitespace-nowrap text-[7px] sm:text-[8px] font-bold tabular-nums z-10 hidden text-white"
-            style={{ textShadow: '0 1px 2px rgba(0,0,0,0.85)' }}
+            className="absolute right-[14px] sm:right-[16px] md:right-[26px] top-1/2 -translate-y-1/2 whitespace-nowrap text-[7px] sm:text-[8px] md:text-[10px] font-bold tabular-nums z-10 hidden text-white"
+            style={{ textShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.55)' }}
           >
             {label}
           </div>
@@ -98,10 +103,10 @@ function PublicActivityBadge({ tag }: { tag: TradeTag }) {
 
   const body = (
     <>
-      <div className="truncate text-[8px] sm:text-[9px] font-bold tracking-wide text-white/90">
+      <div className="truncate text-[8px] sm:text-[9px] md:text-[11px] font-bold tracking-wide text-white">
         {tag.user}
       </div>
-      <div className={`tabular-nums text-[8px] sm:text-[9px] font-bold mt-px ${sideColor}`}>
+      <div className={`tabular-nums text-[8px] sm:text-[9px] md:text-[11px] font-bold mt-px ${sideColor}`}>
         {sideLabel}
       </div>
     </>
@@ -110,7 +115,7 @@ function PublicActivityBadge({ tag }: { tag: TradeTag }) {
   return (
     <div className="relative pointer-events-none trade-toast-one">
       <div
-        className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full flex items-center justify-center overflow-hidden ${
+        className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-[22px] md:h-[22px] rounded-full flex items-center justify-center overflow-hidden ${
           isBuy ? 'bg-orange-500' : 'bg-amber-800'
         }`}
         aria-hidden
@@ -121,26 +126,26 @@ function PublicActivityBadge({ tag }: { tag: TradeTag }) {
           alt=""
           width={14}
           height={14}
-          className="w-[12px] h-[12px] sm:w-[13px] sm:h-[13px]"
+          className="w-[12px] h-[12px] sm:w-[13px] sm:h-[13px] md:w-[18px] md:h-[18px]"
           draggable={false}
         />
       </div>
       <div
         data-label-right
-        className="absolute left-[14px] sm:left-[16px] top-1/2 -translate-y-1/2 min-w-[64px] max-w-[110px] pl-1.5 leading-tight z-10 border-l"
+        className="absolute left-[14px] sm:left-[16px] md:left-[26px] top-1/2 -translate-y-1/2 min-w-[64px] max-w-[110px] md:max-w-[140px] pl-1.5 md:pl-2 leading-tight z-10 border-l"
         style={{
           borderLeftColor: isBuy ? 'rgb(16 185 129)' : 'rgb(239 68 68)',
-          textShadow: '0 1px 2px rgba(0,0,0,0.85)',
+          textShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.55)',
         }}
       >
         {body}
       </div>
       <div
         data-label-left
-        className="absolute right-[14px] sm:right-[16px] top-1/2 -translate-y-1/2 min-w-[64px] max-w-[110px] pr-1.5 leading-tight z-10 text-right hidden border-r"
+        className="absolute right-[14px] sm:right-[16px] md:right-[26px] top-1/2 -translate-y-1/2 min-w-[64px] max-w-[110px] md:max-w-[140px] pr-1.5 md:pr-2 leading-tight z-10 text-right hidden border-r"
         style={{
           borderRightColor: isBuy ? 'rgb(16 185 129)' : 'rgb(239 68 68)',
-          textShadow: '0 1px 2px rgba(0,0,0,0.85)',
+          textShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.55)',
         }}
       >
         {body}
@@ -233,7 +238,7 @@ function placeMarkers(
       continue;
     }
     // Lift buy amount label only — keep icon centered on the fill price.
-    const buyLift = e.tag.side === 'buy' ? (layout.cssW < 768 ? 4 : 6) : 0;
+    const buyLift = e.tag.side === 'buy' ? (layout.cssW < 768 ? 4 : 10) : 0;
     resolved.push({
       id: e.id,
       el: e.el,
