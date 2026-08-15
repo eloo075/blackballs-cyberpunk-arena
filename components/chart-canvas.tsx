@@ -869,14 +869,15 @@ export function ChartCanvas({
         ctx.fill();
 
         const label = `ENTRY ${level.price.toFixed(2)}x`;
-        const entryFont = (isMobile ? 7 : 8) * dpr;
+        const entryFont = (isMobile ? 7 : 10) * dpr;
         ctx.font = `bold ${entryFont}px JetBrains Mono`;
         const tw = ctx.measureText(label).width;
         const bh = entryFont * 1.4;
         const stack = Math.min(li, 4);
         let bx = x0 - tw * 0.35;
         bx = Math.max(padLeft + 2 * dpr, Math.min(bx, padLeft + chartW - tw - 2 * dpr));
-        const labelCy = snap(ey - (isMobile ? 14 : 16) * dpr - stack * (bh + 3 * dpr));
+        // Desktop: sit well above the personal buy logo + "Buy +amt" label (~36px logo).
+        const labelCy = snap(ey - (isMobile ? 14 : 56) * dpr - stack * (bh + 4 * dpr));
         entryLabelDraws.push({ label, x: bx, y: labelCy, h: bh, font: entryFont });
       });
 

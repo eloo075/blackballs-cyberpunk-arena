@@ -47,30 +47,28 @@ function PersonalMarkerBadge({ tag }: { tag: TradeTag }) {
   const label = isBuy ? `Buy +${amt}` : `Sell -${amt}`;
 
   return (
-    <div className="relative pointer-events-none trade-marker-pop">
+    <div className="relative pointer-events-none trade-marker-pop w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-9 md:h-9">
       {isBuy ? <span className="trade-buy-pulse-ring hidden md:block" aria-hidden /> : null}
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-[22px] md:h-[22px]">
-        <div
-          className={`absolute inset-0 rounded-full flex items-center justify-center overflow-hidden bg-sky-500/90 ${
-            isBuy ? 'trade-buy-logo-pop' : ''
-          }`}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/blackballs-marker.png"
-            alt=""
-            width={16}
-            height={16}
-            className="w-[12px] h-[12px] sm:w-[14px] sm:h-[14px] md:w-[19px] md:h-[19px]"
-            draggable={false}
-          />
-        </div>
+      <div
+        className={`absolute inset-0 rounded-full flex items-center justify-center overflow-hidden ${
+          isBuy ? 'bg-sky-500 trade-buy-logo-pop' : 'bg-sky-500/90'
+        }`}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/142.png"
+          alt=""
+          width={36}
+          height={36}
+          className="w-full h-full object-cover"
+          draggable={false}
+        />
       </div>
       {isBuy ? (
         <div
           data-label-right
-          className="absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+6px)] md:bottom-[calc(100%+11px)] whitespace-nowrap text-[7px] sm:text-[8px] md:text-[10px] font-bold tabular-nums z-10 text-white"
-          style={{ textShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.55)' }}
+          className="absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+8px)] md:bottom-[calc(100%+10px)] whitespace-nowrap text-[7px] sm:text-[8px] md:text-[14px] font-extrabold tabular-nums z-10 text-white"
+          style={{ textShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.7)' }}
         >
           {label}
         </div>
@@ -78,15 +76,15 @@ function PersonalMarkerBadge({ tag }: { tag: TradeTag }) {
         <>
           <div
             data-label-right
-            className="absolute left-[14px] sm:left-[16px] md:left-[26px] top-1/2 -translate-y-1/2 whitespace-nowrap text-[7px] sm:text-[8px] md:text-[10px] font-bold tabular-nums z-10 text-white"
-            style={{ textShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.55)' }}
+            className="absolute left-[calc(100%+6px)] md:left-[calc(100%+8px)] top-1/2 -translate-y-1/2 whitespace-nowrap text-[7px] sm:text-[8px] md:text-[14px] font-extrabold tabular-nums z-10 text-white"
+            style={{ textShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.7)' }}
           >
             {label}
           </div>
           <div
             data-label-left
-            className="absolute right-[14px] sm:right-[16px] md:right-[26px] top-1/2 -translate-y-1/2 whitespace-nowrap text-[7px] sm:text-[8px] md:text-[10px] font-bold tabular-nums z-10 hidden text-white"
-            style={{ textShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.55)' }}
+            className="absolute right-[calc(100%+6px)] md:right-[calc(100%+8px)] top-1/2 -translate-y-1/2 whitespace-nowrap text-[7px] sm:text-[8px] md:text-[14px] font-extrabold tabular-nums z-10 hidden text-white"
+            style={{ textShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.7)' }}
           >
             {label}
           </div>
@@ -237,8 +235,8 @@ function placeMarkers(
       e.el.style.visibility = 'hidden';
       continue;
     }
-    // Lift buy amount label only — keep icon centered on the fill price.
-    const buyLift = e.tag.side === 'buy' ? (layout.cssW < 768 ? 4 : 10) : 0;
+    // Keep the logo on the fill/entry price. Buy text is CSS-positioned above the logo.
+    const buyLift = e.tag.side === 'buy' ? (layout.cssW < 768 ? 4 : 0) : 0;
     resolved.push({
       id: e.id,
       el: e.el,
