@@ -3,10 +3,8 @@ import { motion } from 'framer-motion';
 import { useState } from 'react';
 import Link from 'next/link';
 import { useWallet } from '@/lib/wallet-context';
-import { useCompetitive } from '@/hooks/use-competitive';
 import { isVaultConfigured } from '@/lib/chain/public-config';
 import { VaultModal } from '@/components/VaultModal';
-import { PlayerXpCounter } from '@/components/player-xp-counter';
 import { HowToPlayModal } from '@/components/how-to-play-modal';
 import { WalletBalanceCards } from '@/components/wallet-balance-cards';
 import { DEMO_REFILL_BB } from '@/lib/demo-credits';
@@ -15,17 +13,15 @@ import { syncGameSessionBalances } from '@/lib/sync-game-sessions';
 const LOGO_SRC = '/blackballs-logo-transparent.png';
 
 interface NavProps {
-  activeTab: 'crash' | 'flip' | 'arena' | 'leaderboard';
-  onTabChange: (t: 'crash' | 'flip' | 'arena' | 'leaderboard') => void;
+  activeTab: 'crash' | 'flip';
+  onTabChange: (t: 'crash' | 'flip') => void;
 }
 
 type TabId = NavProps['activeTab'];
 
-const TABS: { id: TabId; label: string }[] = [
+const TABS: { id: TabId; label: string; comingSoon?: boolean }[] = [
   { id: 'crash', label: 'Crash' },
-  { id: 'flip', label: 'Flip' },
-  { id: 'arena', label: 'Arena' },
-  { id: 'leaderboard', label: 'Ranking' },
+  { id: 'flip', label: 'Flip', comingSoon: true },
 ];
 
 function TabIcon({ id, active }: { id: TabId; active: boolean }) {
@@ -59,25 +55,6 @@ function TabIcon({ id, active }: { id: TabId; active: boolean }) {
           <ellipse cx="12" cy="12" rx="8" ry="8" stroke={stroke} strokeWidth="2" />
           <ellipse cx="12" cy="12" rx="3.2" ry="8" stroke={stroke} strokeWidth="1.6" opacity="0.7" />
           <path d="M4 12h16" stroke={stroke} strokeWidth="1.4" opacity="0.35" />
-        </svg>
-      );
-    case 'arena':
-      return (
-        <svg {...common}>
-          <path
-            d="M7 4h3l1 3 1-3h3v3.5c0 3.2-1.6 5.5-4 6.8-2.4-1.3-4-3.6-4-6.8V4z"
-            stroke={stroke}
-            strokeWidth="1.8"
-            strokeLinejoin="round"
-          />
-          <path d="M9 20h6M12 14.3V20" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
-        </svg>
-      );
-    case 'leaderboard':
-      return (
-        <svg {...common}>
-          <path d="M5 20V11h4v9H5zM10 20V6h4v14h-4zM15 20v-7h4v7h-4z" fill={fill} opacity={active ? 1 : 0.85} />
-          <path d="M8 6l2.2-3L12.5 5 15 3.2" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       );
   }
@@ -156,13 +133,21 @@ function NavTabButton({
         <TabIcon id={tab.id} active={active} />
       </span>
       <span className="relative z-[1] tracking-wide">{tab.label}</span>
+      {tab.comingSoon && (
+        <span
+          className={`relative z-[1] text-[8px] font-black uppercase tracking-wide ${
+            compact ? 'leading-none' : 'ml-0.5'
+          } ${active ? 'text-black/70' : 'text-orange-300/80'}`}
+        >
+          Soon
+        </span>
+      )}
     </button>
   );
 }
 
 export function Nav({ activeTab, onTabChange }: NavProps) {
   const { wallet, connect, disconnect, displayAddress, refillDemoCredits, holdBonuses } = useWallet();
-  const { state: compState } = useCompetitive();
   const [vaultOpen, setVaultOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const vaultEnabled = isVaultConfigured();
@@ -232,11 +217,9 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
 
           {wallet.connected && activeTab !== 'crash' && (
             <div className="flex flex-wrap items-center justify-between gap-2 w-full mt-3 min-w-0">
-              <PlayerXpCounter variant="nav" className="min-w-0" />
               <WalletBalanceCards
                 solBalance={wallet.solBalance}
                 blackballsBalance={wallet.blackballsBalance}
-                arenaWinStreak={compState.arenaWinStreak}
                 variant="nav"
                 className="shrink-0"
               />
@@ -256,11 +239,6 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
                 <DemoIcon />
                 +{DEMO_REFILL_BB} Demo
               </button>
-            )}
-            {wallet.connected && wallet.airdropped && (
-              <span className="nav-action-chip text-amber-300 border-amber-400/35 bg-amber-400/10 shrink-0">
-                AIRDROP
-              </span>
             )}
             <Link href="/guide" className="nav-action-chip nav-action-guide shrink-0">
               <GuideIcon />
@@ -325,24 +303,16 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
           <div className="flex items-center gap-2 shrink-0 min-w-0">
             {wallet.connected ? (
               <>
-                <PlayerXpCounter variant="nav" className="hidden lg:flex" />
-
                 <div className="nav-wallet-chip hidden xl:flex items-center gap-2 px-2.5 py-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" />
                   <span className="text-[11px] font-extrabold text-white/70 font-mono tracking-tight max-w-[118px] truncate">
                     {displayAddress}
                   </span>
-                  {wallet.airdropped && (
-                    <span className="text-[9px] font-black px-1.5 py-0.5 rounded-md bg-amber-400 text-black tracking-wide shadow-[0_0_12px_rgba(251,191,36,0.35)]">
-                      AIRDROP
-                    </span>
-                  )}
                 </div>
 
                 <WalletBalanceCards
                   solBalance={wallet.solBalance}
                   blackballsBalance={wallet.blackballsBalance}
-                  arenaWinStreak={compState.arenaWinStreak}
                   variant="nav"
                 />
 

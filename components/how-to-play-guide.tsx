@@ -1,7 +1,5 @@
 'use client';
 
-import { FighterArt } from '@/components/fighter-art';
-
 const LOGO_SRC = '/blackballs-logo-transparent.png';
 
 interface HowToPlayGuideProps {
@@ -68,7 +66,7 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
           </div>
           <div>
             <div className="text-2xl font-extrabold text-white">BlackBalls</div>
-            <div className="text-[11px] text-white/45 mt-0.5 font-bold">Crash · Flip · Arena</div>
+            <div className="text-[11px] text-white/45 mt-0.5 font-bold">Crash live · Flip coming soon</div>
           </div>
         </div>
         <p className="mt-3 text-xs text-white/60 leading-relaxed max-w-[360px] mx-auto font-bold">
@@ -269,10 +267,10 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
 
         {/* Hold bonuses */}
         <GuideSection emoji="💎" title="Hold Bonuses" accentClass="from-amber-500/15 to-transparent">
-          <p className="text-[11px]">Hold BlackBalls in your wallet for payout / combat boosts:</p>
+          <p className="text-[11px]">Hold BlackBalls in your wallet for a Crash payout boost:</p>
           <ul className="space-y-1 text-[11px] list-none">
             <li>
-              <span className="text-amber-300">BlackBalls</span> — stimmy on Crash winning exits + Arena damage/loot
+              <span className="text-amber-300">BlackBalls</span> — stimmy on Crash winning exits
             </li>
             <li>
               <span className="text-white/50">Crash Standard stays 1x</span> — stimmy boosts profit, it does not add
@@ -281,199 +279,29 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
           </ul>
         </GuideSection>
 
-        {/* ── ARENA ── */}
-        <div className="rounded-2xl bg-gradient-to-r from-fuchsia-500/10 via-transparent to-fuchsia-500/5 border border-fuchsia-500/20 px-3 py-2 text-center">
-          <span className="text-xs font-extrabold text-fuchsia-300 tracking-wide">🥊 ARENA — FULL GUIDE</span>
-        </div>
-
-        <GuideSection emoji="⚔️" title="Arena Overview" accentClass="from-fuchsia-500/15 to-transparent">
+        <GuideSection emoji="🪂" title="First 500 Believers Airdrop" accentClass="from-amber-500/15 to-transparent">
           <p>
-            Arena is a turn-based <span className="text-fuchsia-300">meme fighter battle</span> mode — separate from Crash.
-            Pick a fighter, face a random opponent (or the daily boss), and brawl for{' '}
-            <span className="text-amber-300">XP</span>, <span className="text-sky-400">BlackBalls loot</span>, and{' '}
-            <span className="text-yellow-300">fight coins</span> to level your fighter up.
-          </p>
-          <div className="flex gap-2 items-center mt-1">
-            <div className="flex -space-x-2 shrink-0">
-              {(['pepe_prime', 'zog', 'bullx'] as const).map(id => (
-                <div key={id} className="w-10 h-12 rounded-lg border border-white/10 bg-[#1f2025] overflow-hidden">
-                  <FighterArt fighterId={id} fill className="w-full h-full" />
-                </div>
-              ))}
-            </div>
-            <p className="flex-1 text-[11px] text-white/55">
-              12 fighters · ATK / HP / SPD / LCK stats · PWR = average of all four
-            </p>
-          </div>
-        </GuideSection>
-
-        <GuideSection emoji="🃏" title="Picking & Unlocking Fighters" accentClass="from-violet-500/15 to-transparent">
-          <ul className="space-y-1.5 text-[11px] list-none">
-            <li>
-              <span className="text-emerald-400">Free:</span> 2 weakest fighters (Pepe Prime & Street Rat) — no cost
-            </li>
-            <li>
-              <span className="text-amber-300">Locked fighters:</span> unlock when your{' '}
-              <strong>BlackBalls balance</strong> hits the threshold — stronger = pricier
-            </li>
-            <li>
-              <span className="text-white/50">Formula:</span>{' '}
-              <span className="font-mono text-[10px]">PWR³ × 25</span> (balance held, not spent)
-            </li>
-          </ul>
-          <InfoBox variant="cyan">
-            Unlocking is a balance gate — you keep your BlackBalls. Hold more to access stronger fighters with higher
-            base stats.
-          </InfoBox>
-        </GuideSection>
-
-        <GuideSection emoji="📊" title="Stat Points & Equipment" accentClass="from-yellow-500/15 to-transparent">
-          <p>Every <span className="text-amber-300">2 levels</span> you earn stat points to allocate into ATK / HP / SPD / LCK.</p>
-          <ul className="space-y-1 text-[11px] list-none">
-            <li><span className="text-rose-400">ATK</span> +2 per point · <span className="text-emerald-400">HP</span> +5 per point</li>
-            <li><span className="text-cyan-400">SPD</span> +1 · <span className="text-amber-300">LCK</span> +1</li>
-            <li><span className="text-violet-300">Equipment:</span> Weapon / Armor / Accessory slots — drops from wins or buy with fight coins</li>
-          </ul>
-        </GuideSection>
-
-        <GuideSection emoji="📊" title="Fighter Leveling" accentClass="from-yellow-500/15 to-transparent">
-          <p>Each fighter has their own level (max <span className="text-amber-300">25</span>) and fight coin bank.</p>
-          <ul className="space-y-1 text-[11px] list-none">
-            <li>
-              <span className="text-yellow-300">+4% stats per level</span> above 1 (ATK, HP, SPD, LCK all scale)
-            </li>
-            <li>
-              <span className="text-yellow-300">Fight coins</span> earned every battle — spend to level up
-            </li>
-            <li>
-              Level-up cost: <span className="font-mono text-[10px]">floor(40 × level^1.45)</span> coins
-            </li>
-          </ul>
-          <div className="grid grid-cols-2 gap-1.5 text-[10px]">
-            <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-2">
-              <div className="text-emerald-400 font-extrabold">Win coins</div>
-              <div className="text-white/55 mt-0.5">Based on loot + opponent PWR</div>
-            </div>
-            <div className="rounded-lg bg-[#1f2025] border border-white/10 p-2">
-              <div className="text-white/60 font-extrabold">Loss coins</div>
-              <div className="text-white/45 mt-0.5">Small consolation — keep grinding</div>
-            </div>
-          </div>
-        </GuideSection>
-
-        <GuideSection emoji="🎮" title="How a Battle Works (Auto + Manual)" accentClass="from-sky-500/15 to-transparent">
-          <ol className="space-y-1 list-none text-[11px]">
-            <li><span className="text-sky-400">1.</span> Select an unlocked fighter · toggle <strong>Auto</strong> (default) or <strong>Manual</strong></li>
-            <li><span className="text-sky-400">2.</span> Wager: presets or custom 0–500 BlackBalls</li>
-            <li><span className="text-sky-400">3.</span> Challenge a leaderboard player for 15 BlackBalls (optional)</li>
-            <li><span className="text-sky-400">4.</span> Manual mode: pick skills each turn — Heavy Strike, Defensive Stance, Quick Heal, Crit Boost, Stun, Life Steal</li>
-            <li><span className="text-sky-400">5.</span> Fast rounds (~2.5–3s) · first to 0 HP loses</li>
-          </ol>
-          <div className="rounded-xl bg-[#1f2025] border border-white/10 p-2.5 text-[10px] space-y-1">
-            <div><span className="text-emerald-400">Your dodge:</span> 12% chance opponent misses</div>
-            <div><span className="text-rose-400">Enemy dodge:</span> 10% chance</div>
-            <div><span className="text-amber-300">Your crit:</span> 20% (+ CASHCAT frenzy bonus)</div>
-            <div><span className="text-white/50">Damage:</span> ATK × (0.8–1.2 random, ×1.5 on crit) × stimmy</div>
-            <div><span className="text-fuchsia-300">Frenzy proc:</span> CASHCAT holders — 15% extra hit</div>
-          </div>
-        </GuideSection>
-
-        <GuideSection emoji="🏆" title="Arena Rewards — XP, Loot & Wagers" accentClass="from-emerald-500/15 to-transparent">
-          <p className="text-[11px] font-extrabold text-white/80">Player XP (climbs your rank):</p>
-          <div className="rounded-xl bg-[#1f2025] border border-emerald-500/20 p-2 font-mono text-[10px] text-white/70">
-            Win: 50 + floor(opponent PWR × 1.2)
-            <br />
-            Loss: 15 + floor(opponent PWR × 0.25)
-          </div>
-          <p className="text-[11px] text-white/55 mt-1">Win multipliers stack:</p>
-          <ul className="space-y-1 text-[10px] list-none">
-            <li><span className="text-violet-300">Upset</span> (you&apos;re 20+ PWR weaker): XP ×1.5</li>
-            <li><span className="text-orange-300">3-win streak:</span> ×1.5 · <span className="text-orange-300">5-win:</span> ×2 · <span className="text-orange-300">10-win:</span> ×3</li>
-            <li><span className="text-rose-400">Boss fight:</span> ×3 on XP, loot & coins</li>
-          </ul>
-          <p className="text-[11px] font-extrabold text-white/80 mt-2">BlackBalls loot (win only):</p>
-          <p className="text-[11px] text-white/55">
-            Base 5–19 BlackBalls × stimmy hold bonus × streak × boss multiplier. Credited to your balance instantly.
-          </p>
-          <p className="text-[11px] font-extrabold text-white/80 mt-2">Arena wager (optional):</p>
-          <p className="text-[11px] text-white/55">
-            Free-form 0–500 BlackBalls (presets for speed). <span className="text-emerald-400">Win → 2× wager back</span>. Lose → gone.
-          </p>
-        </GuideSection>
-
-        <GuideSection emoji="⚔️" title="Challenge System" accentClass="from-amber-500/15 to-transparent">
-          <p className="text-[11px]">
-            Spend <span className="text-amber-300">15 BlackBalls</span> to challenge a specific player from the leaderboard.
-            Higher PWR opponents = bigger bragging rights and XP.
-          </p>
-        </GuideSection>
-
-        <GuideSection emoji="💀" title="Daily Boss & Challenges" accentClass="from-rose-500/15 to-transparent">
-          <p className="text-[11px]">
-            A <span className="text-rose-400">rotating daily boss</span> (Zog, Rug Reaper, Pingu, or BullX) appears at
-            level 6 with <span className="text-amber-300">3× rewards</span>.
+            The current airdrop is the <span className="text-amber-300">First 500 believers</span> list. It is{' '}
+            <strong>registration-based</strong>: submit your wallet on the launch campaign page to claim a numbered
+            spot. Qualification is <strong>not</strong> based on Crash play, XP, or a leaderboard rank.
           </p>
           <ul className="space-y-1 text-[11px] list-none">
-            <li><span className="text-emerald-400">1 free attempt</span> per day</li>
-            <li><span className="text-amber-300">Retries:</span> 50 BlackBalls each</li>
+            <li>
+              <span className="text-emerald-400">✓</span> First 500 wallets that register get a spot
+            </li>
+            <li>
+              <span className="text-emerald-400">✓</span> Proof card shows your spot number for the registered wallet
+            </li>
+            <li>
+              <span className="text-rose-400">✗</span> No XP grind, no rank snapshot, no in-game leaderboard payout
+            </li>
           </ul>
-          <p className="text-[11px] font-extrabold text-white/70 mt-2">Daily challenges (reset every day):</p>
-          <div className="grid grid-cols-1 gap-1 text-[10px]">
-            {[
-              ['Win 2 arena fights', '200 XP'],
-              ['Upset: beat +20 PWR foe', '350 XP'],
-              ['Fight 3 battles', '100 XP'],
-              ['Crash cashout 2x+', '150 XP'],
-              ['Hit a 3-win streak', '250 XP'],
-            ].map(([label, xp]) => (
-              <div key={label} className="flex justify-between rounded-lg bg-[#1f2025] border border-white/5 px-2 py-1">
-                <span className="text-white/60">{label}</span>
-                <span className="text-amber-300 font-extrabold">{xp}</span>
-              </div>
-            ))}
-          </div>
-        </GuideSection>
-
-        {/* Leaderboard & Airdrop */}
-        <GuideSection emoji="🏅" title="Ranking, Leaderboard & Airdrops" accentClass="from-amber-500/15 to-transparent">
-          <p className="text-[11px]">
-            Your <span className="text-amber-300">Player XP</span> sets your rank title and leaderboard position. Grind
-            Arena wins, daily challenges, and Crash activity to climb.
-          </p>
-          <div className="rounded-xl bg-[#1f2025] border border-white/10 overflow-hidden text-[10px]">
-            <div className="grid grid-cols-2 gap-px bg-white/5 font-extrabold text-white/50 text-center py-1.5">
-              <div>Rank Title</div>
-              <div>XP Required</div>
-            </div>
-            {[
-              ['NPC', '0'],
-              ['DEGEN', '12,000'],
-              ['APE', '24,000'],
-              ['CHAD', '36,000'],
-              ['WHALE', '48,000'],
-              ['LEGEND', '60,000+'],
-            ].map(([rank, xp]) => (
-              <div key={rank} className="grid grid-cols-2 gap-px bg-white/5 text-center py-1.5">
-                <div className="text-cyan-400 font-extrabold">{rank}</div>
-                <div className="text-white/60">{xp}</div>
-              </div>
-            ))}
-          </div>
           <InfoBox variant="amber">
-            <strong>🪂 Bi-Weekly Leaderboard Airdrop (every 15 days):</strong> At the end of each 15-day season
-            snapshot, the <strong>top-ranked players on the leaderboard</strong> by total XP receive a{' '}
-            <span className="text-amber-100">BlackBalls airdrop</span> to their connected wallet. Higher rank = bigger
-            drop. Play Arena, complete dailies, and stack XP before each snapshot to qualify.
+            There is no token airdrop tied to Player XP or ranking in the live game. If you see XP or rank in leftover
+            code or old posts, that is not a live reward. The First 500 list is the only current airdrop path.
           </InfoBox>
-          <ul className="space-y-1 text-[10px] list-none text-white/50">
-            <li>• Rankings tracked on the <span className="text-white/70">Ranking</span> tab</li>
-            <li>• Snapshot locks XP at season end — no last-second cope</li>
-            <li>• Airdrops sent to the wallet connected at snapshot time</li>
-            <li>• Keep fighting — seasons reset, rankings refresh, rewards go again</li>
-          </ul>
         </GuideSection>
 
-        {/* Common mistakes */}
         <GuideSection emoji="🚫" title="Common Rekt Moves" accentClass="from-orange-500/15 to-transparent">
           <ul className="space-y-1.5 text-[11px] list-none">
             <li>
@@ -489,85 +317,22 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
               <span className="text-rose-400">✗</span> Ignoring Verify after a rug — trust but verify
             </li>
             <li>
-              <span className="text-rose-400">✗</span> Fighting the boss with a level 1 free fighter
-            </li>
-            <li>
-              <span className="text-rose-400">✗</span> Ignoring daily challenges — free XP for the airdrop grind
-            </li>
-            <li>
               <span className="text-emerald-400">✓</span> Crash: presale @ 1.00x, stack live buys, peel with cash-out / Auto TP
             </li>
-            <li>
-              <span className="text-emerald-400">✓</span> Arena: level fighters, chase upsets & streaks, stack XP before the 15-day snapshot
-            </li>
           </ul>
         </GuideSection>
 
-        {/* ── BLACK FLIP ── */}
         <div className="rounded-2xl bg-gradient-to-r from-orange-500/10 via-transparent to-orange-500/5 border border-orange-500/20 px-3 py-2 text-center">
-          <span className="text-xs font-extrabold text-orange-300 tracking-wide">🪙 BLACK FLIP — 50/50 PvP</span>
+          <span className="text-xs font-extrabold text-orange-300 tracking-wide">🪙 BLACK FLIP — COMING SOON</span>
         </div>
 
-        <GuideSection emoji="🪙" title="Black Flip — How to Play" accentClass="from-orange-500/15 to-transparent">
+        <GuideSection emoji="🪙" title="Black Flip" accentClass="from-orange-500/15 to-transparent">
           <p>
-            Pure <span className="text-orange-400">50/50</span> coin flip PvP. Pick{' '}
-            <span className="text-orange-300">HEADS</span> or <span className="text-amber-200">TAILS</span>, set your bet,
-            and flip the official BlackBalls coin. Winner takes the pot minus rake.
-          </p>
-          <ol className="space-y-1 list-none text-[11px]">
-            <li><span className="text-orange-400">1.</span> Connect wallet (real vault or demo)</li>
-            <li><span className="text-orange-400">2.</span> Choose <strong>1v1 Instant</strong> or <strong>Dogpile Pot</strong></li>
-            <li><span className="text-orange-400">3.</span> Pick HEADS or TAILS + wager (+ optional taunt)</li>
-            <li><span className="text-orange-400">4.</span> Watch the coin flip — provably fair commit-reveal</li>
-            <li><span className="text-orange-400">5.</span> Win → pot minus rake · Lose → wager gone</li>
-          </ol>
-        </GuideSection>
-
-        <GuideSection emoji="💸" title="Flip Rake & BlackBalls Perks" accentClass="from-amber-500/15 to-transparent">
-          <div className="grid grid-cols-2 gap-2 text-[10px]">
-            <div className="rounded-lg bg-[#1f2025] border border-white/10 p-2">
-              <div className="text-white/50 font-extrabold">Base rake</div>
-              <div className="text-rose-300 font-extrabold">3%</div>
-            </div>
-            <div className="rounded-lg bg-amber-400/10 border border-amber-400/25 p-2">
-              <div className="text-amber-200/70 font-extrabold">BlackBalls holder</div>
-              <div className="text-amber-300 font-extrabold">1.5% rake · 500 BlackBalls max</div>
-            </div>
-          </div>
-          <InfoBox variant="amber">
-            Hold BlackBalls in your wallet — UI shows: &quot;You&apos;re paying only 1.5% rake because you hold
-            BlackBalls.&quot; Rake is configurable server-side (can go to 0% for promos).
-          </InfoBox>
-        </GuideSection>
-
-        <GuideSection emoji="⚔️" title="1v1 vs Dogpile" accentClass="from-violet-500/15 to-transparent">
-          <p className="text-[11px] font-extrabold text-white/80">1v1 Instant:</p>
-          <p className="text-[11px] text-white/55">
-            Open a match or join an open opposite-side lobby at the same wager. Matched → flip → winner takes ~2× wager
-            minus rake. Bot fills empty slots after ~6s so demo always feels live.
-          </p>
-          <p className="text-[11px] font-extrabold text-white/80 mt-2">Dogpile Pot:</p>
-          <p className="text-[11px] text-white/55">
-            Multiple players stack on HEADS or TAILS. Every ~30s the pot flips if both sides have bets. Winners split
-            proportionally. One-sided pots refund when timer ends.
+            Flip is a 50/50 coin match that will ship later. It is <strong>not playable</strong> at launch: you cannot
+            enter a match or move balance through Flip. The tab is a teaser only.
           </p>
         </GuideSection>
 
-        <GuideSection emoji="🎯" title="Flip Tips & Social" accentClass="from-cyan-500/15 to-transparent">
-          <ul className="space-y-1 text-[11px] list-none">
-            <li><span className="text-emerald-400">✓</span> Drop a taunt when joining — shows in live feed</li>
-            <li><span className="text-emerald-400">✓</span> Hit <strong>Revenge</strong> after a loss to re-challenge last opponent</li>
-            <li><span className="text-emerald-400">✓</span> Win streaks show on the panel — ride the heater</li>
-            <li><span className="text-emerald-400">✓</span> Big wins (50+ BlackBalls profit) hit Hall of Fame + chat highlight</li>
-            <li><span className="text-rose-400">✗</span> Don&apos;t flip your entire stack on tilt — 50/50 is still 50/50</li>
-          </ul>
-          <InfoBox variant="cyan">
-            Every flip is provably fair — server seed hash committed before the flip, seed revealed after. Verify via the
-            same HMAC scheme as Crash.
-          </InfoBox>
-        </GuideSection>
-
-        {/* Quick start */}
         <section className="rounded-2xl bg-[#25262c] border border-white/5 overflow-hidden">
           <div className="px-3 py-2 bg-gradient-to-r from-amber-500/15 to-transparent border-b border-white/5">
             <h3 className="text-sm font-extrabold text-white">Quick Start Checklist</h3>
@@ -590,12 +355,6 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
             </li>
             <li>
               <span className="text-amber-300">6.</span> After rug → Verify round · check Last 100 / markets
-            </li>
-            <li>
-              <span className="text-amber-300">7.</span> Black Flip → 1v1 or Dogpile
-            </li>
-            <li>
-              <span className="text-amber-300">8.</span> Arena → level · challenge · stack XP for the 15-day airdrop
             </li>
           </ol>
         </section>

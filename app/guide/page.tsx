@@ -9,20 +9,20 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: 'Player Guide — $BlackBalls Degen Arcade',
   description:
-    'Crash Standard guide: presale + live buys, stacked entries, cash-out, Flip, Arena, ranking, and airdrops.',
+    'Crash Standard guide: presale + live buys, stacked entries, cash-out, and the First 500 believers airdrop.',
   openGraph: {
     type: 'website',
     url: `${SITE_URL}/guide`,
     siteName: '$BlackBalls',
     title: 'Player Guide — $BlackBalls Degen Arcade',
     description:
-      'Learn Crash Standard (buy live, stack, cash out), Flip, Arena, and how to win. Share with your degens.',
+      'Learn Crash Standard (buy live, stack, cash out) and the First 500 believers airdrop. Share with your degens.',
     images: [{ url: '/og-image.png', width: 1200, height: 630, alt: '$BlackBalls Degen Arcade Guide' }],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Player Guide — $BlackBalls Degen Arcade',
-    description: 'Crash Standard + Flip + Arena full mechanics guide for $BlackBalls.',
+    description: 'Crash Standard mechanics and the First 500 believers airdrop for $BlackBalls.',
     images: ['/og-image.png'],
   },
 };

@@ -29,14 +29,14 @@ const SITE_URL = 'https://game.blackballs.site';
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: "$BlackBalls — Degen Arcade",
-  description: "Solana crash game & meme fighter arena. Rug or moon — your balls, your call.",
+  description: "Solana crash game. Rug or moon — your balls, your call.",
   applicationName: "$BlackBalls",
   openGraph: {
     type: "website",
     url: SITE_URL,
     siteName: "$BlackBalls",
     title: "$BlackBalls — Degen Arcade",
-    description: "Solana crash game & meme fighter arena. Rug or moon — your balls, your call.",
+    description: "Solana crash game. Rug or moon — your balls, your call.",
     images: [
       {
         url: "/og-image.png",
@@ -49,7 +49,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "$BlackBalls — Degen Arcade",
-    description: "Solana crash game & meme fighter arena. Rug or moon — your balls, your call.",
+    description: "Solana crash game. Rug or moon — your balls, your call.",
     images: ["/og-image.png"],
   },
   icons: {

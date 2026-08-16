@@ -9,6 +9,7 @@ import {
 } from '@/lib/chain/crash-vault-client';
 import { normalizeDemoSessionBalance } from '@/lib/session-balance';
 import { assertGameNotCampaignLocked } from '@/lib/launch-campaign-guard';
+import { assertFlipPlayable } from '@/lib/flip-launch-guard';
 import {
   ensureFlipStateSynced,
   loadAndApplyFlipEngineSnapshot,
@@ -128,7 +129,7 @@ export async function handleSession(req: NextRequest) {
 }
 
 export async function handleJoin(req: NextRequest) {
-  const blocked = assertGameNotCampaignLocked();
+  const blocked = assertGameNotCampaignLocked() ?? assertFlipPlayable();
   if (blocked) return blocked;
 
   const body = await req.json().catch(() => ({}));
@@ -202,7 +203,7 @@ export async function handleJoin(req: NextRequest) {
 }
 
 export async function handleCancel(req: NextRequest) {
-  const blocked = assertGameNotCampaignLocked();
+  const blocked = assertGameNotCampaignLocked() ?? assertFlipPlayable();
   if (blocked) return blocked;
 
   const body = await req.json().catch(() => ({}));
@@ -224,7 +225,7 @@ export async function handleCancel(req: NextRequest) {
 }
 
 export async function handleRevenge(req: NextRequest) {
-  const blocked = assertGameNotCampaignLocked();
+  const blocked = assertGameNotCampaignLocked() ?? assertFlipPlayable();
   if (blocked) return blocked;
 
   const body = await req.json().catch(() => ({}));
