@@ -38,16 +38,34 @@ function isMine(tag: TradeTag, viewerName?: string | null): boolean {
   return tag.user === viewerName;
 }
 
+/** CSS-pixel metrics for the blue personal buy logo + label (must match canvas collision). */
+export function personalBuyMarkerMetrics(cssW: number) {
+  const mobile = cssW < 768;
+  return {
+    logo: mobile ? 20 : 50,
+    gap: mobile ? 8 : 12,
+    labelH: mobile ? 12 : 16,
+  };
+}
+
+export function formatPersonalBuyLabel(amount: number): string {
+  const amt =
+    Math.abs(amount - Math.round(amount)) < 1e-6
+      ? String(Math.round(amount))
+      : amount.toFixed(2);
+  return `Buy +${amt}`;
+}
+
 function PersonalMarkerBadge({ tag }: { tag: TradeTag }) {
   const isBuy = tag.side === 'buy';
   const amt =
     Math.abs(tag.amount - Math.round(tag.amount)) < 1e-6
       ? String(Math.round(tag.amount))
       : tag.amount.toFixed(2);
-  const label = isBuy ? `Buy +${amt}` : `Sell -${amt}`;
+  const label = isBuy ? formatPersonalBuyLabel(tag.amount) : `Sell -${amt}`;
 
   return (
-    <div className="relative pointer-events-none trade-marker-pop w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-9 md:h-9">
+    <div className="relative pointer-events-none trade-marker-pop w-5 h-5 md:w-[50px] md:h-[50px]">
       {isBuy ? <span className="trade-buy-pulse-ring hidden md:block" aria-hidden /> : null}
       <div
         className={`absolute inset-0 rounded-full flex items-center justify-center overflow-hidden ${
@@ -58,17 +76,20 @@ function PersonalMarkerBadge({ tag }: { tag: TradeTag }) {
         <img
           src="/142.png"
           alt=""
-          width={36}
-          height={36}
+          width={50}
+          height={50}
           className="w-full h-full object-cover"
           draggable={false}
         />
       </div>
       {isBuy ? (
         <div
-          data-label-right
-          className="absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+8px)] md:bottom-[calc(100%+10px)] whitespace-nowrap text-[7px] sm:text-[8px] md:text-[14px] font-extrabold tabular-nums z-10 text-white"
-          style={{ textShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.7)' }}
+          data-buy-label
+          className="absolute left-1/2 bottom-[calc(100%+8px)] md:bottom-[calc(100%+12px)] whitespace-nowrap leading-none text-[9px] md:text-[13px] font-extrabold tabular-nums z-10 text-white pointer-events-none"
+          style={{
+            transform: 'translate(calc(-50% + var(--buy-label-dx, 0px)), var(--buy-label-dy, 0px))',
+            textShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.7)',
+          }}
         >
           {label}
         </div>
@@ -76,14 +97,14 @@ function PersonalMarkerBadge({ tag }: { tag: TradeTag }) {
         <>
           <div
             data-label-right
-            className="absolute left-[calc(100%+6px)] md:left-[calc(100%+8px)] top-1/2 -translate-y-1/2 whitespace-nowrap text-[7px] sm:text-[8px] md:text-[14px] font-extrabold tabular-nums z-10 text-white"
+            className="absolute left-[calc(100%+6px)] md:left-[calc(100%+8px)] top-1/2 -translate-y-1/2 whitespace-nowrap text-[9px] md:text-[13px] font-extrabold tabular-nums z-10 text-white"
             style={{ textShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.7)' }}
           >
             {label}
           </div>
           <div
             data-label-left
-            className="absolute right-[calc(100%+6px)] md:right-[calc(100%+8px)] top-1/2 -translate-y-1/2 whitespace-nowrap text-[7px] sm:text-[8px] md:text-[14px] font-extrabold tabular-nums z-10 hidden text-white"
+            className="absolute right-[calc(100%+6px)] md:right-[calc(100%+8px)] top-1/2 -translate-y-1/2 whitespace-nowrap text-[9px] md:text-[13px] font-extrabold tabular-nums z-10 hidden text-white"
             style={{ textShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.7)' }}
           >
             {label}
@@ -235,13 +256,11 @@ function placeMarkers(
       e.el.style.visibility = 'hidden';
       continue;
     }
-    // Keep the logo on the fill/entry price. Buy text is CSS-positioned above the logo.
-    const buyLift = e.tag.side === 'buy' ? (layout.cssW < 768 ? 4 : 0) : 0;
     resolved.push({
       id: e.id,
       el: e.el,
       x: pos.x,
-      y: pos.y - buyLift,
+      y: pos.y,
       labelLeft: pos.labelLeft,
       side: e.tag.side,
     });
@@ -266,16 +285,14 @@ function placeMarkers(
   for (const g of groups) {
     g.forEach((ri, gi) => {
       const r = resolved[ri];
-      const oy = stackOffset(gi, g.length) * (layout.cssW < 640 ? 0.7 : 1);
-      // Extra upward stack for buys so labels stay above the white entry line.
-      const buyStack = r.side === 'buy' ? gi * (layout.cssW < 768 ? 16 : 18) : oy;
-      const finalY = r.side === 'buy' ? r.y - buyStack : r.y + oy;
+      const oy = r.side === 'buy' ? 0 : stackOffset(gi, g.length) * (layout.cssW < 640 ? 0.7 : 1);
       r.el.style.visibility = 'visible';
       r.el.style.left = `${r.x}px`;
-      r.el.style.top = `${finalY}px`;
+      r.el.style.top = `${r.y + oy}px`;
       r.el.style.transform = 'translate(-50%, -50%)';
       r.el.style.zIndex = String(zBase + gi);
-      // Buy label is centered above the logo — don't flip/hide it.
+      const labelDy = r.side === 'buy' ? layout.personalBuyLabelDy?.[r.id] ?? 0 : 0;
+      r.el.style.setProperty('--buy-label-dy', `${labelDy}px`);
       if (r.side !== 'buy') setLabelSide(r.el, r.labelLeft);
     });
   }

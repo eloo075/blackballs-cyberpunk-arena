@@ -118,7 +118,7 @@ function clampWager(amount: number, balance: number): number {
 
 function leveragePillClass(preset: number, active: boolean): string {
   if (!active) {
-    return 'bg-[#2a2c33] text-white/55 border border-white/10 hover:bg-[#353842]';
+    return 'crash-chip';
   }
   if (preset >= 5) return 'bg-rose-500 text-white border-b-[3px] border-rose-700';
   if (preset >= 3) return 'bg-orange-500 text-white border-b-[3px] border-orange-700';
@@ -127,17 +127,17 @@ function leveragePillClass(preset: number, active: boolean): string {
 }
 
 const ARCADE_BTN_BUY =
-  'crash-trade-btn bg-emerald-500 hover:bg-emerald-400 text-white font-black uppercase tracking-wider rounded-xl border-b-[3px] sm:border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 active:scale-[0.98] transition-all duration-150 shadow-[0_0_24px_rgba(16,185,129,0.35)]';
+  'crash-trade-btn crash-trade-buy font-black uppercase tracking-wide rounded-xl active:border-b-0 active:translate-y-1 active:scale-[0.98] transition-all duration-150';
 const ARCADE_BTN_SELL =
-  'crash-trade-btn bg-rose-500 hover:bg-rose-400 text-white font-black uppercase tracking-wider rounded-xl border-b-[3px] sm:border-b-4 border-rose-700 active:border-b-0 active:translate-y-1 active:scale-[0.98] transition-all duration-150 shadow-[0_0_24px_rgba(244,63,94,0.32)]';
+  'crash-trade-btn crash-trade-sell font-black uppercase tracking-wide rounded-xl active:border-b-0 active:translate-y-1 active:scale-[0.98] transition-all duration-150';
 const ARCADE_BTN_LOCKED =
-  'bg-[#1e2028] text-white/30 font-black uppercase tracking-wider rounded-xl border border-white/8 cursor-not-allowed';
+  'bg-[#1a1d24] text-white/30 font-black uppercase tracking-wide rounded-xl border border-white/[0.06] cursor-not-allowed';
 const ARCADE_BTN_CANCEL_SHORT =
-  'crash-trade-btn bg-amber-400 hover:bg-amber-300 text-black font-black uppercase tracking-wider rounded-xl border-b-[3px] sm:border-b-4 border-rose-600 active:border-b-0 active:translate-y-1 active:scale-[0.98] transition-all duration-150';
+  'crash-trade-btn crash-chip-max font-black uppercase tracking-wide rounded-xl border-b-[3px] sm:border-b-4 border-b-rose-700 active:border-b-0 active:translate-y-1 active:scale-[0.98] transition-all duration-150';
 const ARCADE_BTN_CANCEL_LONG =
-  'crash-trade-btn bg-amber-400 hover:bg-amber-300 text-black font-black uppercase tracking-wider rounded-xl border-b-[3px] sm:border-b-4 border-emerald-600 active:border-b-0 active:translate-y-1 active:scale-[0.98] transition-all duration-150';
+  'crash-trade-btn crash-chip-max font-black uppercase tracking-wide rounded-xl border-b-[3px] sm:border-b-4 border-b-emerald-700 active:border-b-0 active:translate-y-1 active:scale-[0.98] transition-all duration-150';
 const TRADE_BTN =
-  'touch-manipulation min-h-[44px] sm:min-h-[56px] py-2 sm:py-3 px-2 sm:px-3 text-[13px] sm:text-base font-black uppercase tracking-wider';
+  'touch-manipulation min-h-[44px] sm:min-h-[56px] py-2 sm:py-3 px-2 sm:px-3 text-[13px] sm:text-[15px] font-black uppercase tracking-wide';
 
 function TradeSpinner() {
   return (
@@ -326,7 +326,10 @@ export function CrashControls({
   const wagerLocked = hasPosition && !canStackBuy;
   const livePosition = hasLivePosition || (hasPosition && phase === 'running' && !entryPending);
   const showCashoutPanel =
-    phase === 'running' && walletConnected && (livePosition || (hasPosition && pendingAction === 'cashout'));
+    phase === 'running' &&
+    streamConnected &&
+    walletConnected &&
+    (livePosition || (hasPosition && pendingAction === 'cashout'));
 
   /** Clear pending spinner once server state catches up (avoids BUY → gray → CANCEL flicker). */
   useEffect(() => {
@@ -412,7 +415,7 @@ export function CrashControls({
   useEffect(() => {
     // After a position closes, keep the same wager the player set (do not auto MAX / refill).
     if (prevHasPositionRef.current && !hasPosition) {
-      setPercent(0);
+    setPercent(0);
     }
     prevHasPositionRef.current = hasPosition;
   }, [hasPosition]);
@@ -537,6 +540,10 @@ export function CrashControls({
 
     // Continuous Demo: SELL uses the cash-out % (50/75/100) so partial exits work.
     if (closing && continuousDemo && side === 'sell' && onCashOut) {
+      if (!streamConnected || phase !== 'running' || !livePosition) {
+        setTradeError('Reconnecting… cash-out unavailable until synced');
+        return;
+      }
       setPendingAction('cashout');
       setTradeError(null);
       setCashOutError(null);
@@ -736,7 +743,7 @@ export function CrashControls({
   };
 
   return (
-    <div className="rounded-lg sm:rounded-2xl border border-white/[0.06] bg-[#12141a] p-0 font-arcade relative max-sm:pb-[env(safe-area-inset-bottom,0px)] sm:safe-bottom overflow-hidden">
+    <div className="rounded-xl sm:rounded-2xl border border-white/[0.06] bg-[#12141a] p-0 font-arcade relative max-sm:pb-[env(safe-area-inset-bottom,0px)] sm:safe-bottom overflow-hidden">
       {!walletConnected && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[#141518]/90 backdrop-blur-sm px-4 rounded-lg sm:rounded-2xl">
           <span className="text-sm font-extrabold text-white/70 text-center">
@@ -765,7 +772,7 @@ export function CrashControls({
         </div>
       )}
 
-      <div className="flex flex-col gap-1 sm:gap-2 p-1.5 sm:p-3">
+      <div className="flex flex-col gap-1.5 sm:gap-2 p-1.5 sm:p-3">
         {/* Wager — hide on mobile while in a position so cashout stays on-screen */}
         <div
           className={`grid grid-cols-1 ${continuousDemo ? '' : 'sm:grid-cols-2'} gap-1 sm:gap-2 ${
@@ -773,7 +780,7 @@ export function CrashControls({
           }`}
         >
           <div
-            className={`rounded-lg sm:rounded-xl border border-white/[0.07] bg-[#0e1015] px-2 py-1 sm:px-3 sm:py-2.5 ${
+            className={`rounded-xl border border-white/[0.06] bg-[#0e1015] px-2 py-1.5 sm:px-3 sm:py-2.5 ${
               wagerLocked ? 'opacity-50 pointer-events-none' : ''
             }`}
           >
@@ -815,10 +822,10 @@ export function CrashControls({
                       setWagerDraft(next > 0 ? String(Math.floor(next)) : '0');
                     }}
                     disabled={wagerLocked}
-                    className={`flex-1 min-h-[26px] sm:min-h-[30px] rounded-md sm:rounded-lg text-[10px] font-extrabold touch-manipulation disabled:opacity-30 transition-colors ${
+                    className={`flex-1 min-h-[26px] sm:min-h-[30px] rounded-lg text-[10px] font-extrabold touch-manipulation disabled:opacity-30 ${
                       Math.abs(amount - (balance * p) / 100) < 0.001 && amount > 0
-                        ? 'bg-emerald-500/90 text-white'
-                        : 'bg-[#1a1d24] text-white/50 border border-white/8 hover:bg-[#22252e]'
+                        ? 'crash-chip-on'
+                        : 'crash-chip'
                     }`}
                   >
                     {p}%
@@ -830,7 +837,7 @@ export function CrashControls({
 
           {!continuousDemo && (
           <div
-            className={`rounded-xl border border-white/[0.07] bg-[#0e1015] px-2.5 py-2 ${
+            className={`rounded-xl border border-white/[0.06] bg-[#0e1015] px-2.5 py-2 ${
               wagerLocked ? 'opacity-50 pointer-events-none' : ''
             }`}
           >
@@ -885,7 +892,7 @@ export function CrashControls({
                   </button>
                 );
               })}
-            </div>
+          </div>
             <div className="flex gap-1">
               {[10, 25, 50, 100].map(p => (
                 <button
@@ -894,9 +901,7 @@ export function CrashControls({
                   onClick={() => setPercent(p)}
                   disabled={wagerLocked}
                   className={`flex-1 min-h-[30px] rounded-lg text-[10px] font-extrabold touch-manipulation disabled:opacity-30 ${
-                    percent === p
-                      ? 'bg-violet-500 text-white border-b-2 border-violet-700'
-                      : 'bg-[#2a2c33] text-white/55 border border-white/10'
+                    percent === p ? 'crash-chip-on' : 'crash-chip'
                   }`}
                 >
                   {p}%
@@ -914,7 +919,7 @@ export function CrashControls({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
-              className="rounded-lg sm:rounded-xl border border-white/[0.07] bg-[#0e1015] px-2 py-1 sm:px-3 sm:py-2.5"
+              className="rounded-xl border border-white/[0.06] bg-[#0e1015] px-2 py-1.5 sm:px-3 sm:py-2.5"
             >
               <div className="flex items-center justify-between gap-2 sm:gap-3">
                 <div className="min-w-0">
@@ -969,7 +974,7 @@ export function CrashControls({
                 >
                   <div className="text-base sm:text-2xl font-black tabular-nums leading-none tracking-tight">
                     {pnlDisplay.text}
-                  </div>
+          </div>
                   <div className="text-[10px] sm:text-xs font-extrabold tabular-nums opacity-85 mt-0.5 sm:mt-1">
                     {pnlDisplay.pct}%
                   </div>
@@ -980,17 +985,15 @@ export function CrashControls({
         </AnimatePresence>
 
         {showCashoutPanel && (
-          <div className="rounded-lg sm:rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-1 sm:px-2.5 sm:py-2">
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.08] px-1.5 py-1 sm:px-2.5 sm:py-2">
             <div className="flex items-center gap-1 sm:gap-1.5">
               {CASH_OUT_PCTS.map(p => (
                 <button
                   key={p}
                   type="button"
                   onClick={() => setCashOutPct(p)}
-                  className={`flex-1 min-h-[28px] sm:min-h-[34px] rounded-md sm:rounded-lg text-[10px] sm:text-[11px] font-extrabold touch-manipulation ${
-                    cashOutPct === p
-                      ? 'bg-emerald-500 text-white border-b-2 border-emerald-700'
-                      : 'bg-[#2a2c33] text-white/55 border border-white/10'
+                  className={`flex-1 min-h-[28px] sm:min-h-[34px] rounded-lg text-[10px] sm:text-[11px] font-extrabold touch-manipulation ${
+                    cashOutPct === p ? 'crash-chip-on' : 'crash-chip'
                   }`}
                 >
                   {p * 100}%
@@ -1000,10 +1003,8 @@ export function CrashControls({
                 type="button"
                 onClick={handleCashOut}
                 disabled={!canCashOut}
-                className={`flex-[1.5] min-h-[28px] sm:min-h-[34px] rounded-md sm:rounded-lg text-[10px] sm:text-[11px] font-black touch-manipulation ${
-                  canCashOut
-                    ? 'bg-emerald-500 text-white border-b-2 border-emerald-700'
-                    : 'bg-[#2a2c33] text-white/40 border border-white/10'
+                className={`flex-[1.5] min-h-[28px] sm:min-h-[34px] rounded-lg text-[10px] sm:text-[11px] font-black touch-manipulation ${
+                  canCashOut ? 'crash-chip-on' : 'crash-chip opacity-50'
                 }`}
               >
                 {pendingAction === 'cashout' ? '…' : cashOutPct >= 1 ? 'CASH OUT' : `OUT ${cashOutPct * 100}%`}
@@ -1066,8 +1067,8 @@ export function CrashControls({
                 </div>
               </div>
             </motion.div>
-          )}
-        </AnimatePresence>
+            )}
+          </AnimatePresence>
 
         {/* BUY / SELL — side-by-side dock (handlers unchanged) */}
         <div className="grid grid-cols-2 gap-2">

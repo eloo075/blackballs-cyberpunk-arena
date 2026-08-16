@@ -15,6 +15,7 @@ import {
 } from '@/lib/chart-layout';
 import {
   ChartTradeMarkers,
+  personalBuyMarkerMetrics,
 } from '@/components/chart-trade-overlays';
 import { usePageVisibility } from '@/hooks/use-page-visibility';
 import { CURRENCY_LABEL } from '@/lib/format-currency';
@@ -46,8 +47,8 @@ interface ChartCanvasProps {
   viewerName?: string | null;
 }
 
-const CANDLE_UP = '#22c55e';
-const CANDLE_DOWN = '#ef4444';
+const CANDLE_UP = '#2fd67a';
+const CANDLE_DOWN = '#f2555c';
 const CASHOUT_GREEN = '#10B981';
 /** Mobile public trade toasts — one at a time on the live candle tip. */
 const MOBILE_TRADE_MARKER_MS = 900;
@@ -287,6 +288,7 @@ function drawMobileTradeMarker(
   coinImg: HTMLImageElement | null,
   bearImg: HTMLImageElement | null,
   compact: boolean,
+  labelDy = 0,
 ) {
   const isBuy = m.type === 'BUY';
   // Desktop: ~38% larger logos; mobile (compact) unchanged.
@@ -351,7 +353,7 @@ function drawMobileTradeMarker(
   const pillH = (compact ? 16 : 42) * dpr;
   const gap = (compact ? 3.5 : 14) * dpr;
   const pillX = labelLeft ? x - iconR - gap - pillW : x + iconR + gap;
-  const pillY = y - pillH / 2;
+  const pillY = y - pillH / 2 + labelDy;
 
   roundRectPath(ctx, pillX, snap(pillY), pillW, pillH, (compact ? 3 : 6) * dpr);
   ctx.fillStyle = compact ? 'rgba(13, 15, 18, 0.88)' : 'rgba(8, 10, 14, 0.94)';
@@ -364,12 +366,12 @@ function drawMobileTradeMarker(
   ctx.textBaseline = 'middle';
   ctx.font = userFont;
   ctx.shadowColor = 'rgba(0,0,0,0.85)';
-  ctx.shadowBlur = compact ? 0 : 3 * dpr;
+  ctx.shadowBlur = 0;
   ctx.fillStyle = '#ffffff';
-  ctx.fillText(user, pillX + pillPadX, y - tyOff * dpr);
+  ctx.fillText(user, pillX + pillPadX, y + labelDy - tyOff * dpr);
   ctx.font = amtFont;
   ctx.fillStyle = isBuy ? '#34D399' : '#FB7185';
-  ctx.fillText(sideLine, pillX + pillPadX, y + (tyOff + 0.2) * dpr);
+  ctx.fillText(sideLine, pillX + pillPadX, y + labelDy + (tyOff + 0.2) * dpr);
   ctx.shadowBlur = 0;
 
   ctx.restore();
@@ -505,8 +507,8 @@ export function ChartCanvas({
           cssH * 0.5,
           Math.max(cssW, cssH) * 0.72,
         );
-        baseGrad.addColorStop(0, '#0e1118');
-        baseGrad.addColorStop(1, '#06070a');
+        baseGrad.addColorStop(0, '#0b0d12');
+        baseGrad.addColorStop(1, '#050608');
         baseGradCacheRef.current = { w: cssW, h: cssH, grad: baseGrad };
       }
       ctx.fillStyle = baseGrad;
@@ -666,8 +668,8 @@ export function ChartCanvas({
       for (const tick of axisTicks) {
         const gy = snap(yFor(tick));
         if (gy < padTop - 2 || gy > padTop + chartH + 2) continue;
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.025)';
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.012)';
+        ctx.lineWidth = 0.5;
         ctx.setLineDash([]);
         ctx.beginPath();
         ctx.moveTo(padLeft, gy);
@@ -678,12 +680,9 @@ export function ChartCanvas({
         ctx.font = `600 ${(isMobile ? 9 : 10) * dpr}px JetBrains Mono, monospace`;
         const lw = ctx.measureText(label).width;
         const tx = Math.max(2 * dpr, padLeft - lw - 4 * dpr);
-        ctx.shadowColor = 'rgba(0,0,0,0.6)';
-        ctx.shadowBlur = 2 * dpr;
-        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.fillStyle = 'rgba(255,255,255,0.42)';
         ctx.textAlign = 'left';
         ctx.fillText(label, tx, gy);
-        ctx.shadowBlur = 0;
       }
       ctx.textAlign = 'left';
       ctx.textBaseline = 'alphabetic';
@@ -717,7 +716,7 @@ export function ChartCanvas({
         const yC = snap(yFor(c.c));
 
         ctx.strokeStyle = color;
-        ctx.globalAlpha = 0.85;
+        ctx.globalAlpha = 0.95;
         ctx.lineWidth = Math.max(isMobile ? 1.15 : 1.1, (isMobile ? 1.1 : 1) * dpr);
         ctx.beginPath();
         ctx.moveTo(cx, yH);
@@ -744,7 +743,7 @@ export function ChartCanvas({
         if (isLast && (p.phase === 'running' || p.phase === 'crashed')) {
           ctx.save();
           ctx.shadowColor = color;
-          ctx.shadowBlur = isCrashCandle ? 11 * dpr : 7 * dpr;
+          ctx.shadowBlur = isCrashCandle ? 8 * dpr : 5 * dpr;
           roundRectPath(ctx, bodyX, bodyTop, bodyW, bodyH, 2 * dpr);
           ctx.strokeStyle = color;
           ctx.lineWidth = 1.5 * dpr;
@@ -805,7 +804,7 @@ export function ChartCanvas({
 
         ctx.strokeStyle = trackStroke;
         ctx.setLineDash([5 * dpr, 4 * dpr]);
-        ctx.lineWidth = (isMobile ? 1.35 : 1.15) * dpr;
+        ctx.lineWidth = (isMobile ? 1.05 : 0.9) * dpr;
         ctx.beginPath();
         ctx.moveTo(tipX, y);
         ctx.lineTo(chartRight, y);
@@ -814,7 +813,7 @@ export function ChartCanvas({
 
         // Plain neon text on the track — no boxed badge (drawn after collision pass).
         const liveLabel = formatLiveMultLabel(dispMult);
-        const neon = isGreen ? '#39FFB6' : '#FF5C6A';
+        const neon = isGreen ? '#4ADE9A' : '#FB7185';
         const liveFont = (isMobile ? 9 : 12.5) * dpr;
         ctx.font = `800 ${liveFont}px JetBrains Mono, monospace`;
         const tw = ctx.measureText(liveLabel).width;
@@ -825,7 +824,7 @@ export function ChartCanvas({
           font: liveFont,
           x: tagX + tw / 2,
           y,
-          h: liveFont * 1.35,
+          h: (isMobile ? 9 : 12.5) * 1.35,
         };
       }
 
@@ -869,15 +868,17 @@ export function ChartCanvas({
         ctx.fill();
 
         const label = `ENTRY ${level.price.toFixed(2)}x`;
-        const entryFont = (isMobile ? 7 : 10) * dpr;
+        const entryFont = isMobile ? 7 : 10;
         ctx.font = `bold ${entryFont}px JetBrains Mono`;
         const tw = ctx.measureText(label).width;
         const bh = entryFont * 1.4;
         const stack = Math.min(li, 4);
         let bx = x0 - tw * 0.35;
-        bx = Math.max(padLeft + 2 * dpr, Math.min(bx, padLeft + chartW - tw - 2 * dpr));
-        // Desktop: sit well above the personal buy logo + "Buy +amt" label (~36px logo).
-        const labelCy = snap(ey - (isMobile ? 14 : 56) * dpr - stack * (bh + 4 * dpr));
+        bx = Math.max(padLeft + 2, Math.min(bx, padLeft + chartW - tw - 2));
+        // Sit above the blue personal buy logo + "Buy +amt" label (CSS px; ctx is already dpr-scaled).
+        const buyM = personalBuyMarkerMetrics(cssW);
+        const buyClear = buyM.logo / 2 + buyM.gap + buyM.labelH + 6;
+        const labelCy = snap(ey - buyClear - stack * (bh + 4));
         entryLabelDraws.push({ label, x: bx, y: labelCy, h: bh, font: entryFont });
       });
 
@@ -888,6 +889,7 @@ export function ChartCanvas({
         y: number;
         h: number;
         labelLeft: boolean;
+        labelDy: number;
       } | null = null;
 
       if (layout) {
@@ -959,47 +961,75 @@ export function ChartCanvas({
                 m,
                 x: snap(mx),
                 y: snap(my),
-                h: (isMobile ? 16 : 42) * dpr,
+                h: isMobile ? 16 : 42,
                 labelLeft: mx > padLeft + chartW * 0.48,
+                labelDy: 0,
               };
             }
           }
         }
       }
 
-      // Collision: live mult > ENTRY > trade marker.
+      // Collision: live mult > personal Buy label > ENTRY > public marker LABEL (logos stay on price).
       {
+        const buyM = personalBuyMarkerMetrics(cssW);
+        const personalBoxes: { id: number; y: number; h: number }[] = [];
+        const viewer = p.viewerName;
+        if (viewer) {
+          for (const tag of p.tradeTags) {
+            if (tag.user !== viewer || tag.side !== 'buy') continue;
+            const logoY = yFor(tag.price);
+            const defaultCy = logoY - buyM.logo / 2 - buyM.gap - buyM.labelH / 2;
+            personalBoxes.push({ id: tag.id, y: defaultCy, h: buyM.labelH });
+          }
+        }
+
         const boxes: { y: number; h: number; priority: number }[] = [];
-        const kinds: ('live' | 'entry' | 'marker')[] = [];
+        const kinds: ('live' | 'personal' | 'entry' | 'marker')[] = [];
+        const kindIndex: number[] = [];
         if (liveDraw) {
-          boxes.push({ y: liveDraw.y, h: liveDraw.h, priority: 3 });
+          boxes.push({ y: liveDraw.y, h: liveDraw.h, priority: 4 });
           kinds.push('live');
+          kindIndex.push(0);
         }
-        if (entryLabelDraws.length > 0) {
-          boxes.push({
-            y: entryLabelDraws[0].y,
-            h: entryLabelDraws[0].h,
-            priority: 2,
-          });
+        personalBoxes.forEach((pb, i) => {
+          boxes.push({ y: pb.y, h: pb.h, priority: 3 });
+          kinds.push('personal');
+          kindIndex.push(i);
+        });
+        entryLabelDraws.forEach((el, i) => {
+          boxes.push({ y: el.y, h: el.h, priority: 2 });
           kinds.push('entry');
-        }
+          kindIndex.push(i);
+        });
         if (markerDraw) {
           boxes.push({ y: markerDraw.y, h: markerDraw.h, priority: 1 });
           kinds.push('marker');
+          kindIndex.push(0);
         }
+        const personalBuyLabelDy: Record<number, number> = {};
         if (boxes.length >= 2) {
           const resolved = resolveVerticalOverlap(
             boxes,
             padTop + 10,
             padTop + chartH - 10,
-            4 * dpr,
+            6,
           );
           kinds.forEach((k, i) => {
             const cy = resolved[i];
+            const idx = kindIndex[i];
             if (k === 'live' && liveDraw) liveDraw.y = cy;
-            if (k === 'entry' && entryLabelDraws[0]) entryLabelDraws[0].y = cy;
-            if (k === 'marker' && markerDraw) markerDraw.y = cy;
+            if (k === 'entry' && entryLabelDraws[idx]) entryLabelDraws[idx].y = cy;
+            if (k === 'personal' && personalBoxes[idx]) {
+              personalBuyLabelDy[personalBoxes[idx].id] = cy - personalBoxes[idx].y;
+            }
+            if (k === 'marker' && markerDraw) {
+              markerDraw.labelDy = cy - markerDraw.y;
+            }
           });
+        }
+        if (layoutRef.current) {
+          layoutRef.current.personalBuyLabelDy = personalBuyLabelDy;
         }
       }
 
@@ -1007,23 +1037,17 @@ export function ChartCanvas({
         ctx.font = `800 ${liveDraw.font}px JetBrains Mono, monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.shadowColor = liveDraw.neon;
-        ctx.shadowBlur = (isMobile ? 4 : 6) * dpr;
         ctx.fillStyle = liveDraw.neon;
         ctx.fillText(liveDraw.label, liveDraw.x, snap(liveDraw.y));
-        ctx.shadowBlur = 0;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'alphabetic';
       }
 
       for (const el of entryLabelDraws) {
         ctx.font = `bold ${el.font}px JetBrains Mono`;
-        ctx.shadowColor = 'rgba(0,0,0,0.65)';
-        ctx.shadowBlur = 2 * dpr;
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = 'rgba(255,255,255,0.88)';
         ctx.textBaseline = 'middle';
         ctx.fillText(el.label, el.x, snap(el.y));
-        ctx.shadowBlur = 0;
         ctx.textBaseline = 'alphabetic';
       }
 
@@ -1038,6 +1062,7 @@ export function ChartCanvas({
           coinImgRef.current,
           bearImgRef.current,
           isMobile,
+          markerDraw.labelDy,
         );
       }
 

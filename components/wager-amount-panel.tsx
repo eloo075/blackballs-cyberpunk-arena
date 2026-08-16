@@ -65,7 +65,7 @@ export function WagerAmountPanel({
 
   return (
     <>
-      <div className="hidden sm:flex items-center justify-between gap-2 mb-2">
+      <div className="hidden sm:flex items-center justify-between gap-2 mb-1.5">
         <span className="text-xs font-extrabold text-white/80">💰 Wager</span>
         {showBalanceHint && (
           <span className="text-[11px] text-white/45">
@@ -77,10 +77,10 @@ export function WagerAmountPanel({
       </div>
 
       <div
-        className={`relative flex items-center gap-1.5 sm:gap-2 mb-1 px-2 py-0.5 sm:px-3 sm:py-2 rounded-lg sm:rounded-xl bg-[#1f2025] transition-colors ${
+        className={`relative flex items-center gap-1.5 sm:gap-2 mb-1.5 px-2 py-1 sm:px-3 sm:py-2 rounded-xl bg-[#16181e] transition-colors ${
           invalid
-            ? 'border-2 border-rose-500 shadow-[0_0_0_1px_rgba(244,63,94,0.35),0_0_18px_rgba(244,63,94,0.25)]'
-            : 'border border-white/10'
+            ? 'border border-rose-500/70 shadow-[inset_0_0_0_1px_rgba(244,63,94,0.25)]'
+            : 'border border-white/[0.06]'
         }`}
       >
         {invalid && (
@@ -137,7 +137,7 @@ export function WagerAmountPanel({
             onClick={() => bumpBb(bb)}
             disabled={disabled}
             title={`Add ${formatBetTokens(bb)} ${CURRENCY_LABEL}`}
-            className="hidden sm:flex flex-1 min-w-[52px] min-h-[32px] rounded-lg text-[11px] font-extrabold touch-manipulation disabled:opacity-30 bg-[#2a2c33] text-emerald-300/90 border border-emerald-500/20 hover:bg-[#353842] items-center justify-center"
+            className="hidden sm:flex flex-1 min-w-[52px] min-h-[32px] rounded-lg text-[11px] font-extrabold touch-manipulation disabled:opacity-30 crash-chip crash-chip-bb items-center justify-center"
           >
             +{formatBetTokens(bb)}
           </button>
@@ -146,7 +146,7 @@ export function WagerAmountPanel({
           type="button"
           onClick={() => setTokensFree(amount / 2)}
           disabled={disabled}
-          className="flex-1 min-h-[28px] sm:min-h-[32px] rounded-md sm:rounded-lg text-[11px] sm:text-xs font-bold touch-manipulation disabled:opacity-30 bg-[#2a2c33] text-white/60 border border-white/10 hover:bg-[#353842]"
+          className="flex-1 min-h-[28px] sm:min-h-[32px] rounded-lg text-[11px] sm:text-xs font-bold touch-manipulation disabled:opacity-30 crash-chip"
         >
           1/2
         </button>
@@ -154,7 +154,7 @@ export function WagerAmountPanel({
           type="button"
           onClick={() => setTokensFree(amount * 2)}
           disabled={disabled}
-          className="flex-1 min-h-[28px] sm:min-h-[32px] rounded-md sm:rounded-lg text-[11px] sm:text-xs font-bold touch-manipulation disabled:opacity-30 bg-[#2a2c33] text-white/60 border border-white/10 hover:bg-[#353842]"
+          className="flex-1 min-h-[28px] sm:min-h-[32px] rounded-lg text-[11px] sm:text-xs font-bold touch-manipulation disabled:opacity-30 crash-chip"
         >
           2X
         </button>
@@ -162,7 +162,7 @@ export function WagerAmountPanel({
           type="button"
           onClick={setTokensMax}
           disabled={disabled}
-          className="flex-1 min-h-[28px] sm:min-h-[32px] rounded-md sm:rounded-lg text-[11px] sm:text-xs font-extrabold touch-manipulation disabled:opacity-30 bg-amber-400 text-black border-b-2 border-amber-600 hover:bg-amber-300"
+          className="flex-1 min-h-[28px] sm:min-h-[32px] rounded-lg text-[11px] sm:text-xs font-extrabold touch-manipulation disabled:opacity-30 crash-chip-max"
         >
           MAX
         </button>
@@ -178,9 +178,7 @@ export function WagerAmountPanel({
               }}
               disabled={disabled}
               className={`hidden sm:flex flex-1 min-h-[36px] rounded-lg text-xs font-extrabold touch-manipulation disabled:opacity-30 ${
-                percent === p
-                  ? 'bg-sky-500 text-white border-b-[3px] border-sky-700'
-                  : 'bg-[#2a2c33] text-white/55 border border-white/10 hover:bg-[#353842]'
+                percent === p ? 'crash-chip-on' : 'crash-chip'
               }`}
             >
               {p}%

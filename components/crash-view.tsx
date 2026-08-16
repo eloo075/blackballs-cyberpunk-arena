@@ -344,10 +344,10 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
           className={`relative overflow-hidden w-full h-[37vh] min-h-[200px] max-h-[38vh] md:min-h-[300px] md:h-[42vh] md:max-h-[46vh] lg:h-[44vh] rounded-lg sm:rounded-2xl border bg-[#06070a] transition-[box-shadow,border-color] duration-200 ${chartCadreClass}`}
         >
           <div
-            className="pointer-events-none absolute inset-0 opacity-40"
+            className="pointer-events-none absolute inset-0 opacity-50"
             style={{
               background:
-                'radial-gradient(ellipse 80% 55% at 50% 0%, rgba(16,185,129,0.07), transparent 55%), radial-gradient(ellipse 60% 40% at 80% 100%, rgba(56,189,248,0.04), transparent 50%)',
+                'radial-gradient(ellipse 70% 55% at 50% 42%, rgba(255,255,255,0.028), transparent 62%)',
             }}
             aria-hidden
           />
@@ -367,7 +367,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
             viewerName={viewerName}
           />
 
-          {(reconnecting && !connected) && (
+          {(reconnecting || !connected) && state.phase === 'running' && (
             <div className="absolute inset-0 z-[15] flex items-center justify-center bg-[#0c0e12]/75 backdrop-blur-[2px] pointer-events-none">
               <div className="text-center px-4">
                 <div className="text-sm font-extrabold text-amber-300 uppercase tracking-wider">
@@ -525,7 +525,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
           waitLeft={display.waitLeft}
           gameId={state.gameId}
           roundEpoch={roundEpoch}
-          streamConnected={connected}
+          streamConnected={connected && !reconnecting}
           streamEpoch={streamEpoch}
           autoSell={state.autoSell}
           lastResult={state.lastResult}

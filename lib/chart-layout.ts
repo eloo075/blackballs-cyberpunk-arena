@@ -54,6 +54,8 @@ export interface ChartLayoutFrame {
   visibleStartIdx: number;
   visibleCount: number;
   slotOffset: number;
+  /** Extra CSS-px Y shift for personal buy labels (negative = up). */
+  personalBuyLabelDy?: Record<number, number>;
 }
 
 export function priceToY(price: number, layout: ChartLayoutFrame): number {

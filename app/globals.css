@@ -1049,6 +1049,70 @@ body {
   animation: crash-btn-flash 0.28s ease-out;
 }
 
+/* Crash control surfaces — reversible polish (chips / trade bar). */
+.crash-chip {
+  background: linear-gradient(180deg, #2e323c 0%, #1c1f27 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.62);
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, filter 0.12s ease;
+}
+.crash-chip:hover:not(:disabled) {
+  background: linear-gradient(180deg, #383d48 0%, #242833 100%);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.9);
+}
+.crash-chip:active:not(:disabled) {
+  filter: brightness(0.94);
+}
+.crash-chip-bb {
+  color: rgba(110, 231, 183, 0.88);
+}
+.crash-chip-on {
+  background: linear-gradient(180deg, #34d399 0%, #059669 100%);
+  border-color: rgba(16, 185, 129, 0.4);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+.crash-chip-max {
+  background: linear-gradient(180deg, #fbbf24 0%, #d97706 100%);
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  color: #0a0a0a;
+}
+.crash-chip-max:hover:not(:disabled) {
+  background: linear-gradient(180deg, #fcd34d 0%, #eab308 100%);
+  color: #0a0a0a;
+}
+.crash-trade-buy {
+  background: linear-gradient(180deg, #34d399 0%, #059669 100%);
+  border: 1px solid rgba(167, 243, 208, 0.28);
+  border-bottom-width: 3px;
+  border-bottom-color: #065f46;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+.crash-trade-buy:hover:not(:disabled) {
+  background: linear-gradient(180deg, #6ee7b7 0%, #10b981 100%);
+}
+.crash-trade-sell {
+  background: linear-gradient(180deg, #fb7185 0%, #e11d48 100%);
+  border: 1px solid rgba(254, 205, 211, 0.22);
+  border-bottom-width: 3px;
+  border-bottom-color: #9f1239;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+.crash-trade-sell:hover:not(:disabled) {
+  background: linear-gradient(180deg, #fda4af 0%, #f43f5e 100%);
+}
+@media (min-width: 640px) {
+  .crash-trade-buy,
+  .crash-trade-sell {
+    border-bottom-width: 4px;
+  }
+}
+
 @keyframes balance-tick {
   0% { transform: scale(1); }
   35% { transform: scale(1.06); }
@@ -1091,8 +1155,8 @@ body {
     position: absolute;
     left: 50%;
     top: 50%;
-    width: 36px;
-    height: 36px;
+    width: 50px;
+    height: 50px;
     border-radius: 9999px;
     border: 2px solid rgba(56, 189, 248, 0.75);
     pointer-events: none;
