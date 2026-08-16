@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "sim:house-edge": "vitest run scripts/house-edge-sim.test.ts --testTimeout=300000 --disableConsoleIntercept"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.8",

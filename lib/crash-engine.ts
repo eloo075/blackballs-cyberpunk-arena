@@ -167,20 +167,28 @@ export function verifyContinuousCrashRound(params: {
   if (!serverSeedMatchesCommit(params.serverSeed, params.serverSeedHash)) {
     return { valid: false, reason: 'server seed does not match committed hash' };
   }
-  const generated = generateContinuousRoundPath(
-    normalizeServerSeed(params.serverSeed),
-    params.nonce,
-  );
-  const derived = {
-    peakMultiplier: generated.peakMultiplier,
-    rugTick: generated.rugTick,
+  const seed = normalizeServerSeed(params.serverSeed);
+  const match = (generated: ContinuousRoundPath) =>
+    Math.abs(generated.peakMultiplier - roundCrashPoint(params.expectedPeak)) < 0.015 &&
+    generated.rugTick === params.expectedRugTick;
+
+  const v4 = generateContinuousRoundPath(seed, params.nonce, 250, 'v4');
+  if (match(v4)) {
+    return { valid: true, derived: { peakMultiplier: v4.peakMultiplier, rugTick: v4.rugTick } };
+  }
+  const v3 = generateContinuousRoundPath(seed, params.nonce, 250, 'v3');
+  if (match(v3)) {
+    return { valid: true, derived: { peakMultiplier: v3.peakMultiplier, rugTick: v3.rugTick } };
+  }
+  const v2 = generateContinuousRoundPath(seed, params.nonce, 250, 'v2');
+  if (match(v2)) {
+    return { valid: true, derived: { peakMultiplier: v2.peakMultiplier, rugTick: v2.rugTick } };
+  }
+  return {
+    valid: false,
+    reason: 'continuous path mismatch',
+    derived: { peakMultiplier: v4.peakMultiplier, rugTick: v4.rugTick },
   };
-  const valid =
-    Math.abs(derived.peakMultiplier - roundCrashPoint(params.expectedPeak)) < 0.015 &&
-    derived.rugTick === params.expectedRugTick;
-  return valid
-    ? { valid: true, derived }
-    : { valid: false, reason: 'continuous path mismatch', derived };
 }
 
 export function computeCrashPointLegacy(serverSeed: string, gameId: number): number {
@@ -288,18 +296,20 @@ export interface PriceTick {
  * Entire tick sequence is computed before the round; playback is read-only.
  * Player buys/sells never affect this path.
  *
- * Per ~250ms tick:
- *   P(rug) starts ~0.75% and rises with time (keeps long farms rare)
+ * Per ~250ms tick (v4):
+ *   P(rug) starts ~0.25% and eases up with time (quick rugs + long runs)
  *   else P(god)=0.001% → price *= 10
  *   else P(big)=12.5% → ±15%..±25%
- *   else normal drift −2%..+3% + mild price-scaled vol
+ *   else normal drift −2.25%..+2.75% (mean +0.25%/tick) + mild price-scaled vol
  *
- * Target feel: most rounds under ~2 min (mean ~45s), hard cap 2.25 min.
- * Hazard ramps up so late-round farms get rugged — closer to rugs.fun tension.
+ * Target feel: ranging with dips under 1x, mean ~50–75s, small house edge.
  */
-export const CONTINUOUS_RUG_PROB = 0.0042;
+export const CONTINUOUS_PATH_VERSION = 'v4' as const;
+export type ContinuousPathVersion = 'v2' | 'v3' | 'v4';
+
+export const CONTINUOUS_RUG_PROB = 0.0025;
 /** Extra rug chance ramps to this by the hard cap (on top of base). */
-export const CONTINUOUS_RUG_RAMP = 0.015;
+export const CONTINUOUS_RUG_RAMP = 0.008;
 export const CONTINUOUS_RUG_IMPACT = 0.98;
 export const CONTINUOUS_GOD_CANDLE_PROB = 0.00001; // 0.001%
 export const CONTINUOUS_BIG_MOVE_PROB = 0.125;
@@ -312,11 +322,42 @@ export const CONTINUOUS_PRICE_CEIL = 500;
 /** @deprecated Use CONTINUOUS_RUG_PROB. */
 export const CONTINUOUS_RUG_CHANCE_PER_TICK = CONTINUOUS_RUG_PROB;
 
-export function continuousRugChanceAtTick(tick: number): number {
+/** Frozen — Verify fallback only. */
+const CONTINUOUS_V2 = {
+  label: 'rugs-fun-standard-v2',
+  rugProb: 0.0042,
+  rugRamp: 0.015,
+  driftMin: -0.02,
+  driftSpan: 0.05,
+} as const;
+
+const CONTINUOUS_V3 = {
+  label: 'rugs-fun-standard-v3',
+  rugProb: 0.0025,
+  rugRamp: 0.008,
+  driftMin: -0.025,
+  driftSpan: 0.05,
+} as const;
+
+const CONTINUOUS_V4 = {
+  label: 'rugs-fun-standard-v4',
+  rugProb: CONTINUOUS_RUG_PROB,
+  rugRamp: CONTINUOUS_RUG_RAMP,
+  driftMin: -0.0225,
+  driftSpan: 0.05,
+} as const;
+
+function continuousSpec(version: ContinuousPathVersion) {
+  if (version === 'v2') return CONTINUOUS_V2;
+  if (version === 'v3') return CONTINUOUS_V3;
+  return CONTINUOUS_V4;
+}
+
+export function continuousRugChanceAtTick(tick: number, version: ContinuousPathVersion = 'v4'): number {
+  const spec = continuousSpec(version);
   const t = Math.max(0, Math.min(1, tick / CONTINUOUS_MAX_ROUND_TICKS));
-  // Ease-in ramp: early rounds playable, late rounds under mounting pressure
   const eased = t * t;
-  return CONTINUOUS_RUG_PROB + CONTINUOUS_RUG_RAMP * eased;
+  return spec.rugProb + spec.rugRamp * eased;
 }
 
 export interface ContinuousRoundPath {
@@ -328,9 +369,9 @@ export interface ContinuousRoundPath {
 }
 
 /** Deterministic PRNG from `serverSeed-gameId` (HMAC + xorshift). */
-function rugsFunUnitPRNG(serverSeed: string, gameId: number) {
+function rugsFunUnitPRNG(serverSeed: string, gameId: number, label: string) {
   const material = `${normalizeServerSeed(serverSeed)}-${gameId}`;
-  const h = createHmac('sha256', material).update('rugs-fun-standard-v2').digest();
+  const h = createHmac('sha256', material).update(label).digest();
   let s0 = h.readUInt32BE(0) >>> 0;
   let s1 = h.readUInt32BE(4) >>> 0;
   if (s0 === 0) s0 = 0x9e3779b9;
@@ -349,7 +390,6 @@ function rugsFunUnitPRNG(serverSeed: string, gameId: number) {
 
 /** @deprecated Prefer the rugs.fun tick path — kept for older callers. */
 export function sampleContinuousRugTick(rng: () => number): number {
-  // Geometric waiting time with escalating hazard, capped.
   let ticks = 1;
   while (ticks < CONTINUOUS_MAX_ROUND_TICKS && rng() >= continuousRugChanceAtTick(ticks)) {
     ticks += 1;
@@ -359,14 +399,16 @@ export function sampleContinuousRugTick(rng: () => number): number {
 
 /**
  * Pre-compute the full Standard-mode price path.
- * What clients see is a smooth playback of this fixed sequence.
+ * Live rounds use v4. Pass `version: 'v2' | 'v3'` only to replay older demo history.
  */
 export function generateContinuousRoundPath(
   serverSeed: string,
   gameId: number,
   tickMs = 250,
+  version: ContinuousPathVersion = 'v4',
 ): ContinuousRoundPath {
-  const rng = rugsFunUnitPRNG(serverSeed, gameId);
+  const spec = continuousSpec(version);
+  const rng = rugsFunUnitPRNG(serverSeed, gameId, spec.label);
   const path: PriceTick[] = [{ price: 1, t: 0 }];
   let price = 1;
   let peakMultiplier = 1;
@@ -374,9 +416,8 @@ export function generateContinuousRoundPath(
 
   for (let i = 1; i <= CONTINUOUS_MAX_ROUND_TICKS; i++) {
     const roll = rng();
-    const rugChance = continuousRugChanceAtTick(i);
+    const rugChance = continuousRugChanceAtTick(i, version);
 
-    // 1) Rug check — ends the round
     if (roll < rugChance || i === CONTINUOUS_MAX_ROUND_TICKS) {
       peakMultiplier = Math.max(peakMultiplier, price);
       price = Math.max(
@@ -391,20 +432,16 @@ export function generateContinuousRoundPath(
       break;
     }
 
-    // Consume a fresh roll for the move type (independent of rug roll)
     const moveRoll = rng();
 
     if (moveRoll < CONTINUOUS_GOD_CANDLE_PROB) {
-      // Extremely rare 10× god candle
       price = Math.min(CONTINUOUS_PRICE_CEIL, price * 10);
     } else if (moveRoll < CONTINUOUS_GOD_CANDLE_PROB + CONTINUOUS_BIG_MOVE_PROB) {
-      // Big move: ±15% to ±25%
       const mag = 0.15 + rng() * 0.1;
       const sign = rng() < 0.5 ? -1 : 1;
       price = price * (1 + sign * mag);
     } else {
-      // Normal drift: −2% .. +3% + small vol that grows mildly with price
-      const drift = -0.02 + rng() * 0.05;
+      const drift = spec.driftMin + rng() * spec.driftSpan;
       const vol = (0.003 + 0.0015 * Math.min(8, Math.sqrt(Math.max(price, 0.25)))) * (2 * rng() - 1);
       price = price * (1 + drift + vol);
     }

@@ -60,7 +60,7 @@ describe('Demo continuous Crash engine (rugs.fun Standard)', () => {
     }
   });
 
-  it('rugs on a tighter schedule (base hazard + ramp, ~2.25min cap)', () => {
+  it('rugs on a ranging schedule (base hazard + ramp, ~60–75s mean, 2.25min cap)', () => {
     const durations = Array.from({ length: 400 }, (_, i) => {
       const gameId = 5000 + i;
       const result = generateContinuousRoundPath(deriveServerSeedForGameId(gameId), gameId);
@@ -68,12 +68,40 @@ describe('Demo continuous Crash engine (rugs.fun Standard)', () => {
     });
     const average = durations.reduce((sum, seconds) => sum + seconds, 0) / durations.length;
     // Escalating hazard → mean ~40s; almost nothing hits the 2.25min wall
-    expect(average).toBeGreaterThanOrEqual(25);
-    expect(average).toBeLessThanOrEqual(60);
+    expect(average).toBeGreaterThanOrEqual(50);
+    expect(average).toBeLessThanOrEqual(80);
     expect(Math.max(...durations)).toBeLessThanOrEqual(CONTINUOUS_MAX_ROUND_TICKS * 0.25 + 0.01);
-    expect(CONTINUOUS_RUG_PROB).toBe(0.0042);
+    expect(CONTINUOUS_RUG_PROB).toBe(0.0025);
     expect(CONTINUOUS_MAX_ROUND_TICKS).toBe(540);
   }, 25_000);
+
+  it('keeps frozen v2 and v3 paths verifiable after v4 retune', () => {
+    const gameId = 2048;
+    const seed = deriveServerSeedForGameId(gameId);
+    const v2 = generateContinuousRoundPath(seed, gameId, 250, 'v2');
+    const v3 = generateContinuousRoundPath(seed, gameId, 250, 'v3');
+    const live = generateContinuousRoundPath(seed, gameId, 250, 'v4');
+    expect(v2).not.toEqual(live);
+    expect(v3).not.toEqual(live);
+    expect(
+      verifyContinuousCrashRound({
+        serverSeed: seed,
+        serverSeedHash: hashServerSeed(seed),
+        nonce: gameId,
+        expectedPeak: v2.peakMultiplier,
+        expectedRugTick: v2.rugTick,
+      }).valid,
+    ).toBe(true);
+    expect(
+      verifyContinuousCrashRound({
+        serverSeed: seed,
+        serverSeedHash: hashServerSeed(seed),
+        nonce: gameId,
+        expectedPeak: v3.peakMultiplier,
+        expectedRugTick: v3.rugTick,
+      }).valid,
+    ).toBe(true);
+  });
 
   it('oscillates with varied peaks (not a flat pump)', () => {
     const samples = Array.from({ length: 120 }, (_, i) => {
