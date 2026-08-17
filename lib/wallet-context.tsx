@@ -17,7 +17,7 @@ import {
   walletHoldings,
   type WalletState,
 } from '@/lib/wallet-types';
-import { DEMO_REFILL_BB, DEMO_MIN_BALANCE } from '@/lib/demo-credits';
+import { DEMO_REFILL_BB } from '@/lib/demo-credits';
 import {
   bootGameSessionsForWallet,
   clearGameSessionBoot,
@@ -40,7 +40,7 @@ interface WalletContextValue {
   displayAddress: string | null;
   setBlackballsBalance: (balance: number) => void;
   adjustBlackballsBalance: (delta: number) => void;
-  refillDemoCredits: () => number;
+  refillDemoCredits: () => Promise<number | null>;
   addArenaXp: (amount: number) => void;
   recordArenaResult: (won: boolean) => void;
   refreshHoldings: () => Promise<void>;
@@ -80,7 +80,14 @@ function makeDemoWallet(): WalletState {
 }
 
 function persistWallet(wallet: WalletState) {
-  localStorage.setItem(WALLET_STORAGE_KEY, JSON.stringify(wallet));
+  localStorage.setItem(
+    WALLET_STORAGE_KEY,
+    JSON.stringify({
+      connected: wallet.connected,
+      address: wallet.address,
+      isRealWallet: wallet.isRealWallet,
+    }),
+  );
 }
 
 export function WalletProvider({ children }: { children: ReactNode }) {
@@ -94,24 +101,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         const w = JSON.parse(saved) as Partial<WalletState>;
         const connected = w.connected ?? false;
         const isRealWallet = w.isRealWallet ?? false;
-        let blackballsBalance =
-          w.blackballsBalance ?? parseFloat((Math.random() * 1200 + 180).toFixed(1));
-        if (connected && !isRealWallet && blackballsBalance < DEMO_MIN_BALANCE) {
-          blackballsBalance = DEMO_REFILL_BB;
-        }
         setWallet({
           ...DEFAULT_WALLET,
-          ...w,
           connected,
-          solBalance: w.solBalance ?? parseFloat((Math.random() * 50 + 5).toFixed(2)),
-          blackballsBalance,
-          ansemBalance: w.ansemBalance ?? 0,
-          cashcatBalance: w.cashcatBalance ?? 0,
-          arenaWins: w.arenaWins ?? 0,
-          arenaLosses: w.arenaLosses ?? 0,
-          xp: w.xp ?? 0,
-          rank: rankTitleFromXp(w.xp ?? 0),
+          address: w.address ?? null,
           isRealWallet,
+          blackballsBalance: 0,
         });
       } catch {
         /* ignore corrupt storage */
@@ -148,7 +143,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         if (!prev.connected) return prev;
         return {
           ...prev,
-          blackballsBalance: data.blackballs ?? prev.blackballsBalance,
           ansemBalance: data.ansem ?? prev.ansemBalance,
           cashcatBalance: data.cashcat ?? prev.cashcatBalance,
         };
@@ -158,15 +152,26 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [wallet.connected, wallet.address, wallet.isRealWallet, wallet.blackballsBalance, wallet.ansemBalance, wallet.cashcatBalance, updateWallet]);
 
-  const refillDemoCredits = useCallback((): number => {
-    let newBalance = DEMO_REFILL_BB;
-    updateWallet(prev => {
-      if (!prev.connected || prev.isRealWallet) return prev;
-      newBalance = DEMO_REFILL_BB;
-      return { ...prev, blackballsBalance: newBalance };
-    });
-    return newBalance;
-  }, [updateWallet]);
+  const refillDemoCredits = useCallback(async (): Promise<number | null> => {
+    const addr = wallet.address;
+    if (!wallet.connected || !addr) return null;
+    try {
+      const res = await fetch('/api/crash/refill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: addr }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || typeof data.balance !== 'number') {
+        console.warn('[wallet] refill failed', data.error ?? res.status);
+        return null;
+      }
+      updateWallet(prev => (prev.connected ? { ...prev, blackballsBalance: data.balance } : prev));
+      return data.balance as number;
+    } catch {
+      return null;
+    }
+  }, [updateWallet, wallet.address, wallet.connected]);
 
   useEffect(() => {
     if (hydrated && wallet.connected) {

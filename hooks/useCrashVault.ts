@@ -21,6 +21,7 @@ import {
   isVaultConfigured,
 } from '@/lib/chain/public-config';
 import { useWallet } from '@/lib/wallet-context';
+import { DEMO_REWARDS_MODE } from '@/lib/launch-surface';
 
 export function useCrashVault() {
   const vaultConfigured = isVaultConfigured();
@@ -86,6 +87,7 @@ export function useCrashVault() {
   );
 
   const syncSessionToGame = useCallback(async () => {
+    if (DEMO_REWARDS_MODE) return;
     if (!address) return;
     const res = await fetch('/api/crash/session', {
       method: 'POST',

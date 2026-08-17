@@ -1,6 +1,9 @@
+import { DEMO_REWARDS_MODE } from '@/lib/launch-surface';
+
 /** Client-safe chain + contract addresses (NEXT_PUBLIC_* only). */
 
 export function isVaultConfigured(): boolean {
+  if (DEMO_REWARDS_MODE) return false;
   return Boolean(
     process.env.NEXT_PUBLIC_CRASH_VAULT_ADDRESS &&
       process.env.NEXT_PUBLIC_BLACKBALLS_TOKEN_ADDRESS &&

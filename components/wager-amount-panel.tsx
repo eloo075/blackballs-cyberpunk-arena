@@ -8,8 +8,6 @@ import {
   betAmountDecimals,
   clampBetToBalance,
   formatBetTokens,
-  formatBetUsd,
-  tokensToUsd,
 } from '@/lib/bet-sizing';
 
 const PERCENTS = [10, 25, 50, 100];
@@ -47,7 +45,6 @@ export function WagerAmountPanel({
 }: WagerAmountPanelProps) {
   const { usdPerToken } = useTokenUsd();
   const decimals = betAmountDecimals(usdPerToken);
-  const usdValue = tokensToUsd(amount, usdPerToken);
 
   const setTokensFree = (tokens: number) => {
     onPercentChange?.(0);
@@ -71,7 +68,6 @@ export function WagerAmountPanel({
           <span className="text-[11px] text-white/45">
             Balance{' '}
             <span className="text-sky-400 font-extrabold">{formatBetTokens(balance)}</span> {CURRENCY_LABEL}
-            <span className="text-white/35"> · {formatBetUsd(tokensToUsd(balance, usdPerToken))}</span>
           </span>
         )}
       </div>
@@ -110,9 +106,6 @@ export function WagerAmountPanel({
           <span className={`text-[9px] sm:text-xs font-extrabold ${invalid ? 'text-rose-300' : 'text-amber-300/90'}`}>
             {CURRENCY_LABEL}
           </span>
-          <span className="text-[9px] sm:text-[10px] font-bold text-white/40 tabular-nums">
-            ≈ {formatBetUsd(usdValue)}
-          </span>
         </div>
       </div>
       {invalid && (
@@ -124,7 +117,6 @@ export function WagerAmountPanel({
       {percent > 0 && (
         <div className="text-[10px] sm:text-[11px] text-sky-400 mb-1.5 sm:mb-2 text-center font-bold hidden sm:block">
           {percent}% = {formatBetTokens(amount)} {CURRENCY_LABEL}
-          <span className="text-white/40"> · {formatBetUsd(usdValue)}</span>
         </div>
       )}
 

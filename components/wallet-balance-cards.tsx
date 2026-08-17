@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { CURRENCY_LABEL } from '@/lib/format-currency';
 import { formatBetTokens } from '@/lib/bet-sizing';
-import { useTokenUsd } from '@/hooks/use-token-usd';
 
 interface WalletBalanceCardsProps {
   solBalance: number;
@@ -21,7 +20,6 @@ export function WalletBalanceCards({
   variant = 'default',
   className = '',
 }: WalletBalanceCardsProps) {
-  const { formatUsd } = useTokenUsd();
   const prevRef = useRef(blackballsBalance);
   const [tickClass, setTickClass] = useState('');
 
@@ -76,12 +74,6 @@ export function WalletBalanceCards({
           >
             {formatBetTokens(blackballsBalance)}
           </div>
-          <div className="text-[9px] font-bold text-white/40 tabular-nums mt-0.5">
-            {formatUsd(blackballsBalance)}
-            {arenaWinStreak >= 2 && (
-              <span className="text-rose-400 font-extrabold ml-1">x{arenaWinStreak}</span>
-            )}
-          </div>
         </div>
       </div>
     );
@@ -127,12 +119,6 @@ export function WalletBalanceCards({
           style={{ textShadow: '0 0 12px rgba(251,191,36,0.2)' }}
         >
           {formatBetTokens(blackballsBalance)}
-        </div>
-        <div className="text-[9px] font-bold text-white/35 tabular-nums mt-0.5">
-          {formatUsd(blackballsBalance)}
-          {arenaWinStreak >= 2 && (
-            <span className="text-rose-400 font-extrabold ml-1">x{arenaWinStreak}</span>
-          )}
         </div>
       </div>
     </div>

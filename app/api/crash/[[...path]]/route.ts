@@ -16,6 +16,8 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
       return crash.handleStream(req);
     case 'state':
       return crash.handleState(req);
+    case 'leaderboard':
+      return crash.handleLeaderboard(req);
     default:
       return NextResponse.json({ error: 'not found' }, { status: 404 });
   }
@@ -35,6 +37,8 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       return crash.handleAuto(req);
     case 'verify':
       return crash.handleVerify(req);
+    case 'refill':
+      return crash.handleRefill(req);
     default:
       return NextResponse.json({ error: 'not found' }, { status: 404 });
   }

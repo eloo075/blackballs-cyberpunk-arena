@@ -7,11 +7,8 @@ import {
   MIN_BET_BB,
   clampBetToBalance,
   formatBetTokens,
-  formatBetUsd,
   isBuyableWagerDraft,
-  tokensToUsd,
 } from '@/lib/bet-sizing';
-import { useTokenUsd } from '@/hooks/use-token-usd';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { HoldBonuses } from '@/lib/hold-bonuses';
 import {
@@ -180,7 +177,6 @@ export function CrashControls({
   onCashOut,
 }: CrashControlsProps) {
   void _onSetAutoSell;
-  const { usdPerToken } = useTokenUsd();
   const [amount, setAmount] = useState(0);
   const [wagerDraft, setWagerDraft] = useState('0');
   const [wagerReady, setWagerReady] = useState(false);
@@ -388,11 +384,8 @@ export function CrashControls({
       return 'Round starting — wait for the next countdown.';
     }
     if (pendingAction) return null;
-    if (!hasPosition && balance <= 0 && vaultEnabled && !isDemoWallet) {
-      return 'Vault balance is 0 — deposit BlackBalls via VAULT (top bar) to trade for real.';
-    }
     if (!hasPosition && balance <= 0) {
-      return 'Balance is 0 — connect with demo credits or deposit to play.';
+      return 'Credits are 0 — claim the daily refill when it is available.';
     }
     if (!hasPosition && effectiveWager > balance + 0.0005) {
       return `Wager (${effectiveWager.toFixed(3)}) exceeds balance (${balance.toFixed(3)}). Lower amount or use MAX.`;
@@ -728,7 +721,6 @@ export function CrashControls({
             )}
             <span className="block text-xs font-bold opacity-90 mt-0.5 normal-case tracking-normal">
               {formatBetTokens(effectiveWager)} {CURRENCY_LABEL}
-              <span className="text-white/50"> · {formatBetUsd(tokensToUsd(effectiveWager, usdPerToken))}</span>
               {leverage > 1 ? ` · ${leverage}x` : ''}
             </span>
             {!(hasPosition && phase === 'running' && !isBuy) && (
@@ -747,28 +739,17 @@ export function CrashControls({
       {!walletConnected && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[#141518]/90 backdrop-blur-sm px-4 rounded-lg sm:rounded-2xl">
           <span className="text-sm font-extrabold text-white/70 text-center">
-            Connect to trade
+            Connect wallet to play
           </span>
           <p className="text-xs text-white/45 text-center max-w-[260px] leading-relaxed">
-            {vaultEnabled
-              ? 'Real play: connect wallet + deposit in VAULT. Or try demo mode with free credits.'
-              : 'Demo mode — connect for free BlackBalls credits to practice.'}
+            Free play-money credits. Real tokens are weekly prizes only — no deposits, no cashing out credits.
           </p>
           <button
             onClick={onConnect}
             className="touch-target touch-manipulation px-6 py-3 text-sm font-black bg-sky-500 hover:bg-sky-400 text-white w-full max-w-[240px] rounded-xl border-b-4 border-sky-700 active:border-b-0 active:translate-y-1 transition-all"
           >
-            {vaultEnabled ? 'CONNECT WALLET' : 'CONNECT · DEMO PLAY'}
+            CONNECT WALLET
           </button>
-          {vaultEnabled && onTryDemo && (
-            <button
-              type="button"
-              onClick={onTryDemo}
-              className="touch-target touch-manipulation px-4 py-2 text-xs font-bold border border-white/10 bg-[#2a2c33] text-amber-300 hover:bg-[#353842] w-full max-w-[240px] rounded-xl"
-            >
-              TRY DEMO (FREE CREDITS)
-            </button>
-          )}
         </div>
       )}
 

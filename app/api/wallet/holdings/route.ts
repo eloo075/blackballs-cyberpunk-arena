@@ -12,15 +12,12 @@ export async function POST(req: NextRequest) {
   }
 
   const isRealWallet = body.isRealWallet === true;
-  const blackballs = parseFloat(body.blackballsBalance) || 0;
   const ansem = parseFloat(body.ansemBalance) || 0;
   const cashcat = parseFloat(body.cashcatBalance) || 0;
 
   if (isRealWallet) {
-    // Placeholder for on-chain SPL balance lookup once real wallet adapter is wired.
     return NextResponse.json({
       ok: true,
-      blackballs,
       ansem,
       cashcat,
       source: 'chain-pending',
@@ -36,7 +33,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    blackballs,
     ansem: demoAnsem,
     cashcat: demoCashcat,
     source: 'demo',

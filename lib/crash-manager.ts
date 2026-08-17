@@ -36,6 +36,8 @@ import { broadcastCrashEvent } from './supabase/broadcast-crash-event';
 import type { CrashSpectatorEventType } from './crash-spectator-types';
 import { MIN_BET_BB } from './bet-sizing';
 import { DEMO_MIN_BALANCE } from './demo-credits';
+import { DEMO_REWARDS_MODE } from './launch-surface';
+import type { CrashPlaySettlement } from './crash-play-settlement';
 import { mirrorCrashBalanceToFlip } from './mirror-session-balance';
 import { playerMarkerName } from './player-marker-name';
 
@@ -99,6 +101,10 @@ const MAX_CANDLES = 60;
 const MAX_HISTORY = 120;
 const MAX_FEED = 40;
 const MAX_TAGS = 80;
+
+function creditCap(address: string): number {
+  return DEMO_REWARDS_MODE || !address.startsWith('0x') ? MAX_DEMO_BALANCE : Number.MAX_SAFE_INTEGER;
+}
 
 function emptyPlayerState(balance = 0): PlayerState {
   return {
@@ -201,6 +207,7 @@ export class CrashManager {
   private baseRugTick: number | null = null;
   /** Last round id that finished crash settlement — used to clear ghost positions. */
   private lastSettledRoundId = 0;
+  private pendingSettlements: CrashPlaySettlement[] = [];
 
   constructor(mode: 'classic' | 'continuous' = 'continuous') {
     this.mode = mode;
@@ -446,7 +453,7 @@ export class CrashManager {
   applyPeerBalance(address: string, balance: number): number {
     const player = this.getPlayer(address);
     if (!Number.isFinite(balance)) return player.balance;
-    const max = address.startsWith('0x') ? Number.MAX_SAFE_INTEGER : MAX_DEMO_BALANCE;
+    const max = creditCap(address);
     player.balance = roundMoney(Math.min(max, Math.max(0, balance)));
     this.emit();
     return player.balance;
@@ -464,8 +471,7 @@ export class CrashManager {
     options?: { boot?: boolean },
   ): number {
     const player = this.getPlayer(address);
-    const isDemo = !address.startsWith('0x');
-    const maxBalance = isDemo ? MAX_DEMO_BALANCE : Number.MAX_SAFE_INTEGER;
+    const maxBalance = creditCap(address);
     const clientBalance = Number.isFinite(balance)
       ? roundMoney(Math.min(maxBalance, Math.max(0, balance)))
       : player.balance;
@@ -492,8 +498,13 @@ export class CrashManager {
       }
     } else if (options?.boot || clientBalance <= player.balance + 0.001) {
       player.balance = clientBalance;
-    } else if (isDemo && clientBalance >= DEMO_MIN_BALANCE && player.balance < DEMO_MIN_BALANCE) {
-      // Idle demo refill only (explicit +100 Demo / post-round idle).
+    } else if (
+      !DEMO_REWARDS_MODE &&
+      !address.startsWith('0x') &&
+      clientBalance >= DEMO_MIN_BALANCE &&
+      player.balance < DEMO_MIN_BALANCE
+    ) {
+      // Legacy demo idle refill — disabled in demo-rewards (server /refill only).
       player.balance = clientBalance;
     }
 
@@ -1016,6 +1027,17 @@ export class CrashManager {
 
       // rugs.fun: any remaining open position on rug = 100% loss of locked stake.
       // Balance must NEVER increase here — margin was already deducted at open.
+      this.queuePlaySettlement({
+        address,
+        gameId: this.round.id,
+        kind: 'rug',
+        stake: margin,
+        pnl: -margin,
+        exitMult,
+        crashMult: this.peakMult,
+        finalized: true,
+        balanceAfter: player.balance,
+      });
       dispatchSettlement({
         type: 'loss',
         player: address,
@@ -1520,7 +1542,7 @@ export class CrashManager {
     }
     const pnl = lotPnl;
     const returnAmount = roundMoney(Math.max(0, closeMargin + pnl) + stimmyBonus);
-    const maxBalance = address.startsWith('0x') ? Number.MAX_SAFE_INTEGER : MAX_DEMO_BALANCE;
+    const maxBalance = creditCap(address);
     const nextBalance = roundMoney(player.balance + returnAmount);
     if (!Number.isFinite(nextBalance) || nextBalance < 0) {
       return { ok: false, error: 'invalid payout' };
@@ -1561,6 +1583,17 @@ export class CrashManager {
     this.pushTag(playerName, closeSide, closeMargin, exit);
     this.emit();
     mirrorCrashBalanceToFlip(address, player.balance);
+    this.queuePlaySettlement({
+      address,
+      gameId: this.round.id,
+      kind: 'cashout',
+      stake: closeMargin,
+      pnl,
+      exitMult: exit,
+      crashMult: null,
+      finalized: fullClose,
+      balanceAfter: player.balance,
+    });
 
     const settlement: SettlementAction = {
       type: 'payout',
@@ -1807,6 +1840,29 @@ export class CrashManager {
     }
   }
 
+  hasPlayer(address: string): boolean {
+    return this.players.has(address);
+  }
+
+  seedPlayerIfMissing(address: string, balance: number): number {
+    if (this.players.has(address)) return this.players.get(address)!.balance;
+    const player = this.getPlayer(address);
+    player.balance = roundMoney(
+      Math.min(creditCap(address), Math.max(0, Number.isFinite(balance) ? balance : 0)),
+    );
+    return player.balance;
+  }
+
+  takePendingSettlements(): CrashPlaySettlement[] {
+    const out = this.pendingSettlements;
+    this.pendingSettlements = [];
+    return out;
+  }
+
+  private queuePlaySettlement(event: CrashPlaySettlement): void {
+    this.pendingSettlements.push(event);
+  }
+
   exportPlayerSnapshot(address: string) {
     const player = this.players.get(address);
     if (!player) return null;
@@ -1858,7 +1914,7 @@ export class CrashManager {
       (player.pendingEntry != null && player.pendingEntry.roundId === this.round.id);
     if (localActive) return;
 
-    const maxBalance = address.startsWith('0x') ? Number.MAX_SAFE_INTEGER : MAX_DEMO_BALANCE;
+    const maxBalance = creditCap(address);
     player.balance = Number.isFinite(row.balance)
       ? roundMoney(Math.min(maxBalance, Math.max(0, row.balance)))
       : 0;
@@ -1916,6 +1972,7 @@ export class CrashManager {
       balance?: number;
     },
   ): boolean {
+    if (DEMO_REWARDS_MODE) return false;
     if (view.gameId != null && view.gameId !== this.gameId) return false;
     // Settled / crashed rounds must not be rehydrated into free positions.
     if (this.phase === 'crashed') return false;
@@ -1928,7 +1985,6 @@ export class CrashManager {
     if (localActive) return true;
 
     // Never recreate a LIVE running position from optimistic clientView.
-    // Enter already opens via placeLiveEntry — rehydrating here then trading
     // duplicated lots (UI "2 buys" for one click) and double-debited margin.
     if (
       this.phase === 'running' &&
@@ -2002,6 +2058,12 @@ declare global {
 }
 
 export function getManager(address: string | null = null): CrashManager {
+  if (DEMO_REWARDS_MODE) {
+    if (!globalThis.__blackballsCrashDemoManager) {
+      globalThis.__blackballsCrashDemoManager = new CrashManager('continuous');
+    }
+    return globalThis.__blackballsCrashDemoManager;
+  }
   const real = Boolean(address?.startsWith('0x'));
   if (real) {
     if (!globalThis.__blackballsCrashRealManager) {

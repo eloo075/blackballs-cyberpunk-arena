@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react';
 import { DEMO_REFILL_BB } from '@/lib/demo-credits';
 import { CURRENCY_LABEL } from '@/lib/format-currency';
 import { formatBetTokens } from '@/lib/bet-sizing';
-import { useTokenUsd } from '@/hooks/use-token-usd';
 
 interface CrashMobileHeaderProps {
   blackballsBalance: number;
@@ -27,7 +26,6 @@ export function CrashMobileHeader({
   isDemoWallet,
   onDemoRefill,
 }: CrashMobileHeaderProps) {
-  const { formatUsd } = useTokenUsd();
   const prevRef = useRef(blackballsBalance);
   const [tickClass, setTickClass] = useState('');
 
@@ -65,9 +63,6 @@ export function CrashMobileHeader({
             {formatBetTokens(blackballsBalance)}
           </span>
           <span className="text-[9px] font-extrabold text-amber-200/90">{CURRENCY_LABEL}</span>
-          <span className="text-[8px] font-bold text-white/35 tabular-nums truncate hidden xs:inline">
-            ≈ {formatUsd(blackballsBalance)}
-          </span>
         </div>
 
         <div className="flex items-center gap-1 shrink-0">

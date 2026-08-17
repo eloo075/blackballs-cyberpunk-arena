@@ -2,9 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import type { FeedEvent, RoundSummary, TradeTag } from '@/lib/crash-types';
-import { CrashStatsPanel } from '@/components/crash-stats-panel';
-import { HallOfFameToday } from '@/components/hall-of-fame-today';
-import { LiveActivityFeed } from '@/components/LiveActivityFeed';
+import { LeaderboardView } from '@/components/leaderboard-view';
 
 type MobileLowerTab = 'leaderboard' | 'live' | 'chat';
 
@@ -72,12 +70,7 @@ export function CrashMobileLowerPanel({
       </div>
 
       <div className="mt-2 rounded-2xl border border-white/[0.06] bg-[#12141a] overflow-hidden min-h-[220px]">
-        {tab === 'leaderboard' && (
-          <div className="p-2 space-y-2">
-            <CrashStatsPanel history={history} />
-            <HallOfFameToday />
-          </div>
-        )}
+        {tab === 'leaderboard' && <LeaderboardView compact />}
 
         {tab === 'live' && (
           <div className="p-3 font-arcade">

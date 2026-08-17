@@ -10,17 +10,16 @@ import { LiveActivityFeed } from '@/components/LiveActivityFeed';
 import { LastHundred } from '@/components/last-hundred';
 import { MarketListings } from '@/components/market-listings';
 import { CrashStatsPanel } from '@/components/crash-stats-panel';
+import { LeaderboardView } from '@/components/leaderboard-view';
 import { VerifyRoundButton } from '@/components/verify-round-button';
-import { HallOfFameToday } from '@/components/hall-of-fame-today';
 import { ResultFeedback } from '@/components/result-feedback';
 import { useResultFeedback } from '@/hooks/use-result-feedback';
 import { recordHallOfFame } from '@/lib/player-retention';
-import { isVaultConfigured } from '@/lib/chain/public-config';
+import { ConnectWalletModal } from '@/components/connect-wallet-modal';
 import { resolvePlayableBalance, resolveClientSyncBalance } from '@/lib/session-balance';
 import { CrashMobileHeader } from '@/components/crash-mobile-header';
 import { CrashMobileHistoryReel } from '@/components/crash-mobile-history-reel';
 import { CrashMobileLowerPanel } from '@/components/crash-mobile-lower-panel';
-import { syncGameSessionBalances } from '@/lib/sync-game-sessions';
 import { useGameTabFocus } from '@/lib/use-game-tab-focus';
 import { useExtrapolatedCrashDisplay } from '@/hooks/use-extrapolated-crash-display';
 import { playerMarkerName } from '@/lib/player-marker-name';
@@ -32,7 +31,7 @@ const RUG_PARTICLES = Array.from({ length: 20 }, (_, i) => ({
 
 export function CrashView({ visible = true }: { visible?: boolean }) {
   const { state, connected, reconnecting, sessionReady, roundEpoch, streamEpoch, trade, cancelActivePosition, cashOut, setAutoSell, refreshGameState, walletConnected } = useCrashStream();
-  const { wallet, connect, disconnect, holdBonuses, displayAddress, refillDemoCredits } = useWallet();
+  const { wallet, holdBonuses, displayAddress, refillDemoCredits } = useWallet();
   const { state: compState, recordCrashResult } = useCompetitive();
   const { event: resultEvent, trigger: triggerResult, dismiss: dismissResult } = useResultFeedback();
   const display = useExtrapolatedCrashDisplay(state, visible);
@@ -49,7 +48,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
     rugTick?: number | null;
   } | null>(null);
   const processedResultRef = useRef<string | null>(null);
-  const vaultEnabled = isVaultConfigured();
+  const [connectOpen, setConnectOpen] = useState(false);
 
   useGameTabFocus(
     visible,
@@ -65,23 +64,9 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
     refreshGameState,
   );
 
-  const tryDemo = () => {
-    disconnect();
-    window.setTimeout(() => connect(), 0);
-  };
-
   const handleDemoRefill = async () => {
-    if (!wallet.connected || wallet.isRealWallet || !wallet.address) return;
-    const balance = refillDemoCredits();
-    const holdsBb = holdBonuses.active.some(b => b.token === 'BLACKBALLS');
-    await syncGameSessionBalances(
-      wallet.address,
-      balance,
-      holdBonuses.stimmy,
-      holdBonuses.frenzy,
-      holdsBb,
-      wallet.isRealWallet,
-    );
+    if (!wallet.connected || !wallet.address) return;
+    await refillDemoCredits();
   };
 
   useEffect(() => {
@@ -242,6 +227,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
   if (mobileFull) {
     return (
       <>
+        <ConnectWalletModal open={connectOpen} onClose={() => setConnectOpen(false)} />
         <ResultFeedback event={resultEvent} onComplete={dismissResult} />
         <motion.div
         initial={{ opacity: 0 }}
@@ -279,6 +265,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
 
   return (
     <>
+      <ConnectWalletModal open={connectOpen} onClose={() => setConnectOpen(false)} />
       <ResultFeedback event={resultEvent} onComplete={dismissResult} />
     <div className="flex flex-col lg:flex-row gap-1 sm:gap-3 p-1 sm:p-3 max-w-[1700px] mx-auto w-full max-md:min-h-0">
       {/* Mobile: primary trade frame + scrollable lower activity. Desktop unchanged. */}
@@ -290,7 +277,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
           mult={display.mult}
           waitLeft={display.waitLeft}
           roundId={state.currentRound.id}
-          isDemoWallet={wallet.connected && !wallet.isRealWallet}
+          isDemoWallet={wallet.connected}
           onDemoRefill={handleDemoRefill}
         />
 
@@ -531,11 +518,11 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
           lastResult={state.lastResult}
           holdBonuses={holdBonuses}
           walletConnected={walletConnected}
-          isDemoWallet={wallet.connected && !wallet.isRealWallet}
+          isDemoWallet={wallet.connected}
           continuousMode={continuousRound}
-          vaultEnabled={vaultEnabled}
-          onConnect={connect}
-          onTryDemo={vaultEnabled ? tryDemo : undefined}
+          vaultEnabled={false}
+          onConnect={() => setConnectOpen(true)}
+          onTryDemo={undefined}
           onTrade={trade}
           onCancelEntry={cancelActivePosition}
           onCashOut={cashOut}
@@ -562,6 +549,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
 
       <div className="w-full lg:w-[300px] shrink-0 flex flex-col gap-2.5 max-sm:hidden">
         <MarketListings />
+        <LeaderboardView compact />
         <CrashStatsPanel history={state.history} />
         {compState.crashWinStreak >= 2 && (
           <div className="hidden sm:block rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-400 font-bold">
@@ -572,7 +560,6 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
         <div className="rounded-2xl border border-white/[0.06] bg-[#12141a] min-h-[140px] sm:min-h-[200px] sm:flex-1 overflow-hidden">
           <LiveActivityFeed fallbackFeed={state.feed} />
         </div>
-        <HallOfFameToday />
       </div>
     </div>
     </>

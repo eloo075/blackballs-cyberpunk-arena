@@ -139,10 +139,11 @@ describe('Money safety — 5x anti-scalping', () => {
 });
 
 describe('Money safety — demo vs real isolation', () => {
-  it('getManager routes demo and 0x wallets to separate engines', () => {
+  it('getManager routes every wallet onto the continuous demo-rewards engine', () => {
     const demo = getManager('demo-isolation-a');
     const real = getManager('0xIsolation000000000000000000000000000001');
-    expect(demo).not.toBe(real);
+    expect(demo).toBe(real);
+    expect(demo.mode).toBe('continuous');
 
     demo.syncPlayer('demo-isolation-a', 111, undefined, { boot: true });
     real.syncPlayer('0xIsolation000000000000000000000000000001', 999, undefined, {
@@ -154,7 +155,6 @@ describe('Money safety — demo vs real isolation', () => {
       999,
       3,
     );
-    // Cross-read must not leak balances between managers
-    expect(demo.clientPlayerView('0xIsolation000000000000000000000000000001').balance).not.toBe(999);
+    expect(demo.clientPlayerView('demo-isolation-a').balance).not.toBe(999);
   });
 });

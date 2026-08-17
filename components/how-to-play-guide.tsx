@@ -279,27 +279,23 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
           </ul>
         </GuideSection>
 
-        <GuideSection emoji="🪂" title="First 500 Believers Airdrop" accentClass="from-amber-500/15 to-transparent">
+        <GuideSection emoji="🏆" title="Weekly prizes" accentClass="from-amber-500/15 to-transparent">
           <p>
-            The current airdrop is the <span className="text-amber-300">First 500 believers</span> list. It is{' '}
-            <strong>registration-based</strong>: submit your wallet on the launch campaign page to claim a numbered
-            spot. Qualification is <strong>not</strong> based on Crash play, XP, or a leaderboard rank.
+            Crash is play-money credits. Connecting a wallet creates a persistent account: credits, stats, and rank
+            restore when you reconnect. Weekly standings are computed on the server from settled rounds only. Token
+            prizes are reviewed and paid off-platform — nothing here withdraws or converts credits.
           </p>
           <ul className="space-y-1 text-[11px] list-none">
             <li>
-              <span className="text-emerald-400">✓</span> First 500 wallets that register get a spot
+              <span className="text-emerald-400">✓</span> Best 40 rounds per week count toward rank (volume grind does not win)
             </li>
             <li>
-              <span className="text-emerald-400">✓</span> Proof card shows your spot number for the registered wallet
+              <span className="text-emerald-400">✓</span> Daily credit refill if you are broke, once per 24h per wallet
             </li>
             <li>
-              <span className="text-rose-400">✗</span> No XP grind, no rank snapshot, no in-game leaderboard payout
+              <span className="text-rose-400">✗</span> No vault, no deposits, no cashing out credits
             </li>
           </ul>
-          <InfoBox variant="amber">
-            There is no token airdrop tied to Player XP or ranking in the live game. If you see XP or rank in leftover
-            code or old posts, that is not a live reward. The First 500 list is the only current airdrop path.
-          </InfoBox>
         </GuideSection>
 
         <GuideSection emoji="🚫" title="Common Rekt Moves" accentClass="from-orange-500/15 to-transparent">
@@ -339,7 +335,7 @@ export function HowToPlayGuide({ variant = 'inline', className = '' }: HowToPlay
           </div>
           <ol className="p-3 text-xs space-y-2 text-white/70 font-bold">
             <li>
-              <span className="text-amber-300">1.</span> Connect wallet · demo credits or deposit
+              <span className="text-amber-300">1.</span> Connect wallet · free play-money credits
             </li>
             <li>
               <span className="text-amber-300">2.</span> Set wager + optional Auto TP

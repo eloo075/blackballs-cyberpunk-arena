@@ -6,7 +6,7 @@ import { tickLoginStreak } from '@/lib/player-retention';
 import { useWallet } from '@/lib/wallet-context';
 
 export function LoginStreakBanner() {
-  const { wallet, adjustBlackballsBalance } = useWallet();
+  const { wallet } = useWallet();
   const [streak, setStreak] = useState(0);
   const [flash, setFlash] = useState<string | null>(null);
 
@@ -15,12 +15,11 @@ export function LoginStreakBanner() {
     const result = tickLoginStreak(wallet.address);
     setStreak(result.streak);
     if (result.isNew && result.rewardBb > 0) {
-      adjustBlackballsBalance(result.rewardBb);
-      setFlash(`Day ${result.streak} login! +${result.rewardBb} ${CURRENCY_LABEL} · +${result.fightCoins} fight coins`);
+      setFlash(`Day ${result.streak} login`);
       const t = setTimeout(() => setFlash(null), 5000);
       return () => clearTimeout(t);
     }
-  }, [wallet.connected, wallet.address, adjustBlackballsBalance]);
+  }, [wallet.connected, wallet.address]);
 
   if (!wallet.connected || streak < 1) return null;
 

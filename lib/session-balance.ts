@@ -1,5 +1,6 @@
 import { DEMO_MIN_BALANCE, DEMO_REFILL_BB } from '@/lib/demo-credits';
 import { MAX_DEMO_BALANCE, roundMoney } from '@/lib/crash-pnl';
+import { DEMO_REWARDS_MODE } from '@/lib/launch-surface';
 import type { FullState } from '@/lib/crash-types';
 import type { FlipFullState } from '@/lib/flip-types';
 
@@ -17,6 +18,7 @@ export function normalizeDemoSessionBalance(
   const n = Number.isFinite(balance)
     ? roundMoney(Math.min(MAX_DEMO_BALANCE, Math.max(0, balance)))
     : 0;
+  if (DEMO_REWARDS_MODE) return n;
   if (isRealWallet || address.startsWith('0x')) return n;
   if (opts?.allowRefill !== false && n < DEMO_MIN_BALANCE) return DEMO_REFILL_BB;
   return n;
@@ -32,7 +34,7 @@ export function resolveClientSyncBalance(
     ? roundMoney(Math.min(MAX_DEMO_BALANCE, Math.max(0, wallet.blackballsBalance)))
     : 0;
   // Only bump empty demo wallets when explicitly allowed (boot / manual refill path).
-  if (!wallet.isRealWallet && opts?.allowRefill && n < DEMO_MIN_BALANCE) return DEMO_REFILL_BB;
+  if (!wallet.isRealWallet && !DEMO_REWARDS_MODE && opts?.allowRefill && n < DEMO_MIN_BALANCE) return DEMO_REFILL_BB;
   return n;
 }
 
@@ -48,7 +50,7 @@ export function resolvePlayableBalance(
   if (!wallet.connected) return walletBal;
   if (serverBalance == null || !Number.isFinite(serverBalance)) return walletBal;
   return roundMoney(
-    Math.min(wallet.isRealWallet ? Number.MAX_SAFE_INTEGER : MAX_DEMO_BALANCE, Math.max(0, serverBalance)),
+    Math.min(MAX_DEMO_BALANCE, Math.max(0, serverBalance)),
   );
 }
 
@@ -251,6 +253,7 @@ export function guardCashoutOnStream(
   suppressUntilMs: number,
   lastCashoutWasFull = false,
 ): FullState {
+  if (next.phase === 'crashed') return next;
   if (Date.now() > suppressUntilMs) return next;
   if (!prev) return next;
   if (isNewRoundTransition(prev, next)) return next;

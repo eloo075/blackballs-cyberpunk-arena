@@ -6,6 +6,7 @@ import {
   loadAndApplyPlayerSnapshot,
   maybePersistEngineSnapshot,
   persistPlayerSnapshot,
+  flushPendingSettlements,
   type CrashClientViewPayload,
 } from '@/lib/supabase/crash-state-store';
 import {
@@ -19,9 +20,23 @@ import {
 import { normalizeDemoSessionBalance } from '@/lib/session-balance';
 import { assertGameNotCampaignLocked } from '@/lib/launch-campaign-guard';
 import { verifyContinuousCrashRound, verifyCrashRound } from '@/lib/crash-engine';
+import { DEMO_REWARDS_MODE } from '@/lib/launch-surface';
+import { isEvmWalletAddress, normalizeWalletAddress } from '@/lib/demo-rewards';
+import { ensureDemoAccount, applyDailyRefill, nextRefillAtIso } from '@/lib/supabase/demo-account-store';
+import { getLeaderboard } from '@/lib/supabase/crash-leaderboard-store';
+import { clientIp, clientUserAgent } from '@/lib/request-meta';
+import { DEMO_REFILL_ELIGIBLE_BELOW } from '@/lib/demo-credits';
+
+function parseWalletAddress(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  if (DEMO_REWARDS_MODE) {
+    return isEvmWalletAddress(raw) ? normalizeWalletAddress(raw) : null;
+  }
+  return raw.trim();
+}
 
 export async function handleStream(req: NextRequest) {
-  const address = req.nextUrl.searchParams.get('address');
+  const address = parseWalletAddress(req.nextUrl.searchParams.get('address'));
   const manager = getManager(address);
   const encoder = new TextEncoder();
 
@@ -93,7 +108,7 @@ export async function handleStream(req: NextRequest) {
 }
 
 export async function handleState(req: NextRequest) {
-  const address = req.nextUrl.searchParams.get('address');
+  const address = parseWalletAddress(req.nextUrl.searchParams.get('address'));
   const manager = getManager(address);
   await ensureCrashStateSynced(manager, address);
   return NextResponse.json(manager.snapshotForStream(address));
@@ -101,16 +116,60 @@ export async function handleState(req: NextRequest) {
 
 export async function handleSession(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const address = typeof body.address === 'string' ? body.address : null;
-  const balance = parseFloat(body.balance);
+  const address = parseWalletAddress(body.address);
   const stimmy = parseFloat(body.stimmy);
   const frenzy = parseFloat(body.frenzy);
-  const boot = body.boot === true;
-  const isRealWallet = body.isRealWallet === true;
 
   if (!address) {
-    return NextResponse.json({ ok: false, error: 'wallet not connected' }, { status: 401 });
+    return NextResponse.json(
+      { ok: false, error: DEMO_REWARDS_MODE ? 'Connect a wallet to play' : 'wallet not connected' },
+      { status: 401 },
+    );
   }
+
+  if (DEMO_REWARDS_MODE) {
+    try {
+      const ensured = await ensureDemoAccount(address, {
+        ip: clientIp(req),
+        userAgent: clientUserAgent(req),
+      });
+      if (!ensured.ok) {
+        return NextResponse.json({ ok: false, error: ensured.error }, { status: ensured.status });
+      }
+
+      const manager = getManager(address);
+      await ensureCrashStateSynced(manager, address);
+      if (!manager.hasPlayer(address)) {
+        manager.seedPlayerIfMissing(address, ensured.account.balance);
+      }
+      await persistPlayerSnapshot(manager, address);
+      const view = manager.clientPlayerView(address);
+      const nextRefill = nextRefillAtIso(ensured.account.lastRefillAt);
+      return NextResponse.json({
+        ok: true,
+        balance: view.balance,
+        view,
+        account: {
+          roundsPlayed: ensured.account.roundsPlayed,
+          wins: ensured.account.wins,
+          bestMultiplier: ensured.account.bestMultiplier,
+          createdAt: ensured.account.createdAt,
+        },
+        refill: {
+          eligibleBelow: DEMO_REFILL_ELIGIBLE_BELOW,
+          nextRefillAt: nextRefill,
+          available: view.balance <= DEMO_REFILL_ELIGIBLE_BELOW && (!nextRefill || Date.now() >= new Date(nextRefill).getTime()),
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'account unavailable';
+      return NextResponse.json({ ok: false, error: message }, { status: 503 });
+    }
+  }
+
+  const balance = parseFloat(body.balance);
+  const boot = body.boot === true;
+  const isRealWallet = body.isRealWallet === true;
 
   let syncedBalance = Number.isFinite(balance) && balance >= 0 ? balance : 0;
 
@@ -125,7 +184,6 @@ export async function handleSession(req: NextRequest) {
   } else if (!Number.isFinite(balance) || balance < 0) {
     return NextResponse.json({ ok: false, error: 'invalid balance' }, { status: 400 });
   } else {
-    // Boot / idle session may refill empty demo wallets; mid-round sync must keep 0.
     syncedBalance = normalizeDemoSessionBalance(address, syncedBalance, isRealWallet, {
       allowRefill: boot === true,
     });
@@ -166,7 +224,7 @@ export async function handleEnter(req: NextRequest) {
   if (blocked) return blocked;
 
   const body = await req.json().catch(() => ({}));
-  const address = typeof body.address === 'string' ? body.address : null;
+  const address = parseWalletAddress(body.address);
   const side = body.side === 'sell' ? 'sell' : 'buy';
   const amount = parseFloat(body.amount);
   const leverage = parseFloat(body.leverage ?? '1');
@@ -178,15 +236,14 @@ export async function handleEnter(req: NextRequest) {
   }
 
   const manager = getManager(address);
-  const clientView = parseClientView(body);
+  const clientView = DEMO_REWARDS_MODE ? null : parseClientView(body);
   await ensureCrashStateSynced(manager, address, clientView);
 
   const debugBefore = manager.getPositionDebug(address);
 
-  if (Number.isFinite(clientBalance) && clientBalance >= 0) {
+  if (!DEMO_REWARDS_MODE && Number.isFinite(clientBalance) && clientBalance >= 0) {
     manager.syncPlayer(
       address,
-      // Never rewrite a true 0 into 100 on enter — that undid all-in / post-buy liquid.
       normalizeDemoSessionBalance(address, clientBalance, isRealWallet, { allowRefill: false }),
       undefined,
       { boot: false },
@@ -315,6 +372,7 @@ export async function handleEnter(req: NextRequest) {
   }
 
   void persistPlayerSnapshot(manager, address);
+  void flushPendingSettlements(manager);
 
   return NextResponse.json({
     ...result,
@@ -329,11 +387,7 @@ export async function handleCancel(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}));
   const address =
-    typeof body.address === 'string'
-      ? body.address
-      : typeof body.walletAddress === 'string'
-        ? body.walletAddress
-        : null;
+    parseWalletAddress(body.address) ?? parseWalletAddress(body.walletAddress);
 
   if (!address) {
     return NextResponse.json(
@@ -343,7 +397,7 @@ export async function handleCancel(req: NextRequest) {
   }
 
   const manager = getManager(address);
-  const clientView = parseClientView(body);
+  const clientView = DEMO_REWARDS_MODE ? null : parseClientView(body);
   await ensureCrashStateSynced(manager, address, clientView);
 
   let result = manager.cancelCountdownEntry(address);
@@ -375,6 +429,7 @@ export async function handleCancel(req: NextRequest) {
   }
 
   void persistPlayerSnapshot(manager, address);
+  void flushPendingSettlements(manager);
 
   return NextResponse.json({
     ok: true,
@@ -391,7 +446,7 @@ export async function handleCashout(req: NextRequest) {
   if (blocked) return blocked;
 
   const body = await req.json().catch(() => ({}));
-  const address = typeof body.address === 'string' ? body.address : null;
+  const address = parseWalletAddress(body.address);
   const percent = parseFloat(body.percent ?? '1');
 
   if (!address) {
@@ -402,7 +457,7 @@ export async function handleCashout(req: NextRequest) {
   }
 
   const manager = getManager(address);
-  const clientView = parseClientView(body);
+  const clientView = DEMO_REWARDS_MODE ? null : parseClientView(body);
   await ensureCrashStateSynced(manager, address, clientView);
 
   const before = manager.getPositionDebug(address);
@@ -433,6 +488,7 @@ export async function handleCashout(req: NextRequest) {
   }
 
   void persistPlayerSnapshot(manager, address);
+  void flushPendingSettlements(manager);
 
   return NextResponse.json({ ...result, chain, view: manager.clientPlayerView(address) });
 }
@@ -442,7 +498,7 @@ export async function handleAuto(req: NextRequest) {
   if (blocked) return blocked;
 
   const body = await req.json().catch(() => ({}));
-  const address = typeof body.address === 'string' ? body.address : null;
+  const address = parseWalletAddress(body.address);
   const v = body.value != null ? parseFloat(body.value) : null;
   if (!address) {
     return NextResponse.json({ ok: false, error: 'wallet not connected' }, { status: 401 });
@@ -494,4 +550,53 @@ export async function handleVerify(req: NextRequest) {
         });
 
   return NextResponse.json(result, { status: 200 });
+}
+
+export async function handleRefill(req: NextRequest) {
+  const body = await req.json().catch(() => ({}));
+  const address = parseWalletAddress(body.address);
+  if (!address) {
+    return NextResponse.json({ ok: false, error: 'Connect a wallet to claim credits' }, { status: 401 });
+  }
+
+  try {
+    const manager = getManager(address);
+    await ensureCrashStateSynced(manager, address);
+    const view = manager.clientPlayerView(address);
+    if (view.hasPosition || view.entryPending) {
+      return NextResponse.json(
+        { ok: false, error: 'Finish or cancel your position before refilling.' },
+        { status: 400 },
+      );
+    }
+
+    const result = await applyDailyRefill(address, view.balance);
+    if (!result.ok) {
+      return NextResponse.json(result, { status: result.status });
+    }
+
+    manager.seedPlayerIfMissing(address, result.balance);
+    manager.syncPlayer(address, result.balance, undefined, { boot: true });
+    await persistPlayerSnapshot(manager, address);
+    return NextResponse.json({
+      ok: true,
+      balance: result.balance,
+      nextRefillAt: result.nextRefillAt,
+      view: manager.clientPlayerView(address),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'refill unavailable';
+    return NextResponse.json({ ok: false, error: message }, { status: 503 });
+  }
+}
+
+export async function handleLeaderboard(req: NextRequest) {
+  const address = parseWalletAddress(req.nextUrl.searchParams.get('address'));
+  try {
+    const board = await getLeaderboard(address);
+    return NextResponse.json(board);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'leaderboard unavailable';
+    return NextResponse.json({ error: message }, { status: 503 });
+  }
 }

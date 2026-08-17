@@ -20,6 +20,7 @@ import {
   getCrashVaultAddress,
   getRobinhoodChain,
 } from './robinhood-chain';
+import { DEMO_REWARDS_MODE } from '@/lib/launch-surface';
 
 export interface SettlementResult {
   ok: boolean;
@@ -42,6 +43,7 @@ let walletClient: WalletClient | null = null;
 let vaultAddress: Address | null = null;
 
 export function isVaultEnabled(): boolean {
+  if (DEMO_REWARDS_MODE) return false;
   return Boolean(
     process.env.CRASH_VAULT_ADDRESS &&
       process.env.BACKEND_SIGNER_PRIVATE_KEY &&

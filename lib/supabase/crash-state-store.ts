@@ -2,6 +2,9 @@ import 'server-only';
 
 import type { CrashManager } from '@/lib/crash-manager';
 import { getSupabaseAdmin, isSupabaseConfigured } from '@/lib/supabase/server';
+import { persistAccountBalance } from '@/lib/supabase/demo-account-store';
+import { recordSettledPlay } from '@/lib/supabase/crash-leaderboard-store';
+import { DEMO_REWARDS_MODE } from '@/lib/launch-surface';
 
 export type CrashClientViewPayload = {
   phase?: 'waiting' | 'running' | 'crashed';
@@ -50,12 +53,26 @@ type PlayerRow = {
 let lastEnginePersistAt = 0;
 const ENGINE_PERSIST_MS = 500;
 
+export async function flushPendingSettlements(manager: CrashManager): Promise<void> {
+  const events = manager.takePendingSettlements();
+  if (events.length === 0) return;
+  for (const event of events) {
+    await persistPlayerSnapshot(manager, event.address);
+    await recordSettledPlay(event);
+  }
+}
+
 export function maybePersistEngineSnapshot(manager: CrashManager): void {
-  if (!isSupabaseConfigured()) return;
+  if (!isSupabaseConfigured()) {
+    void flushPendingSettlements(manager);
+    return;
+  }
   const now = Date.now();
-  if (now - lastEnginePersistAt < ENGINE_PERSIST_MS) return;
-  lastEnginePersistAt = now;
-  void persistEngineSnapshot(manager);
+  if (now - lastEnginePersistAt >= ENGINE_PERSIST_MS) {
+    lastEnginePersistAt = now;
+    void persistEngineSnapshot(manager);
+  }
+  void flushPendingSettlements(manager);
 }
 
 export async function persistEngineSnapshot(manager: CrashManager): Promise<void> {
@@ -78,12 +95,13 @@ export async function persistEngineSnapshot(manager: CrashManager): Promise<void
 }
 
 export async function persistPlayerSnapshot(manager: CrashManager, address: string): Promise<void> {
-  if (!isSupabaseConfigured() || !address) return;
-  const supabase = getSupabaseAdmin();
-  if (!supabase) return;
-
+  if (!address) return;
   const row = manager.exportPlayerSnapshot(address);
   if (!row) return;
+  await persistAccountBalance(address, row.balance);
+  if (!isSupabaseConfigured()) return;
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return;
 
   await supabase.from('crash_player_state').upsert({
     address,
@@ -102,8 +120,10 @@ export async function persistPlayerSnapshot(manager: CrashManager, address: stri
     auto_sell: row.autoSell,
     stimmy: row.stimmy,
     frenzy: row.frenzy,
+    last_seen: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   });
+  await persistAccountBalance(address, row.balance);
 }
 
 export async function clearPlayerSnapshot(address: string): Promise<void> {
@@ -173,8 +193,6 @@ export async function loadAndApplyPlayerSnapshot(manager: CrashManager, address:
   if (error || !data) return false;
 
   const row = data as PlayerRow;
-  const ageMs = Date.now() - new Date(row.updated_at).getTime();
-  if (ageMs > 300_000) return false;
 
   manager.importPlayerSnapshot(address, {
     balance: Number(row.balance),
@@ -204,16 +222,13 @@ export async function ensureCrashStateSynced(
 ): Promise<void> {
   // Fly / single-process hosts keep authoritative in-memory state — skip DB hydrate per action.
   if (process.env.SINGLE_INSTANCE_GAME === 'true') {
-    if (address && clientView && !address.startsWith('0x')) {
-      manager.reconcilePlayerFromClient(address, clientView);
-    }
     return;
   }
 
   await loadAndApplyEngineSnapshot(manager);
   if (address) {
     await loadAndApplyPlayerSnapshot(manager, address);
-    if (clientView && !address.startsWith('0x')) {
+    if (clientView && !DEMO_REWARDS_MODE && !address.startsWith('0x')) {
       manager.reconcilePlayerFromClient(address, clientView);
     }
   }

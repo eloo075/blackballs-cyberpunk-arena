@@ -3,12 +3,11 @@ import { motion } from 'framer-motion';
 import { useState } from 'react';
 import Link from 'next/link';
 import { useWallet } from '@/lib/wallet-context';
-import { isVaultConfigured } from '@/lib/chain/public-config';
-import { VaultModal } from '@/components/VaultModal';
 import { HowToPlayModal } from '@/components/how-to-play-modal';
 import { WalletBalanceCards } from '@/components/wallet-balance-cards';
+import { ConnectWalletModal } from '@/components/connect-wallet-modal';
 import { DEMO_REFILL_BB } from '@/lib/demo-credits';
-import { syncGameSessionBalances } from '@/lib/sync-game-sessions';
+import { RANKING_TAB_ENABLED } from '@/lib/launch-surface';
 
 const LOGO_SRC = '/blackballs-logo-transparent.png';
 
@@ -147,28 +146,18 @@ function NavTabButton({
 }
 
 export function Nav({ activeTab, onTabChange }: NavProps) {
-  const { wallet, connect, disconnect, displayAddress, refillDemoCredits, holdBonuses } = useWallet();
-  const [vaultOpen, setVaultOpen] = useState(false);
+  const { wallet, disconnect, displayAddress, refillDemoCredits } = useWallet();
   const [guideOpen, setGuideOpen] = useState(false);
-  const vaultEnabled = isVaultConfigured();
+  const [connectOpen, setConnectOpen] = useState(false);
 
   const handleDemoRefill = async () => {
-    if (!wallet.connected || wallet.isRealWallet || !wallet.address) return;
-    const balance = refillDemoCredits();
-    const holdsBb = holdBonuses.active.some(b => b.token === 'BLACKBALLS');
-    await syncGameSessionBalances(
-      wallet.address,
-      balance,
-      holdBonuses.stimmy,
-      holdBonuses.frenzy,
-      holdsBb,
-      wallet.isRealWallet,
-    );
+    if (!wallet.connected || !wallet.address) return;
+    await refillDemoCredits();
   };
 
   return (
     <>
-      <VaultModal open={vaultOpen} onClose={() => setVaultOpen(false)} />
+      <ConnectWalletModal open={connectOpen} onClose={() => setConnectOpen(false)} />
       <HowToPlayModal open={guideOpen} onClose={() => setGuideOpen(false)} />
       <header className="sticky top-0 z-40 border-b border-amber-500/10 bg-[#0a0b0f]/94 backdrop-blur-xl safe-bottom font-arcade shadow-[0_8px_32px_rgba(0,0,0,0.45)]">
         <div
@@ -205,13 +194,13 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
                 </button>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={() => (vaultEnabled ? setVaultOpen(true) : connect())}
-                className="touch-manipulation shrink-0 px-3.5 py-1.5 text-[11px] font-extrabold bg-emerald-500 text-white rounded-lg border-b-2 border-emerald-700 shadow-[0_0_16px_rgba(16,185,129,0.25)]"
-              >
-                Connect
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setConnectOpen(true)}
+                  className="touch-manipulation shrink-0 px-3.5 py-1.5 text-[11px] font-extrabold bg-emerald-500 text-white rounded-lg border-b-2 border-emerald-700 shadow-[0_0_16px_rgba(16,185,129,0.25)]"
+                >
+                  Connect
+                </button>
             )}
           </div>
 
@@ -229,29 +218,25 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
           {/* Crash: keep chrome minimal so chart + BUY/SELL fit one screen (rugs.fun). */}
           {activeTab !== 'crash' && (
           <div className="flex gap-1.5 w-full mt-2.5 mb-2 min-w-0">
-            {wallet.connected && !wallet.isRealWallet && (
+            {wallet.connected && (
               <button
                 type="button"
                 onClick={() => void handleDemoRefill()}
                 className="flex-1 nav-action-chip nav-action-demo"
-                title={`Top up to ${DEMO_REFILL_BB} demo BlackBalls`}
+                title={`Daily refill up to ${DEMO_REFILL_BB} credits when low`}
               >
                 <DemoIcon />
-                +{DEMO_REFILL_BB} Demo
+                Refill
               </button>
             )}
             <Link href="/guide" className="nav-action-chip nav-action-guide shrink-0">
               <GuideIcon />
               Guide
             </Link>
-            {vaultEnabled && (
-              <button
-                type="button"
-                onClick={() => setVaultOpen(true)}
-                className="nav-action-chip shrink-0 text-amber-300/90 border-amber-400/25"
-              >
-                Vault
-              </button>
+            {RANKING_TAB_ENABLED && (
+              <Link href="/ranking" className="nav-action-chip shrink-0 text-amber-300/90">
+                Rank
+              </Link>
             )}
           </div>
           )}
@@ -270,6 +255,14 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
                 compact
               />
             ))}
+            {RANKING_TAB_ENABLED && (
+              <Link
+                href="/ranking"
+                className="flex-1 flex flex-col items-center gap-0.5 py-1.5 px-1 text-[10px] rounded-lg font-extrabold text-white/45"
+              >
+                Rank
+              </Link>
+            )}
           </nav>
         </div>
 
@@ -298,6 +291,14 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
                 onClick={() => onTabChange(t.id)}
               />
             ))}
+            {RANKING_TAB_ENABLED && (
+              <Link
+                href="/ranking"
+                className="relative flex items-center gap-2 px-4 py-2.5 text-[13px] font-extrabold rounded-xl text-white/45 hover:text-white/80 hover:bg-white/[0.04]"
+              >
+                Ranking
+              </Link>
+            )}
           </nav>
 
           <div className="flex items-center gap-2 shrink-0 min-w-0">
@@ -317,17 +318,15 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
                 />
 
                 <div className="flex items-center gap-1.5 pl-2 ml-0.5 border-l border-white/[0.08]">
-                  {!wallet.isRealWallet && (
-                    <button
-                      type="button"
-                      onClick={() => void handleDemoRefill()}
-                      className="nav-action-chip nav-action-demo"
-                      title={`Top up to ${DEMO_REFILL_BB} demo BlackBalls`}
-                    >
-                      <DemoIcon />
-                      +{DEMO_REFILL_BB} Demo
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => void handleDemoRefill()}
+                    className="nav-action-chip nav-action-demo"
+                    title={`Daily refill to ${DEMO_REFILL_BB} credits when low`}
+                  >
+                    <DemoIcon />
+                    Refill
+                  </button>
                   <button
                     type="button"
                     onClick={() => setGuideOpen(true)}
@@ -336,15 +335,6 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
                     <GuideIcon />
                     Guide
                   </button>
-                  {vaultEnabled && (
-                    <button
-                      type="button"
-                      onClick={() => setVaultOpen(true)}
-                      className="nav-action-chip text-amber-300 border-amber-400/30 hover:bg-amber-400/10"
-                    >
-                      Vault
-                    </button>
-                  )}
                   <button
                     type="button"
                     onClick={disconnect}
@@ -365,18 +355,9 @@ export function Nav({ activeTab, onTabChange }: NavProps) {
                   <GuideIcon />
                   Guide
                 </button>
-                {vaultEnabled && (
-                  <button
-                    type="button"
-                    onClick={() => setVaultOpen(true)}
-                    className="nav-action-chip text-amber-300 border-amber-400/30"
-                  >
-                    Vault
-                  </button>
-                )}
                 <button
                   type="button"
-                  onClick={() => (vaultEnabled ? setVaultOpen(true) : connect())}
+                  onClick={() => setConnectOpen(true)}
                   className="touch-manipulation touch-target px-5 py-2.5 text-[12px] font-black bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl border-b-[3px] border-emerald-700 active:border-b-0 active:translate-y-0.5 transition-all shadow-[0_0_24px_rgba(16,185,129,0.28)]"
                 >
                   Connect

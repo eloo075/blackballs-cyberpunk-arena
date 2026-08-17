@@ -215,7 +215,7 @@ describe('client sync guards (rugs.fun)', () => {
         { connected: true, blackballsBalance: 0, isRealWallet: false },
         { allowRefill: true },
       ),
-    ).toBe(100);
+    ).toBe(0);
   });
 
   it('cashout guard does not undo a stack-buy debit', () => {
