@@ -47,7 +47,10 @@ const STALE_FEED_MS =
       ? 22000
       : 12000;
 
-const RECONNECT_OVERLAY_MS = 2800;
+/** While a round is live, no SSE tick for this long → desynced (don't keep cash-out armed). */
+const LIVE_FEED_STALE_MS = isLikelyMobileDevice() ? 2000 : 1500;
+
+const RECONNECT_OVERLAY_MS = 400;
 const ACTION_TIMEOUT_MS = isLikelyMobileDevice() ? 20000 : 8000;
 
 /** Seconds before round start when new entries are blocked (avoids countdown-end race). */
@@ -90,6 +93,9 @@ function mergeCrashClientView(prev: FullState | null, view?: CrashClientView | n
 const POSITION_MISS_RE =
   /no open position|no position|no pending entry|enter during the countdown|cancel failed/i;
 
+const ROUND_ENDED_RE =
+  /round ended|cash-out only during live|wait for the next countdown/i;
+
 const ENTER_REJECT_RE =
   /wait for the next round|invalid amount|insufficient balance|trade rejected/i;
 
@@ -110,6 +116,19 @@ function clientViewFromState(state: FullState | null): CrashClientView | undefin
   };
 }
 
+function applyLocalRug(prev: FullState): FullState {
+  return {
+    ...prev,
+    phase: 'crashed',
+    hasLivePosition: false,
+    hasPosition: false,
+    entryPending: false,
+    mult: 0,
+    pathMult: 0,
+    pathAhead: [],
+  };
+}
+
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -126,6 +145,7 @@ export function useCrashStream() {
   /** Bumps on each SSE (re)connect so chart/canvas can re-mount with fresh state. */
   const [streamEpoch, setStreamEpoch] = useState(0);
   const sessionReadyRef = useRef(false);
+  const accountHydratedRef = useRef(false);
   const walletBalanceRef = useRef(wallet.blackballsBalance);
   const walletRef = useRef(wallet);
   const holdRef = useRef(holdBonuses);
@@ -193,12 +213,17 @@ export function useCrashStream() {
             next.balance,
             walletBalanceRef.current,
             !walletRef.current.isRealWallet,
-          )
+          ) &&
+          (accountHydratedRef.current || next.balance > 0)
         ) {
           walletBalanceToApply = next.balance;
         }
         return next;
       });
+
+      if (parsed.phase === 'crashed') {
+        setReconnecting(false);
+      }
 
       if (roundChanged) {
         setRoundEpoch(n => n + 1);
@@ -266,9 +291,14 @@ export function useCrashStream() {
       setReconnecting(false);
     };
 
-    const markStreamUnhealthy = () => {
+    const markStreamUnhealthy = (immediateOverlay = false) => {
       setConnected(false);
-      scheduleReconnectOverlay();
+      if (immediateOverlay) {
+        clearReconnectOverlayTimer();
+        if (stateRef.current != null) setReconnecting(true);
+      } else {
+        scheduleReconnectOverlay();
+      }
     };
 
     const streamUrl = address
@@ -333,14 +363,20 @@ export function useCrashStream() {
     staleTimer = setInterval(() => {
       if (cancelled || !es) return;
       if (typeof document !== 'undefined' && document.hidden) return;
-      if (Date.now() - lastMsgAt > STALE_FEED_MS) {
+      const age = Date.now() - lastMsgAt;
+      const liveRound = stateRef.current?.phase === 'running';
+      if (liveRound && age > LIVE_FEED_STALE_MS) {
+        markStreamUnhealthy(true);
+        void refreshGameState();
+      }
+      if (age > STALE_FEED_MS) {
         console.warn('[crash/stream] stale feed — reconnecting');
-        markStreamUnhealthy();
+        markStreamUnhealthy(true);
         teardownEventSource(es);
         es = null;
         scheduleReconnect(250);
       }
-    }, 3000);
+    }, 400);
 
     return () => {
       cancelled = true;
@@ -369,6 +405,7 @@ export function useCrashStream() {
     if (prevAddressRef.current != null && prevAddressRef.current !== address) {
       setState(null);
       stateRef.current = null;
+      accountHydratedRef.current = false;
     }
     prevAddressRef.current = address;
   }, [address]);
@@ -435,28 +472,41 @@ export function useCrashStream() {
     refreshGameState,
   ]);
 
+  // While desynced, poll state so a server-side rug lands even if SSE is stalled.
+  useEffect(() => {
+    if (!reconnecting) return;
+    const timer = setInterval(() => {
+      void refreshGameState();
+    }, 500);
+    return () => clearInterval(timer);
+  }, [reconnecting, refreshGameState]);
+
   // Session sync — wallet-context boots once; here we only merge view in background.
   useEffect(() => {
     if (!hydrated) {
       setSessionReady(false);
       sessionReadyRef.current = false;
+      accountHydratedRef.current = false;
       return;
     }
 
     if (!address) {
       setSessionReady(true);
       sessionReadyRef.current = true;
+      accountHydratedRef.current = false;
       return;
     }
 
     // Do not block BUY/SELL on session POST — SSE + enter API validate server-side.
     sessionReadyRef.current = true;
     setSessionReady(true);
+    accountHydratedRef.current = false;
 
     let cancelled = false;
     void (async () => {
       const synced = await syncBalance(false, true);
       if (cancelled || synced == null) return;
+      accountHydratedRef.current = true;
       if (typeof synced.balance === 'number') {
         setBlackballsBalance(synced.balance);
         walletBalanceRef.current = synced.balance;
@@ -960,6 +1010,17 @@ export function useCrashStream() {
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
             lastErr = typeof data.error === 'string' ? data.error : 'Cash-out rejected';
+            if (ROUND_ENDED_RE.test(lastErr)) {
+              cashoutSuppressUntilRef.current = 0;
+              setState(prev => {
+                if (!prev) return prev;
+                const next = applyLocalRug(prev);
+                stateRef.current = next;
+                return next;
+              });
+              void refreshGameState();
+              return { ok: false, error: lastErr };
+            }
             if (data.view) {
               setState(prev => mergeCrashClientView(prev, data.view as CrashClientView));
             } else if (optimisticRemaining != null && snap) {
@@ -1063,6 +1124,16 @@ export function useCrashStream() {
       }
 
       cashoutSuppressUntilRef.current = 0;
+      if (ROUND_ENDED_RE.test(lastErr) || stateRef.current?.phase === 'crashed') {
+        setState(prev => {
+          if (!prev) return prev;
+          const next = applyLocalRug(prev);
+          stateRef.current = next;
+          return next;
+        });
+        void refreshGameState();
+        return { ok: false, error: lastErr };
+      }
       if (optimisticRemaining != null && snap) {
         setState(prev => {
           if (!prev) return prev;
@@ -1090,7 +1161,7 @@ export function useCrashStream() {
         if (actionLockRef.current === 'cashout') actionLockRef.current = null;
       }
     },
-    [address, setBlackballsBalance, syncBalance],
+    [address, setBlackballsBalance, syncBalance, refreshGameState],
   );
 
   return { state, connected, reconnecting, sessionReady, roundEpoch, streamEpoch, trade, cancelActivePosition, cashOut, setAutoSell, refreshGameState, walletConnected: !!address };

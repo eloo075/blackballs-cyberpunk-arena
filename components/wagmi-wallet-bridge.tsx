@@ -11,23 +11,31 @@ import { useReferralCapture } from '@/hooks/use-referral-capture';
 export function WagmiWalletBridge() {
   const { address, isConnected } = useAccount();
   const { disconnect: wagmiDisconnect } = useDisconnect();
-  const { wallet, connectRealWallet, disconnect } = useWallet();
+  const { wallet, connectRealWallet, disconnect, setBlackballsBalance } = useWallet();
 
   useReferralCapture(isConnected ? address : undefined);
 
   useEffect(() => {
     if (!DEMO_REWARDS_MODE && !isVaultConfigured()) return;
     if (!isConnected || !address) return;
-    if (wallet.address === address && wallet.isRealWallet) return;
-    connectRealWallet(address);
+    if (wallet.address !== address || !wallet.isRealWallet) {
+      connectRealWallet(address);
+    }
     void fetch('/api/crash/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ address, boot: true }),
-    }).catch(() => {
-      /* session sync is best-effort on connect */
-    });
-  }, [isConnected, address, wallet.address, wallet.isRealWallet, connectRealWallet]);
+    })
+      .then(async res => {
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && typeof data.balance === 'number') {
+          setBlackballsBalance(data.balance);
+        }
+      })
+      .catch(() => {
+        /* session sync is best-effort on connect */
+      });
+  }, [isConnected, address, wallet.address, wallet.isRealWallet, connectRealWallet, setBlackballsBalance]);
 
   useEffect(() => {
     if (!DEMO_REWARDS_MODE && !isVaultConfigured()) return;

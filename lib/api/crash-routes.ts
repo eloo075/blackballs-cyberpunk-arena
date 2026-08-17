@@ -139,9 +139,7 @@ export async function handleSession(req: NextRequest) {
 
       const manager = getManager(address);
       await ensureCrashStateSynced(manager, address);
-      if (!manager.hasPlayer(address)) {
-        manager.seedPlayerIfMissing(address, ensured.account.balance);
-      }
+      manager.hydrateDemoBalance(address, ensured.account.balance);
       await persistPlayerSnapshot(manager, address);
       const view = manager.clientPlayerView(address);
       const nextRefill = nextRefillAtIso(ensured.account.lastRefillAt);
@@ -560,8 +558,17 @@ export async function handleRefill(req: NextRequest) {
   }
 
   try {
+    const ensured = await ensureDemoAccount(address, {
+      ip: clientIp(req),
+      userAgent: clientUserAgent(req),
+    });
+    if (!ensured.ok) {
+      return NextResponse.json({ ok: false, error: ensured.error }, { status: ensured.status });
+    }
+
     const manager = getManager(address);
     await ensureCrashStateSynced(manager, address);
+    manager.hydrateDemoBalance(address, ensured.account.balance);
     const view = manager.clientPlayerView(address);
     if (view.hasPosition || view.entryPending) {
       return NextResponse.json(
@@ -570,12 +577,23 @@ export async function handleRefill(req: NextRequest) {
       );
     }
 
+    // Starting-grant / empty-account backfill already put credits on the account.
+    if (view.balance > DEMO_REFILL_ELIGIBLE_BELOW) {
+      await persistPlayerSnapshot(manager, address);
+      return NextResponse.json({
+        ok: true,
+        balance: view.balance,
+        nextRefillAt: nextRefillAtIso(ensured.account.lastRefillAt),
+        view: manager.clientPlayerView(address),
+      });
+    }
+
     const result = await applyDailyRefill(address, view.balance);
     if (!result.ok) {
       return NextResponse.json(result, { status: result.status });
     }
 
-    manager.seedPlayerIfMissing(address, result.balance);
+    manager.hydrateDemoBalance(address, result.balance);
     manager.syncPlayer(address, result.balance, undefined, { boot: true });
     await persistPlayerSnapshot(manager, address);
     return NextResponse.json({

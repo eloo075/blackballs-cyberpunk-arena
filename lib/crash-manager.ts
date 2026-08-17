@@ -580,7 +580,24 @@ export class CrashManager {
         autoSell: null,
       };
     }
-    const player = this.getPlayer(address);
+    // Do NOT getPlayer() here — that minted a 0-balance shell on SSE connect,
+    // then session persist overwrote DEMO_STARTING_BB in crash_player_state.
+    const player = this.players.get(address);
+    if (!player) {
+      return {
+        hasPosition: false,
+        hasLivePosition: false,
+        entryPending: false,
+        positionSide: 'buy',
+        positionAmount: 0,
+        positionLeverage: 1,
+        positionEntryPrice: 1.0,
+        positionLots: [],
+        balance: 0,
+        lastResult: null,
+        autoSell: null,
+      };
+    }
     const pending =
       player.pendingEntry?.roundId === this.round.id ? player.pendingEntry : null;
     const showPending = pending != null && this.phase === 'waiting';
@@ -1851,6 +1868,19 @@ export class CrashManager {
       Math.min(creditCap(address), Math.max(0, Number.isFinite(balance) ? balance : 0)),
     );
     return player.balance;
+  }
+
+  /** Apply the DB account balance onto a cold in-memory player (no open position). */
+  hydrateDemoBalance(address: string, balance: number): number {
+    if (!this.hasPlayer(address)) {
+      return this.seedPlayerIfMissing(address, balance);
+    }
+    const view = this.clientPlayerView(address);
+    if (view.hasPosition || view.entryPending) return view.balance;
+    if (balance > view.balance + 0.0005) {
+      return this.syncPlayer(address, balance, undefined, { boot: true });
+    }
+    return view.balance;
   }
 
   takePendingSettlements(): CrashPlaySettlement[] {

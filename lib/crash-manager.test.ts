@@ -10,6 +10,10 @@ type TestableManager = {
   syncPlayer: CrashManager['syncPlayer'];
   trade: CrashManager['trade'];
   clientPlayerView: CrashManager['clientPlayerView'];
+  snapshotForStream: CrashManager['snapshotForStream'];
+  hasPlayer: CrashManager['hasPlayer'];
+  seedPlayerIfMissing: CrashManager['seedPlayerIfMissing'];
+  hydrateDemoBalance: CrashManager['hydrateDemoBalance'];
 };
 
 const managers: TestableManager[] = [];
@@ -67,5 +71,25 @@ describe('continuous Crash manager actions', () => {
     // 1x long: pnl = 100 * (1.21/1.2 - 1) ≈ 0.833 → balance 100 + 100 + 0.833
     expect(sold.balance).toBeCloseTo(200.833, 2);
     expect(game.clientPlayerView(address).hasPosition).toBe(false);
+  });
+
+  it('does not mint a 0-balance player from a stream snapshot', () => {
+    const game = manager();
+    const address = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const snap = game.snapshotForStream(address);
+    expect(snap.balance).toBe(0);
+    expect(game.hasPlayer(address)).toBe(false);
+    expect(game.hydrateDemoBalance(address, 10_000)).toBe(10_000);
+    expect(game.hasPlayer(address)).toBe(true);
+    expect(game.clientPlayerView(address).balance).toBe(10_000);
+  });
+
+  it('raises a 0-balance in-memory shell to the DB starting grant', () => {
+    const game = manager();
+    const address = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    game.seedPlayerIfMissing(address, 0);
+    expect(game.clientPlayerView(address).balance).toBe(0);
+    expect(game.hydrateDemoBalance(address, 10_000)).toBe(10_000);
+    expect(game.clientPlayerView(address).balance).toBe(10_000);
   });
 });

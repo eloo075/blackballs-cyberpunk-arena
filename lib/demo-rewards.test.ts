@@ -9,6 +9,7 @@ import {
   scoreSettledRound,
   SCORED_ROUNDS_CAP,
 } from './demo-rewards';
+import { shouldGrantStartingCredits } from './demo-credits';
 import { normalizeDemoSessionBalance } from './session-balance';
 
 describe('demo-rewards scoring', () => {
@@ -56,5 +57,19 @@ describe('demo-rewards scoring', () => {
     const bounds = isoWeekBounds(id);
     expect(bounds.endsAt.getTime() - bounds.startsAt.getTime()).toBe(7 * 24 * 60 * 60 * 1000);
     expect(bounds.startsAt.getUTCDay()).toBe(1);
+  });
+});
+
+describe('starting credits grant', () => {
+  it('grants 10k to a never-played empty account', () => {
+    expect(shouldGrantStartingCredits({ balance: 0, roundsPlayed: 0 })).toBe(true);
+  });
+
+  it('does not re-grant after a real round or while a position is open', () => {
+    expect(shouldGrantStartingCredits({ balance: 0, roundsPlayed: 1 })).toBe(false);
+    expect(shouldGrantStartingCredits({ balance: 0, roundsPlayed: 0, hasPosition: true })).toBe(
+      false,
+    );
+    expect(shouldGrantStartingCredits({ balance: 10000, roundsPlayed: 0 })).toBe(false);
   });
 });

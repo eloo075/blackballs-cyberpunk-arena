@@ -6,3 +6,15 @@ export const DEMO_MIN_BALANCE = 1;
 export const DEMO_REFILL_ELIGIBLE_BELOW = 100;
 export const DEMO_REFILL_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 export const MAX_NEW_ACCOUNTS_PER_IP_PER_DAY = 3;
+
+/** True for a never-played empty account that should receive DEMO_STARTING_BB. */
+export function shouldGrantStartingCredits(account: {
+  balance: number;
+  roundsPlayed?: number;
+  hasPosition?: boolean;
+  entryPending?: boolean;
+}): boolean {
+  if (account.hasPosition || account.entryPending) return false;
+  if ((account.roundsPlayed ?? 0) > 0) return false;
+  return !Number.isFinite(account.balance) || account.balance <= 0;
+}

@@ -6,6 +6,7 @@ import {
   DEMO_REFILL_ELIGIBLE_BELOW,
   DEMO_STARTING_BB,
   MAX_NEW_ACCOUNTS_PER_IP_PER_DAY,
+  shouldGrantStartingCredits,
 } from '@/lib/demo-credits';
 import { isEvmWalletAddress, normalizeWalletAddress } from '@/lib/demo-rewards';
 import { getSupabaseAdmin, isSupabaseConfigured } from '@/lib/supabase/server';
@@ -26,7 +27,7 @@ export type DemoAccountRow = {
 };
 
 export type EnsureAccountResult =
-  | { ok: true; created: boolean; account: DemoAccountRow }
+  | { ok: true; created: boolean; grantedStarting: boolean; account: DemoAccountRow }
   | { ok: false; error: string; status: number };
 
 export type RefillResult =
@@ -108,7 +109,7 @@ function newAccount(address: string, ip: string | null): MemoryAccount {
     balance: DEMO_STARTING_BB,
     createdAt: now,
     lastSeen: now,
-    lastRefillAt: now,
+    lastRefillAt: null,
     roundsPlayed: 0,
     wins: 0,
     bestMultiplier: 0,
@@ -152,7 +153,17 @@ export async function ensureDemoAccount(
       existing.lastSeen = now;
       existing.lastIp = ip;
       existing.lastUserAgent = userAgent || existing.lastUserAgent;
-      return { ok: true, created: false, account: existing };
+      if (
+        shouldGrantStartingCredits({
+          balance: existing.balance,
+          roundsPlayed: existing.roundsPlayed,
+        })
+      ) {
+        existing.balance = DEMO_STARTING_BB;
+        existing.lastRefillAt = null;
+        return { ok: true, created: false, grantedStarting: true, account: existing };
+      }
+      return { ok: true, created: false, grantedStarting: false, account: existing };
     }
     if (!memoryAllowSignup(ip)) {
       return {
@@ -164,13 +175,13 @@ export async function ensureDemoAccount(
     const created = newAccount(address, ip);
     created.lastUserAgent = userAgent || null;
     accounts.set(address, created);
-    return { ok: true, created: true, account: created };
+    return { ok: true, created: true, grantedStarting: true, account: created };
   }
 
   const { data: existing, error: readError } = await supabase
     .from('crash_player_state')
     .select(
-      'address, balance, created_at, last_seen, last_refill_at, rounds_played, wins, best_multiplier, lifetime_points, created_ip, last_ip',
+      'address, balance, created_at, last_seen, last_refill_at, rounds_played, wins, best_multiplier, lifetime_points, created_ip, last_ip, has_position, entry_pending',
     )
     .eq('address', address)
     .maybeSingle();
@@ -180,15 +191,31 @@ export async function ensureDemoAccount(
   }
 
   if (existing) {
+    const row = existing as Record<string, unknown>;
+    const grant = shouldGrantStartingCredits({
+      balance: Number(row.balance) || 0,
+      roundsPlayed: Number(row.rounds_played) || 0,
+      hasPosition: row.has_position === true,
+      entryPending: row.entry_pending === true,
+    });
     await supabase
       .from('crash_player_state')
       .update({
         last_seen: now,
         last_ip: ip,
         last_user_agent: userAgent || null,
+        ...(grant ? { balance: DEMO_STARTING_BB, last_refill_at: null } : {}),
       })
       .eq('address', address);
-    return { ok: true, created: false, account: toAccount(existing as Record<string, unknown>) };
+    return {
+      ok: true,
+      created: false,
+      grantedStarting: grant,
+      account: toAccount({
+        ...row,
+        ...(grant ? { balance: DEMO_STARTING_BB, last_refill_at: null } : {}),
+      }),
+    };
   }
 
   const day = utcDayKey();
@@ -213,7 +240,7 @@ export async function ensureDemoAccount(
     balance: DEMO_STARTING_BB,
     created_at: now,
     last_seen: now,
-    last_refill_at: now,
+    last_refill_at: null,
     created_ip: ip,
     last_ip: ip,
     last_user_agent: userAgent || null,
@@ -232,7 +259,12 @@ export async function ensureDemoAccount(
       .eq('address', address)
       .maybeSingle();
     if (raced) {
-      return { ok: true, created: false, account: toAccount(raced as Record<string, unknown>) };
+      return {
+        ok: true,
+        created: false,
+        grantedStarting: false,
+        account: toAccount(raced as Record<string, unknown>),
+      };
     }
     return { ok: false, error: 'Could not create account', status: 503 };
   }
@@ -246,12 +278,13 @@ export async function ensureDemoAccount(
   return {
     ok: true,
     created: true,
+    grantedStarting: true,
     account: toAccount({
       address,
       balance: DEMO_STARTING_BB,
       created_at: now,
       last_seen: now,
-      last_refill_at: now,
+      last_refill_at: null,
       rounds_played: 0,
       wins: 0,
       best_multiplier: 0,
