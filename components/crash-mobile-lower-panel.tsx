@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import type { FeedEvent, RoundSummary, TradeTag } from '@/lib/crash-types';
 import { LeaderboardView } from '@/components/leaderboard-view';
+import { LiveActivityFeed } from '@/components/LiveActivityFeed';
 
 type MobileLowerTab = 'leaderboard' | 'live' | 'chat';
 
