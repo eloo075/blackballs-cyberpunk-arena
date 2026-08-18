@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { REQUIRE_GAME_CHAIN } from './launch-surface';
 import {
   friendlyWalletConnectError,
   metamaskDappLink,
   shouldShowInjectedConnect,
+  walletConnectParams,
 } from './wallet-connect-ux';
 
 describe('wallet connect UX', () => {
@@ -17,6 +19,12 @@ describe('wallet connect UX', () => {
     expect(shouldShowInjectedConnect(false, true)).toBe(true);
     expect(shouldShowInjectedConnect(true, true)).toBe(true);
     expect(shouldShowInjectedConnect(true, false)).toBe(false);
+  });
+
+  it('does not request a chain switch while demo-rewards is on', () => {
+    expect(REQUIRE_GAME_CHAIN).toBe(false);
+    expect(walletConnectParams({ id: 'injected' })).toEqual({ connector: { id: 'injected' } });
+    expect(walletConnectParams({ id: 'injected' }).chainId).toBeUndefined();
   });
 
   it('builds a MetaMask in-app dapp deep link', () => {

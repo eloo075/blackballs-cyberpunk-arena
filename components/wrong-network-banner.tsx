@@ -2,12 +2,14 @@
 
 import { useAccount, useSwitchChain } from 'wagmi';
 import { robinhoodChain } from '@/lib/wagmi/chains';
+import { REQUIRE_GAME_CHAIN } from '@/lib/launch-surface';
 
 /** Prompt a connected wallet on the wrong chain to switch — do not fail silently. */
 export function WrongNetworkBanner() {
   const { isConnected, chainId } = useAccount();
   const { switchChain, isPending, error } = useSwitchChain();
 
+  if (!REQUIRE_GAME_CHAIN) return null;
   if (!isConnected || chainId == null || chainId === robinhoodChain.id) return null;
 
   return (

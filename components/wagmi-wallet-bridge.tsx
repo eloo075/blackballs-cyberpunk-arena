@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { useAccount, useDisconnect, useSwitchChain } from 'wagmi';
 import { useWallet } from '@/lib/wallet-context';
-import { DEMO_REWARDS_MODE } from '@/lib/launch-surface';
+import { DEMO_REWARDS_MODE, REQUIRE_GAME_CHAIN } from '@/lib/launch-surface';
 import { isVaultConfigured } from '@/lib/chain/public-config';
 import { useReferralCapture } from '@/hooks/use-referral-capture';
 import { robinhoodChain } from '@/lib/wagmi/chains';
@@ -42,6 +42,7 @@ export function WagmiWalletBridge() {
   }, [isConnected, address, wallet.address, wallet.isRealWallet, connectRealWallet, setBlackballsBalance]);
 
   useEffect(() => {
+    if (!REQUIRE_GAME_CHAIN) return;
     if (!DEMO_REWARDS_MODE && !isVaultConfigured()) return;
     if (!isConnected || !address || chainId == null || chainId === robinhoodChain.id || !switchChain) {
       return;
@@ -64,5 +65,5 @@ export function WagmiWalletBridge() {
     wagmiDisconnect();
   }, [wallet.isRealWallet, wallet.connected, wagmiDisconnect]);
 
-  return <WrongNetworkBanner />;
+  return REQUIRE_GAME_CHAIN ? <WrongNetworkBanner /> : null;
 }

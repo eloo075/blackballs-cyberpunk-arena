@@ -3,13 +3,13 @@
 import { useEffect, useState } from 'react';
 import { useAccount, useConnect } from 'wagmi';
 import { isLikelyMobileDevice } from '@/hooks/use-page-visibility';
-import { robinhoodChain } from '@/lib/wagmi/chains';
 import {
   friendlyWalletConnectError,
   getWalletConnectProjectId,
   hasInjectedProvider,
   metamaskDappLink,
   shouldShowInjectedConnect,
+  walletConnectParams,
 } from '@/lib/wallet-connect-ux';
 
 interface ConnectWalletModalProps {
@@ -42,7 +42,7 @@ export function ConnectWalletModal({ open, onClose }: ConnectWalletModalProps) {
   const showOpenInWallet = isMobile && !injectedReady;
 
   const connectWith = (connector: (typeof connectors)[number]) => {
-    connect({ connector, chainId: robinhoodChain.id });
+    connect(walletConnectParams(connector));
   };
 
   return (

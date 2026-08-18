@@ -10,4 +10,7 @@ export const RANKING_TAB_ENABLED = true;
  */
 export const DEMO_REWARDS_MODE = true;
 
+/** When true, wallets must be on Robinhood Chain. Off in demo-rewards (address is identity only). */
+export const REQUIRE_GAME_CHAIN = !DEMO_REWARDS_MODE;
+
 export const FLIP_UNAVAILABLE_MESSAGE = 'Flip is not available yet.';

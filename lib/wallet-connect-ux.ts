@@ -1,3 +1,14 @@
+import { REQUIRE_GAME_CHAIN } from '@/lib/launch-surface';
+import { robinhoodChain } from '@/lib/wagmi/chains';
+
+/** In demo-rewards, the wallet is identity-only — never ask the wallet to switch chains. */
+export function walletConnectParams<T>(connector: T): { connector: T; chainId?: number } {
+  if (REQUIRE_GAME_CHAIN) {
+    return { connector, chainId: robinhoodChain.id };
+  }
+  return { connector };
+}
+
 export function hasInjectedProvider(): boolean {
   if (typeof window === 'undefined') return false;
   return Boolean((window as Window & { ethereum?: unknown }).ethereum);
