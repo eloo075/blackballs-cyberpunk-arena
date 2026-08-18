@@ -1,7 +1,10 @@
 'use client';
 
 import { createConfig, http } from 'wagmi';
-import { injected, walletConnect } from 'wagmi/connectors';
+import { injected } from '@wagmi/core';
+// Relative path bypasses package exports so we don't load the Coinbase/Base barrel.
+// @ts-expect-error deep file import — not in @wagmi/connectors public exports
+import { walletConnect } from '../../node_modules/@wagmi/connectors/dist/esm/walletConnect.js';
 import { robinhoodChain } from '@/lib/wagmi/chains';
 import { getPublicRpcUrl } from '@/lib/chain/public-config';
 import { getWalletConnectProjectId } from '@/lib/wallet-connect-ux';

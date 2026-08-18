@@ -14,6 +14,7 @@ export function WagmiWalletBridge() {
   const { address, isConnected, chainId } = useAccount();
   const { disconnect: wagmiDisconnect } = useDisconnect();
   const { switchChain } = useSwitchChain();
+  const { wallet, connectRealWallet, disconnect, setBlackballsBalance } = useWallet();
   const switchAttemptedFor = useRef<string | null>(null);
 
   useReferralCapture(isConnected ? address : undefined);
@@ -48,9 +49,7 @@ export function WagmiWalletBridge() {
     const key = `${address}:${chainId}`;
     if (switchAttemptedFor.current === key) return;
     switchAttemptedFor.current = key;
-    void switchChain({ chainId: robinhoodChain.id }).catch(() => {
-      /* WrongNetworkBanner lets the user retry */
-    });
+    switchChain({ chainId: robinhoodChain.id });
   }, [isConnected, address, chainId, switchChain]);
 
   useEffect(() => {

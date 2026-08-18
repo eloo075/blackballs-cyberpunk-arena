@@ -1,4 +1,7 @@
 const path = require('path');
+const webpack = require('webpack');
+
+const emptyModule = path.join(__dirname, 'lib/empty-module.js');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -21,6 +24,9 @@ const nextConfig = {
       ...config.resolve.alias,
       '@react-native-async-storage/async-storage': false,
     };
+    config.plugins.push(
+      new webpack.NormalModuleReplacementPlugin(/^@x402\//, emptyModule),
+    );
     return config;
   },
 };
