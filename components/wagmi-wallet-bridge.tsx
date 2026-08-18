@@ -1,17 +1,20 @@
 'use client';
 
-import { useEffect } from 'react';
-import { useAccount, useDisconnect } from 'wagmi';
+import { useEffect, useRef } from 'react';
+import { useAccount, useDisconnect, useSwitchChain } from 'wagmi';
 import { useWallet } from '@/lib/wallet-context';
 import { DEMO_REWARDS_MODE } from '@/lib/launch-surface';
 import { isVaultConfigured } from '@/lib/chain/public-config';
 import { useReferralCapture } from '@/hooks/use-referral-capture';
+import { robinhoodChain } from '@/lib/wagmi/chains';
+import { WrongNetworkBanner } from '@/components/wrong-network-banner';
 
 /** Sync wagmi wallet into game wallet context when vault mode is active. */
 export function WagmiWalletBridge() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, chainId } = useAccount();
   const { disconnect: wagmiDisconnect } = useDisconnect();
-  const { wallet, connectRealWallet, disconnect, setBlackballsBalance } = useWallet();
+  const { switchChain } = useSwitchChain();
+  const switchAttemptedFor = useRef<string | null>(null);
 
   useReferralCapture(isConnected ? address : undefined);
 
@@ -39,6 +42,19 @@ export function WagmiWalletBridge() {
 
   useEffect(() => {
     if (!DEMO_REWARDS_MODE && !isVaultConfigured()) return;
+    if (!isConnected || !address || chainId == null || chainId === robinhoodChain.id || !switchChain) {
+      return;
+    }
+    const key = `${address}:${chainId}`;
+    if (switchAttemptedFor.current === key) return;
+    switchAttemptedFor.current = key;
+    void switchChain({ chainId: robinhoodChain.id }).catch(() => {
+      /* WrongNetworkBanner lets the user retry */
+    });
+  }, [isConnected, address, chainId, switchChain]);
+
+  useEffect(() => {
+    if (!DEMO_REWARDS_MODE && !isVaultConfigured()) return;
     if (isConnected || !wallet.isRealWallet) return;
     disconnect();
   }, [isConnected, wallet.isRealWallet, disconnect]);
@@ -49,5 +65,5 @@ export function WagmiWalletBridge() {
     wagmiDisconnect();
   }, [wallet.isRealWallet, wallet.connected, wagmiDisconnect]);
 
-  return null;
+  return <WrongNetworkBanner />;
 }

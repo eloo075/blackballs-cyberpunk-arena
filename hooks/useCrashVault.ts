@@ -11,6 +11,7 @@ import {
   useWriteContract,
 } from 'wagmi';
 import { wagmiConfig } from '@/lib/wagmi/config';
+import { robinhoodChain } from '@/lib/wagmi/chains';
 import { formatUnits, parseUnits } from 'viem';
 import { CRASH_VAULT_ABI } from '@/lib/chain/crash-vault-abi';
 import { ERC20_ABI } from '@/lib/chain/erc20-abi';
@@ -126,8 +127,8 @@ export function useCrashVault() {
   ]);
 
   const connectWallet = useCallback(() => {
-    const injectedConnector = connectors[0];
-    if (injectedConnector) connect({ connector: injectedConnector });
+    const injectedConnector = connectors.find(c => c.id === 'injected') ?? connectors[0];
+    if (injectedConnector) connect({ connector: injectedConnector, chainId: robinhoodChain.id });
   }, [connect, connectors]);
 
   const deposit = useCallback(

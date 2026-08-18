@@ -19,7 +19,8 @@ jobs:
           flyctl deploy --remote-only --ha=false \
             --build-arg NEXT_PUBLIC_SUPABASE_URL="${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}" \
             --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}" \
-            --build-arg NEXT_PUBLIC_LAUNCH_CAMPAIGN=false
+            --build-arg NEXT_PUBLIC_LAUNCH_CAMPAIGN=false \
+            --build-arg NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID="${{ secrets.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID }}"
           flyctl scale count 1 --yes -a blackballs-game-luka
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
