@@ -36,7 +36,7 @@ import { broadcastCrashEvent } from './supabase/broadcast-crash-event';
 import type { CrashSpectatorEventType } from './crash-spectator-types';
 import { MIN_BET_BB } from './bet-sizing';
 import { DEMO_MIN_BALANCE } from './demo-credits';
-import { DEMO_REWARDS_MODE } from './launch-surface';
+import { DEMO_REWARDS_MODE, SIMULATED_CRASH_PLAYERS } from './launch-surface';
 import type { CrashPlaySettlement } from './crash-play-settlement';
 import { mirrorCrashBalanceToFlip } from './mirror-session-balance';
 import { playerMarkerName } from './player-marker-name';
@@ -245,6 +245,10 @@ export class CrashManager {
   }
 
   private resetBots() {
+    if (!SIMULATED_CRASH_PLAYERS) {
+      this.bots = [];
+      return;
+    }
     const n = 8 + Math.floor(Math.random() * 10);
     this.bots = Array.from({ length: n }, () => ({
       name: randName(),
@@ -257,13 +261,11 @@ export class CrashManager {
   }
 
   private countBuyersIn(): number {
-    const botsIn = this.bots.filter(b => b.status === 'in').length;
-    const humansIn = Array.from(this.players.values()).filter(
+    return Array.from(this.players.values()).filter(
       p =>
         p.hasPosition ||
         (p.pendingEntry != null && p.pendingEntry.roundId === this.round.id),
     ).length;
-    return botsIn + humansIn;
   }
 
   private applyOrderFlow(side: 'buy' | 'sell', notional: number) {
@@ -773,7 +775,7 @@ export class CrashManager {
         this.commitCandle();
       }
 
-      this.simulateBots();
+      if (SIMULATED_CRASH_PLAYERS) this.simulateBots();
       this.checkAutoSellForAllPlayers();
       if (this.mode !== 'continuous') {
         this.checkLiquidationsForAllPlayers();
@@ -976,8 +978,8 @@ export class CrashManager {
       b.status = 'out';
       b.entryPrice = 1.0;
     });
-    // Continuous: seed a few buyers at 1.00x (chart tags only — no spectator flood)
-    if (this.mode === 'continuous') {
+    // Optional simulated buyers — off for public launch (real wallets only).
+    if (SIMULATED_CRASH_PLAYERS && this.mode === 'continuous') {
       for (const b of this.bots) {
         if (Math.random() < 0.28) {
           b.status = 'in';
@@ -1014,19 +1016,21 @@ export class CrashManager {
     const exitMult = 0.01;
     this.mult = exitMult;
 
-    this.bots.forEach(b => {
-      if (b.status === 'in') {
-        b.status = 'out';
-        const pnl =
-          b.side === 'buy'
-            ? -b.amount
-            : calcPositionPnl('sell', b.amount, b.leverage, b.entryPrice, exitMult);
-        this.pushFeed(b.name, 'rug', b.amount, exitMult, pnl, {
-          leverage: b.leverage,
-          side: b.side,
-        });
-      }
-    });
+    if (SIMULATED_CRASH_PLAYERS) {
+      this.bots.forEach(b => {
+        if (b.status === 'in') {
+          b.status = 'out';
+          const pnl =
+            b.side === 'buy'
+              ? -b.amount
+              : calcPositionPnl('sell', b.amount, b.leverage, b.entryPrice, exitMult);
+          this.pushFeed(b.name, 'rug', b.amount, exitMult, pnl, {
+            leverage: b.leverage,
+            side: b.side,
+          });
+        }
+      });
+    }
 
     for (const [address, player] of this.players.entries()) {
       if (!player.hasPosition) continue;
@@ -1112,6 +1116,7 @@ export class CrashManager {
   }
 
   private simulateBots() {
+    if (!SIMULATED_CRASH_PLAYERS) return;
     this.bots.forEach(b => {
       if (b.status === 'out') {
         // Keep chart lively without flooding SSE / Supabase every tick

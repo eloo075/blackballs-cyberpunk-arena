@@ -290,7 +290,9 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
             <span className="text-white/45">Round</span>
             <span className="text-sky-400 font-extrabold">#{state.currentRound.id}</span>
             <span className="text-white/25">·</span>
-            <span className="text-white/45">{state.buyersIn} in round</span>
+            <span className="text-white/45">
+              {state.buyersIn > 0 ? `${state.buyersIn} in round` : 'No players in round'}
+            </span>
             <span className="text-white/25">·</span>
             <span className="text-emerald-400">Buy {state.roundBuyVolume.toFixed(2)}</span>
             <span className="text-white/25">·</span>
@@ -558,7 +560,7 @@ export function CrashView({ visible = true }: { visible?: boolean }) {
         )}
         <LastHundred history={state.history.slice(0, 100)} />
         <div className="rounded-2xl border border-white/[0.06] bg-[#12141a] min-h-[140px] sm:min-h-[200px] sm:flex-1 overflow-hidden">
-          <LiveActivityFeed fallbackFeed={state.feed} />
+          <LiveActivityFeed fallbackFeed={state.feed} inRound={state.buyersIn} />
         </div>
       </div>
     </div>

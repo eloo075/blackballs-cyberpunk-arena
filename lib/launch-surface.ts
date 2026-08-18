@@ -13,4 +13,7 @@ export const DEMO_REWARDS_MODE = true;
 /** When true, wallets must be on Robinhood Chain. Off in demo-rewards (address is identity only). */
 export const REQUIRE_GAME_CHAIN = !DEMO_REWARDS_MODE;
 
+/** Fake chart/feed players. Off for public launch — only real connected wallets. */
+export const SIMULATED_CRASH_PLAYERS = false;
+
 export const FLIP_UNAVAILABLE_MESSAGE = 'Flip is not available yet.';

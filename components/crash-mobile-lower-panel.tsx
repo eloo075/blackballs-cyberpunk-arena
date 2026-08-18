@@ -78,7 +78,9 @@ export function CrashMobileLowerPanel({
             <div className="flex items-center justify-between mb-2">
               <div className="text-xs font-extrabold text-white/75">Live Bets</div>
               <div className="text-[10px] font-bold text-white/35">
-                {buyersIn} in · {liveBets.length} shown
+                {buyersIn > 0
+                  ? `${buyersIn} in · ${liveBets.length} shown`
+                  : 'No open bets'}
               </div>
             </div>
             {liveBets.length === 0 ? (
@@ -124,7 +126,7 @@ export function CrashMobileLowerPanel({
 
         {tab === 'chat' && (
           <div className="min-h-[240px]">
-            <LiveActivityFeed fallbackFeed={feed} />
+            <LiveActivityFeed fallbackFeed={feed} inRound={buyersIn} />
           </div>
         )}
       </div>

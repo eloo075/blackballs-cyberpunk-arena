@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CrashManager } from './crash-manager';
+import { playerMarkerName } from './player-marker-name';
+import { SIMULATED_CRASH_PLAYERS } from './launch-surface';
 
 vi.mock('server-only', () => ({}));
 
@@ -7,9 +9,12 @@ type TestableManager = {
   timer: ReturnType<typeof setInterval> | null;
   phase: 'waiting' | 'running' | 'crashed';
   mult: number;
-  syncPlayer: CrashManager['syncPlayer'];
+  bots: unknown[];
+  beginRound: () => void;
   trade: CrashManager['trade'];
+  syncPlayer: CrashManager['syncPlayer'];
   clientPlayerView: CrashManager['clientPlayerView'];
+  snapshot: CrashManager['snapshot'];
   snapshotForStream: CrashManager['snapshotForStream'];
   hasPlayer: CrashManager['hasPlayer'];
   seedPlayerIfMissing: CrashManager['seedPlayerIfMissing'];
@@ -91,5 +96,37 @@ describe('continuous Crash manager actions', () => {
     expect(game.clientPlayerView(address).balance).toBe(0);
     expect(game.hydrateDemoBalance(address, 10_000)).toBe(10_000);
     expect(game.clientPlayerView(address).balance).toBe(10_000);
+  });
+
+  it('does not invent bot players, fake trades, or padded volume', () => {
+    expect(SIMULATED_CRASH_PLAYERS).toBe(false);
+    const game = manager();
+    game.phase = 'waiting';
+    game.beginRound();
+    const snap = game.snapshot();
+    expect(game.bots).toEqual([]);
+    expect(snap.buyersIn).toBe(0);
+    expect(snap.players).toBe(0);
+    expect(snap.roundBuyVolume).toBe(0);
+    expect(snap.roundSellVolume).toBe(0);
+    expect(snap.tradeTags).toHaveLength(0);
+    expect(snap.feed.filter(e => e.user !== 'SYSTEM')).toHaveLength(0);
+  });
+
+  it('counts only a real wallet after they buy', () => {
+    const game = manager();
+    const address = '0xcccccccccccccccccccccccccccccccccccccccc';
+    game.syncPlayer(address, 1000, undefined, { boot: true });
+    game.phase = 'running';
+    game.mult = 1.1;
+    expect(game.trade(address, 'buy', 50, 1).ok).toBe(true);
+    const snap = game.snapshot(address);
+    expect(snap.buyersIn).toBe(1);
+    expect(snap.roundBuyVolume).toBeCloseTo(50, 5);
+    expect(snap.tradeTags).toHaveLength(1);
+    expect(snap.tradeTags[0].user).toBe(playerMarkerName(address));
+    expect(snap.feed.filter(e => e.user !== 'SYSTEM').every(e => e.user === playerMarkerName(address))).toBe(
+      true,
+    );
   });
 });

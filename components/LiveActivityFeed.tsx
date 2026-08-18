@@ -12,6 +12,8 @@ import { useCrashSpectator } from '@/components/crash-spectator-provider';
 interface LiveActivityFeedProps {
   /** Local SSE feed fallback when Supabase Realtime is not configured. */
   fallbackFeed?: FeedEvent[];
+  /** Real players currently in the round. Hidden when 0. */
+  inRound?: number;
 }
 
 /** Placeholder meme avatar slot — swap for Pepe/Wojak images later. */
@@ -97,7 +99,7 @@ function EventRow({ event }: { event: CrashSpectatorEvent }) {
   );
 }
 
-export function LiveActivityFeed({ fallbackFeed = [] }: LiveActivityFeedProps) {
+export function LiveActivityFeed({ fallbackFeed = [], inRound = 0 }: LiveActivityFeedProps) {
   const { events, realtimeEnabled } = useCrashSpectator();
 
   const displayEvents: CrashSpectatorEvent[] =
@@ -110,10 +112,12 @@ export function LiveActivityFeed({ fallbackFeed = [] }: LiveActivityFeedProps) {
       <div className="flex items-center justify-between mb-3">
         <div className="text-sm font-extrabold text-white/80">Live Chat</div>
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#2a2c33] border border-white/5 text-[11px] font-bold text-white/70">
-            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            Online (87)
-          </span>
+          {inRound > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#2a2c33] border border-white/5 text-[11px] font-bold text-white/70">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              {inRound} in round
+            </span>
+          )}
           <span
             className={`hidden sm:inline text-[10px] font-bold px-2 py-0.5 rounded-full ${
               realtimeEnabled ? 'bg-emerald-500/15 text-emerald-400' : 'bg-white/5 text-white/40'

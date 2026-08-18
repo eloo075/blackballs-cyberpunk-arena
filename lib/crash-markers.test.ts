@@ -47,6 +47,7 @@ describe('chart markers (presale + full sell)', () => {
     game.beginRound();
     const mine = game.tradeTags.filter(t => t.user === name && t.side === 'buy');
     expect(mine).toHaveLength(1);
+    expect(game.tradeTags).toHaveLength(1);
     expect(mine[0].price).toBeCloseTo(1.0, 3);
     expect(game.snapshot(address).phase).toBe('running');
   });
