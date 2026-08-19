@@ -13,7 +13,7 @@ const svgOverlay = `
   <rect x="40" y="40" width="1120" height="550" rx="32" fill="#1f2025" stroke="rgba(255,255,255,0.08)" stroke-width="2"/>
   <text x="600" y="400" text-anchor="middle" fill="#ffffff" font-family="Arial,Helvetica,sans-serif" font-size="64" font-weight="700">$BlackBalls</text>
   <text x="600" y="470" text-anchor="middle" fill="#fbbf24" font-family="Arial,Helvetica,sans-serif" font-size="40" font-weight="700">Degen Arcade</text>
-  <text x="600" y="530" text-anchor="middle" fill="#94a3b8" font-family="Arial,Helvetica,sans-serif" font-size="22">Solana crash game &amp; meme fighter arena</text>
+  <text x="600" y="530" text-anchor="middle" fill="#94a3b8" font-family="Arial,Helvetica,sans-serif" font-size="22">Robinhood crash game</text>
 </svg>`;
 
 async function main() {
