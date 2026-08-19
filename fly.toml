@@ -13,6 +13,8 @@ primary_region = 'cdg'
   NODE_ENV = 'production'
   PORT = '3000'
   SINGLE_INSTANCE_GAME = 'true'
+  LAUNCH_CAMPAIGN = 'true'
+  NEXT_PUBLIC_LAUNCH_CAMPAIGN = 'true'
 
 [http_service]
   internal_port = 3000
